@@ -10,11 +10,9 @@ export function Hud() {
   const selfId = useAppStore((s) => s.selfId)
   const toast = useAppStore((s) => s.toast)
   const micOn = useAppStore((s) => s.micOn)
-  const followCam = useAppStore((s) => s.followCam)
   const pendingNote = useAppStore((s) => s.pendingNote)
   const setMicOn = useAppStore((s) => s.setMicOn)
   const setToast = useAppStore((s) => s.setToast)
-  const setFollowCam = useAppStore((s) => s.setFollowCam)
   const setPendingNote = useAppStore((s) => s.setPendingNote)
   const self = selfId ? players[selfId] : null
   const [note, setNote] = useState('')
@@ -52,7 +50,7 @@ export function Hud() {
       <div className="hud-top">
         <div className="pill">
           房間 <strong>{roomId}</strong>
-          {self?.role === 'host' ? ' · 房主可拖家具' : ' · 訪客'}
+          {self?.role === 'host' ? ' · 房主' : ' · 訪客'} · 左鍵可搬家具
           {pendingNote ? ' · 點地板貼便籤中' : ''}
         </div>
         <div className="pill player-list">
@@ -75,13 +73,10 @@ export function Hud() {
 
       <div className="hud-bottom">
         <div className="help">
-          WASD／搖桿移動 · 右鍵拖曳旋轉視角 · 滾輪縮放
+          WASD／搖桿：角色（相對鏡頭）· 右鍵拖曳：鏡頭 360° · 滾輪縮放
           <br />
-          撞家具會微微推動 · 點綠圈坐下 · E 起身
+          左鍵拖曳：搬家具 · 撞到會微推 · 綠圈坐下 · E 起身
           <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" className="hud-btn" onClick={() => setFollowCam(!followCam)}>
-              {followCam ? '自由視角' : '跟隨角色'}
-            </button>
             <button type="button" className="hud-btn" onClick={() => void toggleMic()} disabled={busyMic}>
               {micOn ? '語音開' : '語音關'}
             </button>

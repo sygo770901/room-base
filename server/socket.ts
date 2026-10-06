@@ -97,7 +97,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           id: socket.id,
           name,
           color,
-          position: [-4.0 + spawnIndex * 0.6, 0, 2.8],
+          position: [-4.2 + spawnIndex * 0.55, 0, 2.4],
           rotationY: Math.PI,
           seated: null,
           role,
@@ -227,8 +227,8 @@ export function attachSocketServer(httpServer: HttpServer) {
         const room = rooms.get(currentRoomId)
         if (!room) return
         const player = room.players[socket.id]
-        if (!player || player.role !== 'host') {
-          ack?.(false, '只有房主可以移動家具')
+        if (!player) {
+          ack?.(false, '尚未加入房間')
           return
         }
 

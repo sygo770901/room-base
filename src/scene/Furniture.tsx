@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { ThreeEvent, useLoader, useThree } from '@react-three/fiber'
+import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import * as THREE from 'three'
 import { INNER_WALLS, ROOM_BOUNDS, type FurnitureItem } from '../../shared/furniture'
@@ -20,17 +21,12 @@ type ModelProps = {
   furnitureId?: string
 }
 
-function paintObject(root: THREE.Object3D, color?: string) {
+function enableShadows(root: THREE.Object3D) {
   root.traverse((child) => {
     if ((child as THREE.Mesh).isMesh) {
       const mesh = child as THREE.Mesh
       mesh.castShadow = true
       mesh.receiveShadow = true
-      mesh.material = new THREE.MeshStandardMaterial({
-        color: color || '#d9d2c5',
-        roughness: 0.75,
-        metalness: 0.05,
-      })
     }
   })
 }
@@ -61,46 +57,69 @@ export function KenneyModel({
   draggable = false,
   furnitureId,
 }: ModelProps) {
-  const obj = useLoader(OBJLoader, `${MODEL_BASE}/${name}.obj`)
+  const materials = useLoader(MTLLoader, `${MODEL_BASE}/${name}.mtl`)
+  const obj = useLoader(OBJLoader, `${MODEL_BASE}/${name}.obj`, (loader) => {
+    materials.preload()
+    loader.setMaterials(materials)
+  })
   const model = useMemo(() => {
-    const painted = obj.clone(true)
-    paintObject(painted, color)
-    return normalizeKenney(painted)
-  }, [obj, color])
+    const cloned = obj.clone(true)
+    enableShadows(cloned)
+    return normalizeKenney(cloned)
+  }, [obj])
 
   const dragging = useRef(false)
   const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
   const hit = useMemo(() => new THREE.Vector3(), [])
-  const selfId = useAppStore((s) => s.selfId)
-  const hostId = useAppStore((s) => s.hostId)
-  const isHost = !!selfId && selfId === hostId
-  const canDrag = draggable && isHost && !!furnitureId
+  const ndc = useMemo(() => new THREE.Vector2(), [])
+  const { camera, raycaster, gl, controls } = useThree()
+  const canDrag = draggable && !!furnitureId
 
-  const onPointerDown = (e: ThreeEvent<PointerEvent>) => {
-    if (!canDrag) return
-    e.stopPropagation()
-    dragging.current = true
-  }
-
-  const onPointerMove = (e: ThreeEvent<PointerEvent>) => {
-    if (!dragging.current || !canDrag || !furnitureId) return
-    e.stopPropagation()
-    e.ray.intersectPlane(plane, hit)
+  const placeAt = (clientX: number, clientY: number) => {
+    if (!furnitureId) return
+    const rect = gl.domElement.getBoundingClientRect()
+    ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
+    raycaster.setFromCamera(ndc, camera)
+    if (!raycaster.ray.intersectPlane(plane, hit)) return
     const list = useAppStore.getState().furniture
     const item = list.find((f) => f.id === furnitureId)
     if (!item) return
-    const placed = resolveFurniturePlace(list, item, hit.x, hit.z)
+    let placed = resolveFurniturePlace(list, item, hit.x, hit.z)
+    if (!placed.ok) placed = resolveFurniturePlace(list, item, hit.x, item.position[2])
+    if (!placed.ok) placed = resolveFurniturePlace(list, item, item.position[0], hit.z)
     useAppStore.getState().patchFurniture(furnitureId, {
       position: [placed.x, item.position[1], placed.z],
     })
   }
 
-  const onPointerUp = (e: ThreeEvent<PointerEvent>) => {
-    if (!dragging.current || !furnitureId) return
+  const onPointerDown = (e: ThreeEvent<PointerEvent>) => {
+    if (!canDrag || e.button !== 0 || !furnitureId) return
     e.stopPropagation()
-    dragging.current = false
+    dragging.current = true
+    const orbit = controls as { enabled?: boolean } | null
+    if (orbit) orbit.enabled = false
+
+    const move = (ev: PointerEvent) => placeAt(ev.clientX, ev.clientY)
+    const up = () => {
+      dragging.current = false
+      if (orbit) orbit.enabled = true
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      const item = useAppStore.getState().furniture.find((f) => f.id === furnitureId)
+      if (item) void emitFurnitureMove(item.id, item.position, item.rotationY)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  const onDoubleClick = (e: ThreeEvent<MouseEvent>) => {
+    if (!canDrag || !furnitureId) return
+    e.stopPropagation()
     const item = useAppStore.getState().furniture.find((f) => f.id === furnitureId)
-    if (item) void emitFurnitureMove(item.id, item.position, item.rotationY)
+    if (!item) return
+    const rotationY = item.rotationY + Math.PI / 2
+    useAppStore.getState().patchFurniture(furnitureId, { rotationY })
+    void emitFurnitureMove(item.id, item.position, rotationY)
   }
 
   return (
@@ -109,9 +128,7 @@ export function KenneyModel({
       rotation={rotation}
       scale={scale}
       onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerLeave={onPointerUp}
+      onDoubleClick={onDoubleClick}
     >
       <primitive object={model} />
     </group>
@@ -135,7 +152,37 @@ function WallSegment({
   )
 }
 
+function useWoodFloor() {
+  return useMemo(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 512
+    canvas.height = 512
+    const ctx = canvas.getContext('2d')!
+    ctx.fillStyle = '#c9a36a'
+    ctx.fillRect(0, 0, 512, 512)
+    for (let i = 0; i < 8; i++) {
+      ctx.fillStyle = i % 2 === 0 ? '#d7b57c' : '#c49a62'
+      ctx.fillRect(0, i * 64, 512, 60)
+      ctx.strokeStyle = 'rgba(90, 55, 25, 0.28)'
+      ctx.strokeRect(0.5, i * 64 + 0.5, 511, 63)
+      for (let g = 0; g < 18; g++) {
+        ctx.strokeStyle = `rgba(120, 75, 30, ${0.04 + (g % 3) * 0.03})`
+        ctx.beginPath()
+        ctx.moveTo(0, i * 64 + 8 + g * 3)
+        ctx.lineTo(512, i * 64 + 6 + g * 3)
+        ctx.stroke()
+      }
+    }
+    const tex = new THREE.CanvasTexture(canvas)
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping
+    tex.repeat.set(8, 6)
+    tex.colorSpace = THREE.SRGBColorSpace
+    return tex
+  }, [])
+}
+
 export function RoomShell() {
+  const wood = useWoodFloor()
   const w = ROOM_BOUNDS.maxX - ROOM_BOUNDS.minX
   const d = ROOM_BOUNDS.maxZ - ROOM_BOUNDS.minZ
   const cx = (ROOM_BOUNDS.minX + ROOM_BOUNDS.maxX) / 2
@@ -145,45 +192,47 @@ export function RoomShell() {
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0, cz]} receiveShadow>
-        <planeGeometry args={[w + 0.2, d + 0.2]} />
-        <meshStandardMaterial color="#c9b59a" roughness={0.9} />
+        <planeGeometry args={[w + 0.4, d + 0.4]} />
+        <meshStandardMaterial map={wood} roughness={0.86} metalness={0.02} />
       </mesh>
 
-      {/* 外牆（娃娃屋：無前牆） */}
-      <WallSegment position={[cx, wallH / 2, ROOM_BOUNDS.minZ - 0.06]} size={[w + 0.2, wallH, 0.12]} />
-      <WallSegment position={[ROOM_BOUNDS.minX - 0.06, wallH / 2, cz]} size={[0.12, wallH, d + 0.2]} color="#e4dfd7" />
-      <WallSegment position={[ROOM_BOUNDS.maxX + 0.06, wallH / 2, cz]} size={[0.12, wallH, d + 0.2]} color="#e4dfd7" />
+      <WallSegment position={[cx, wallH / 2, ROOM_BOUNDS.minZ - 0.08]} size={[w + 0.3, wallH, 0.16]} color="#f4efe6" />
+      <WallSegment position={[ROOM_BOUNDS.minX - 0.08, wallH / 2, cz]} size={[0.16, wallH, d + 0.3]} color="#efe8dc" />
+      <WallSegment position={[ROOM_BOUNDS.maxX + 0.08, wallH / 2, cz]} size={[0.16, wallH, d + 0.3]} color="#efe8dc" />
 
-      {/* 內牆 */}
       {INNER_WALLS.map((wall, i) => (
         <WallSegment
           key={i}
           position={[wall.cx, wallH / 2, wall.cz]}
-          size={[wall.hx * 2, wallH, wall.hz * 2]}
-          color="#e8e2d8"
+          size={[Math.max(wall.hx * 2, 0.16), wallH, Math.max(wall.hz * 2, 0.16)]}
+          color="#f7f3ec"
         />
       ))}
 
-      {/* 主臥窗 */}
-      <mesh position={[-5.2, 1.55, ROOM_BOUNDS.minZ + 0.05]}>
-        <boxGeometry args={[2.4, 1.1, 0.04]} />
-        <meshStandardMaterial color="#a8c8d8" transparent opacity={0.45} />
-      </mesh>
-      <mesh position={[0, 1.55, ROOM_BOUNDS.minZ + 0.05]}>
-        <boxGeometry args={[2.0, 1.1, 0.04]} />
-        <meshStandardMaterial color="#a8c8d8" transparent opacity={0.45} />
-      </mesh>
-      <mesh position={[5.2, 1.55, ROOM_BOUNDS.minZ + 0.05]}>
-        <boxGeometry args={[2.0, 1.1, 0.04]} />
-        <meshStandardMaterial color="#a8c8d8" transparent opacity={0.45} />
+      {/* 踢腳板 */}
+      <mesh position={[cx, 0.06, ROOM_BOUNDS.minZ + 0.02]}>
+        <boxGeometry args={[w, 0.12, 0.04]} />
+        <meshStandardMaterial color="#8d7356" />
       </mesh>
 
-      {/* 房名地板標示 */}
-      <FloorLabel text="主臥" position={[-5.2, 0.03, -3.5]} />
-      <FloorLabel text="次臥" position={[0, 0.03, -3.5]} />
-      <FloorLabel text="客房" position={[5.2, 0.03, -3.5]} />
-      <FloorLabel text="客廳" position={[-4, 0.03, 1.2]} />
-      <FloorLabel text="餐廳" position={[4, 0.03, 1.2]} />
+      <mesh position={[-5.2, 1.6, ROOM_BOUNDS.minZ + 0.02]}>
+        <boxGeometry args={[2.2, 1.15, 0.05]} />
+        <meshStandardMaterial color="#9ec4d6" transparent opacity={0.55} roughness={0.05} />
+      </mesh>
+      <mesh position={[0.1, 1.6, ROOM_BOUNDS.minZ + 0.02]}>
+        <boxGeometry args={[1.8, 1.15, 0.05]} />
+        <meshStandardMaterial color="#9ec4d6" transparent opacity={0.55} roughness={0.05} />
+      </mesh>
+      <mesh position={[5.2, 1.6, ROOM_BOUNDS.minZ + 0.02]}>
+        <boxGeometry args={[1.8, 1.15, 0.05]} />
+        <meshStandardMaterial color="#9ec4d6" transparent opacity={0.55} roughness={0.05} />
+      </mesh>
+
+      <FloorLabel text="主臥" position={[-5.2, 0.03, -3.2]} />
+      <FloorLabel text="次臥" position={[0.1, 0.03, -3.2]} />
+      <FloorLabel text="客房" position={[5.2, 0.03, -3.2]} />
+      <FloorLabel text="客廳" position={[-4.2, 0.03, 0.2]} />
+      <FloorLabel text="餐廳" position={[4.2, 0.03, 0.2]} />
     </group>
   )
 }

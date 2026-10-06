@@ -1,5 +1,5 @@
-import { Suspense, useMemo, useState } from 'react'
-import { Canvas } from '@react-three/fiber'
+import { Suspense, useEffect, useMemo, useState } from 'react'
+import { Canvas, useThree } from '@react-three/fiber'
 import { ContactShadows, Environment, OrbitControls } from '@react-three/drei'
 import { MOUSE, TOUCH } from 'three'
 import {
@@ -15,6 +15,17 @@ import { useAppStore } from '../store'
 import { emitRemoveNote, emitSit } from '../net/socket'
 import type { PlayerState, Vec3 } from '../types'
 
+function BlockContextMenu() {
+  const gl = useThree((s) => s.gl)
+  useEffect(() => {
+    const el = gl.domElement
+    const block = (e: Event) => e.preventDefault()
+    el.addEventListener('contextmenu', block)
+    return () => el.removeEventListener('contextmenu', block)
+  }, [gl])
+  return null
+}
+
 function SceneContent() {
   const selfId = useAppStore((s) => s.selfId)
   const players = useAppStore((s) => s.players)
@@ -22,7 +33,6 @@ function SceneContent() {
   const notes = useAppStore((s) => s.notes)
   const furniture = useAppStore((s) => s.furniture)
   const hostId = useAppStore((s) => s.hostId)
-  const followCam = useAppStore((s) => s.followCam)
   const [localPose, setLocalPose] = useState<{ position: Vec3; rotationY: number } | null>(null)
 
   const self = selfId ? players[selfId] : null
@@ -36,9 +46,11 @@ function SceneContent() {
 
   return (
     <>
-      <color attach="background" args={['#d7e0e6']} />
+      <BlockContextMenu />
+      <color attach="background" args={['#c5d0d6']} />
       <fog attach="fog" args={['#d7e0e6', 22, 42]} />
-      <ambientLight intensity={0.55} />
+      <hemisphereLight args={['#fff4e5', '#8d7356', 0.55]} />
+      <ambientLight intensity={0.35} />
       <directionalLight
         castShadow
         position={[8, 14, 6]}
@@ -94,21 +106,23 @@ function SceneContent() {
 
       <OrbitControls
         makeDefault
-        enabled={!followCam}
-        enablePan
+        enablePan={false}
         enableZoom
         enableRotate
-        minDistance={3}
-        maxDistance={28}
-        maxPolarAngle={Math.PI / 2.05}
-        target={[-1, 0.6, 0]}
+        enableDamping
+        dampingFactor={0.08}
+        minDistance={1.6}
+        maxDistance={24}
+        minPolarAngle={0.02}
+        maxPolarAngle={Math.PI - 0.02}
+        target={[-4.2, 0.9, 2.2]}
         mouseButtons={{
-          LEFT: MOUSE.PAN,
+          LEFT: -1 as unknown as MOUSE,
           MIDDLE: MOUSE.DOLLY,
           RIGHT: MOUSE.ROTATE,
         }}
         touches={{
-          ONE: TOUCH.PAN,
+          ONE: -1 as unknown as TOUCH,
           TWO: TOUCH.DOLLY_ROTATE,
         }}
       />
