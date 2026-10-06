@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
-import { emitMove, emitSit } from '../net/socket'
-import { resolveMove } from '../physics/collision'
+import { emitFurniturePush, emitMove, emitSit } from '../net/socket'
+import { resolvePlayerMove } from '../physics/collision'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
-const SPEED = 2.6
+const SPEED = 3.2
 
 export function LocalController({
   player,
@@ -16,16 +16,23 @@ export function LocalController({
   onPose: (position: Vec3, rotationY: number) => void
 }) {
   const furniture = useAppStore((s) => s.furniture)
+  const joy = useAppStore((s) => s.joy)
+  const followCam = useAppStore((s) => s.followCam)
   const keys = useRef<Record<string, boolean>>({})
   const pos = useRef(new THREE.Vector3(...player.position))
   const rotY = useRef(player.rotationY)
   const lastSent = useRef(0)
+  const lastPush = useRef(0)
   const seatedRef = useRef(player.seated)
   const furnitureRef = useRef(furniture)
-  const { camera } = useThree()
+  const joyRef = useRef(joy)
+  const followRef = useRef(followCam)
+  const { camera, controls } = useThree()
 
   seatedRef.current = player.seated
   furnitureRef.current = furniture
+  joyRef.current = joy
+  followRef.current = followCam
 
   useEffect(() => {
     pos.current.set(...player.position)
@@ -38,9 +45,7 @@ export function LocalController({
       if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
         e.preventDefault()
       }
-      if (e.code === 'KeyE' && seatedRef.current) {
-        void emitSit(null)
-      }
+      if (e.code === 'KeyE' && seatedRef.current) void emitSit(null)
     }
     const up = (e: KeyboardEvent) => {
       keys.current[e.code] = false
@@ -55,33 +60,67 @@ export function LocalController({
 
   useFrame((_, dt) => {
     if (player.seated) {
-      camera.position.lerp(
-        new THREE.Vector3(player.position[0] + 2.6, 3.6, player.position[2] + 3.2),
-        0.1,
-      )
-      camera.lookAt(player.position[0], 0.7, player.position[2] - 0.3)
+      if (followRef.current) {
+        camera.position.lerp(
+          new THREE.Vector3(player.position[0] + 4, 5, player.position[2] + 5),
+          0.08,
+        )
+        camera.lookAt(player.position[0], 0.7, player.position[2])
+      }
       onPose(player.position, player.rotationY)
       return
     }
 
-    const forward = (keys.current.KeyW || keys.current.ArrowUp ? 1 : 0) - (keys.current.KeyS || keys.current.ArrowDown ? 1 : 0)
-    const strafe = (keys.current.KeyD || keys.current.ArrowRight ? 1 : 0) - (keys.current.KeyA || keys.current.ArrowLeft ? 1 : 0)
+    const keyFwd =
+      (keys.current.KeyW || keys.current.ArrowUp ? 1 : 0) -
+      (keys.current.KeyS || keys.current.ArrowDown ? 1 : 0)
+    const keyStrafe =
+      (keys.current.KeyD || keys.current.ArrowRight ? 1 : 0) -
+      (keys.current.KeyA || keys.current.ArrowLeft ? 1 : 0)
 
-    if (forward !== 0 || strafe !== 0) {
-      const move = new THREE.Vector3(strafe, 0, -forward).normalize().multiplyScalar(SPEED * dt)
-      const next = resolveMove(pos.current.x, pos.current.z, move.x, move.z, furnitureRef.current)
-      const movedX = next.x - pos.current.x
-      const movedZ = next.z - pos.current.z
-      pos.current.x = next.x
-      pos.current.z = next.z
+    // 搖桿：y 前進、x 左右
+    const fwd = keyFwd || -joyRef.current.y
+    const strafe = keyStrafe || joyRef.current.x
+
+    if (fwd !== 0 || strafe !== 0) {
+      const len = Math.hypot(fwd, strafe) || 1
+      const mx = (strafe / len) * SPEED * dt
+      const mz = (-fwd / len) * SPEED * dt
+      const result = resolvePlayerMove(pos.current.x, pos.current.z, mx, mz, furnitureRef.current)
+      const movedX = result.x - pos.current.x
+      const movedZ = result.z - pos.current.z
+      pos.current.x = result.x
+      pos.current.z = result.z
       if (movedX !== 0 || movedZ !== 0) {
         rotY.current = Math.atan2(movedX, movedZ)
       }
+      if (result.pushed) {
+        useAppStore.getState().patchFurniture(result.pushed.id, {
+          position: [result.pushed.x, furnitureRef.current.find((f) => f.id === result.pushed!.id)?.position[1] ?? 0, result.pushed.z],
+        })
+        const now = performance.now()
+        if (now - lastPush.current > 80) {
+          lastPush.current = now
+          emitFurniturePush(result.pushed.id, [
+            result.pushed.x,
+            furnitureRef.current.find((f) => f.id === result.pushed!.id)?.position[1] ?? 0,
+            result.pushed.z,
+          ])
+        }
+      }
     }
 
-    const targetCam = new THREE.Vector3(pos.current.x + 2.8, 4.0, pos.current.z + 3.4)
-    camera.position.lerp(targetCam, 0.1)
-    camera.lookAt(pos.current.x, 0.7, pos.current.z)
+    if (followRef.current) {
+      const targetCam = new THREE.Vector3(pos.current.x + 5.5, 6.5, pos.current.z + 6.5)
+      camera.position.lerp(targetCam, 0.08)
+      camera.lookAt(pos.current.x, 0.7, pos.current.z)
+      // 同步 OrbitControls target（若有）
+      const c = controls as unknown as { target?: THREE.Vector3; update?: () => void } | null
+      if (c?.target) {
+        c.target.lerp(new THREE.Vector3(pos.current.x, 0.6, pos.current.z), 0.08)
+        c.update?.()
+      }
+    }
 
     const pose: Vec3 = [pos.current.x, 0, pos.current.z]
     onPose(pose, rotY.current)

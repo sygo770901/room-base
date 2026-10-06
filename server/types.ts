@@ -1,5 +1,5 @@
 export type Vec3 = [number, number, number]
-export type SeatId = 'bed' | 'chair' | 'desk'
+export type SeatId = string
 
 export interface PlayerState {
   id: string
@@ -18,5 +18,6 @@ export interface StickyNote {
   authorId: string
   position: Vec3
   color: string
+  fontSize: number
   createdAt: number
 }

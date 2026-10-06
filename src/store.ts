@@ -9,11 +9,16 @@ interface AppState {
   displayName: string
   players: Record<string, PlayerState>
   notes: StickyNote[]
-  seats: RoomSnapshot['seats']
+  seats: Record<string, string | null>
   furniture: FurnitureItem[]
   hostId: string | null
   toast: string | null
   micOn: boolean
+  followCam: boolean
+  /** 搖桿輸入 -1..1 */
+  joy: { x: number; y: number }
+  /** 待貼便籤模式 */
+  pendingNote: { text: string; fontSize: number } | null
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
@@ -26,6 +31,9 @@ interface AppState {
   setFurniture: (furniture: FurnitureItem[]) => void
   setToast: (msg: string | null) => void
   setMicOn: (on: boolean) => void
+  setFollowCam: (on: boolean) => void
+  setJoy: (x: number, y: number) => void
+  setPendingNote: (note: { text: string; fontSize: number } | null) => void
   leaveToLobby: () => void
 }
 
@@ -36,11 +44,14 @@ export const useAppStore = create<AppState>((set) => ({
   displayName: '',
   players: {},
   notes: [],
-  seats: { bed: null, chair: null, desk: null },
+  seats: {},
   furniture: DEFAULT_FURNITURE,
   hostId: null,
   toast: null,
   micOn: false,
+  followCam: true,
+  joy: { x: 0, y: 0 },
+  pendingNote: null,
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
     set({
@@ -85,16 +96,21 @@ export const useAppStore = create<AppState>((set) => ({
   setFurniture: (furniture) => set({ furniture }),
   setToast: (msg) => set({ toast: msg }),
   setMicOn: (on) => set({ micOn: on }),
+  setFollowCam: (on) => set({ followCam: on }),
+  setJoy: (x, y) => set({ joy: { x, y } }),
+  setPendingNote: (note) => set({ pendingNote: note }),
   leaveToLobby: () =>
     set({
       phase: 'lobby',
       selfId: null,
       players: {},
       notes: [],
-      seats: { bed: null, chair: null, desk: null },
+      seats: {},
       furniture: DEFAULT_FURNITURE,
       hostId: null,
       micOn: false,
+      pendingNote: null,
+      joy: { x: 0, y: 0 },
     }),
 }))
 

@@ -1,7 +1,14 @@
 import { Suspense, useMemo, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { ContactShadows, Environment } from '@react-three/drei'
-import { BedroomFurniture, RoomShell, SeatMarkers, StickyNotes3D } from './Furniture'
+import { ContactShadows, Environment, OrbitControls } from '@react-three/drei'
+import { MOUSE, TOUCH } from 'three'
+import {
+  BedroomFurniture,
+  NotePlacementPlane,
+  RoomShell,
+  SeatMarkers,
+  StickyNotes3D,
+} from './Furniture'
 import { LocalAvatar, RemotePlayers } from './Players'
 import { LocalController } from './LocalController'
 import { useAppStore } from '../store'
@@ -15,6 +22,7 @@ function SceneContent() {
   const notes = useAppStore((s) => s.notes)
   const furniture = useAppStore((s) => s.furniture)
   const hostId = useAppStore((s) => s.hostId)
+  const followCam = useAppStore((s) => s.followCam)
   const [localPose, setLocalPose] = useState<{ position: Vec3; rotationY: number } | null>(null)
 
   const self = selfId ? players[selfId] : null
@@ -29,14 +37,19 @@ function SceneContent() {
   return (
     <>
       <color attach="background" args={['#d7e0e6']} />
-      <fog attach="fog" args={['#d7e0e6', 14, 28]} />
+      <fog attach="fog" args={['#d7e0e6', 22, 42]} />
       <ambientLight intensity={0.55} />
       <directionalLight
         castShadow
-        position={[4, 8, 3]}
+        position={[8, 14, 6]}
         intensity={1.25}
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
+        shadow-camera-far={40}
+        shadow-camera-left={-16}
+        shadow-camera-right={16}
+        shadow-camera-top={16}
+        shadow-camera-bottom={-16}
       />
       <Environment preset="apartment" />
 
@@ -66,6 +79,8 @@ function SceneContent() {
         onRemove={(id) => emitRemoveNote(id)}
       />
 
+      <NotePlacementPlane />
+
       <RemotePlayers players={players} selfId={selfId} />
       {displaySelf && <LocalAvatar player={displaySelf} />}
       {self && (
@@ -75,14 +90,39 @@ function SceneContent() {
         />
       )}
 
-      <ContactShadows position={[0, 0.01, 0]} opacity={0.35} scale={10} blur={2.2} />
+      <ContactShadows position={[0, 0.01, 0]} opacity={0.3} scale={28} blur={2.4} />
+
+      <OrbitControls
+        makeDefault
+        enabled={!followCam}
+        enablePan
+        enableZoom
+        enableRotate
+        minDistance={3}
+        maxDistance={28}
+        maxPolarAngle={Math.PI / 2.05}
+        target={[-1, 0.6, 0]}
+        mouseButtons={{
+          LEFT: MOUSE.PAN,
+          MIDDLE: MOUSE.DOLLY,
+          RIGHT: MOUSE.ROTATE,
+        }}
+        touches={{
+          ONE: TOUCH.PAN,
+          TWO: TOUCH.DOLLY_ROTATE,
+        }}
+      />
     </>
   )
 }
 
 export function RoomScene() {
   return (
-    <Canvas shadows camera={{ position: [3.2, 4.2, 3.8], fov: 40 }} style={{ width: '100%', height: '100%' }}>
+    <Canvas
+      shadows
+      camera={{ position: [8, 9, 10], fov: 42 }}
+      style={{ width: '100%', height: '100%', touchAction: 'none' }}
+    >
       <SceneContent />
     </Canvas>
   )

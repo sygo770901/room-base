@@ -85,9 +85,9 @@ export function emitSit(seatId: SeatId | null) {
   })
 }
 
-export function emitAddNote(text: string, position?: Vec3) {
+export function emitAddNote(text: string, position?: Vec3, fontSize?: number) {
   return new Promise<StickyNote | null>((resolve) => {
-    socket?.emit('note:add', { text, position }, (note: StickyNote | null) => {
+    socket?.emit('note:add', { text, position, fontSize }, (note: StickyNote | null) => {
       resolve(note)
     })
   })
@@ -103,6 +103,10 @@ export function emitFurnitureMove(id: string, position: Vec3, rotationY?: number
       resolve({ ok, reason })
     })
   })
+}
+
+export function emitFurniturePush(id: string, position: Vec3) {
+  socket?.emit('furniture:push', { id, position })
 }
 
 export function disconnectSocket() {

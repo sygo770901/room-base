@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { ThreeEvent, useLoader } from '@react-three/fiber'
+import { ThreeEvent, useLoader, useThree } from '@react-three/fiber'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import * as THREE from 'three'
-import type { FurnitureItem } from '../../shared/furniture'
-import { emitFurnitureMove } from '../net/socket'
+import { INNER_WALLS, ROOM_BOUNDS, type FurnitureItem } from '../../shared/furniture'
+import { emitAddNote, emitFurnitureMove } from '../net/socket'
+import { resolveFurniturePlace } from '../physics/collision'
 import { useAppStore } from '../store'
 
 const MODEL_BASE = '/assets/kenney/Models'
@@ -67,7 +68,6 @@ export function KenneyModel({
     return normalizeKenney(painted)
   }, [obj, color])
 
-  const groupRef = useRef<THREE.Group>(null)
   const dragging = useRef(false)
   const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
   const hit = useMemo(() => new THREE.Vector3(), [])
@@ -80,19 +80,19 @@ export function KenneyModel({
     if (!canDrag) return
     e.stopPropagation()
     dragging.current = true
-    ;(e.target as HTMLElement)?.setPointerCapture?.(e.pointerId)
   }
 
   const onPointerMove = (e: ThreeEvent<PointerEvent>) => {
     if (!dragging.current || !canDrag || !furnitureId) return
     e.stopPropagation()
     e.ray.intersectPlane(plane, hit)
-    const next: [number, number, number] = [
-      Math.max(-2.2, Math.min(2.2, hit.x)),
-      position[1],
-      Math.max(-1.9, Math.min(1.9, hit.z)),
-    ]
-    useAppStore.getState().patchFurniture(furnitureId, { position: next })
+    const list = useAppStore.getState().furniture
+    const item = list.find((f) => f.id === furnitureId)
+    if (!item) return
+    const placed = resolveFurniturePlace(list, item, hit.x, hit.z)
+    useAppStore.getState().patchFurniture(furnitureId, {
+      position: [placed.x, item.position[1], placed.z],
+    })
   }
 
   const onPointerUp = (e: ThreeEvent<PointerEvent>) => {
@@ -105,7 +105,6 @@ export function KenneyModel({
 
   return (
     <group
-      ref={groupRef}
       position={position}
       rotation={rotation}
       scale={scale}
@@ -119,30 +118,97 @@ export function KenneyModel({
   )
 }
 
+function WallSegment({
+  position,
+  size,
+  color = '#ebe6df',
+}: {
+  position: [number, number, number]
+  size: [number, number, number]
+  color?: string
+}) {
+  return (
+    <mesh position={position} castShadow receiveShadow>
+      <boxGeometry args={size} />
+      <meshStandardMaterial color={color} />
+    </mesh>
+  )
+}
+
 export function RoomShell() {
+  const w = ROOM_BOUNDS.maxX - ROOM_BOUNDS.minX
+  const d = ROOM_BOUNDS.maxZ - ROOM_BOUNDS.minZ
+  const cx = (ROOM_BOUNDS.minX + ROOM_BOUNDS.maxX) / 2
+  const cz = (ROOM_BOUNDS.minZ + ROOM_BOUNDS.maxZ) / 2
+  const wallH = 2.7
+
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-        <planeGeometry args={[5.2, 4.4]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0, cz]} receiveShadow>
+        <planeGeometry args={[w + 0.2, d + 0.2]} />
         <meshStandardMaterial color="#c9b59a" roughness={0.9} />
       </mesh>
-      <mesh position={[0, 1.35, -2.2]} castShadow receiveShadow>
-        <boxGeometry args={[5.2, 2.7, 0.12]} />
-        <meshStandardMaterial color="#ebe6df" />
+
+      {/* 外牆（娃娃屋：無前牆） */}
+      <WallSegment position={[cx, wallH / 2, ROOM_BOUNDS.minZ - 0.06]} size={[w + 0.2, wallH, 0.12]} />
+      <WallSegment position={[ROOM_BOUNDS.minX - 0.06, wallH / 2, cz]} size={[0.12, wallH, d + 0.2]} color="#e4dfd7" />
+      <WallSegment position={[ROOM_BOUNDS.maxX + 0.06, wallH / 2, cz]} size={[0.12, wallH, d + 0.2]} color="#e4dfd7" />
+
+      {/* 內牆 */}
+      {INNER_WALLS.map((wall, i) => (
+        <WallSegment
+          key={i}
+          position={[wall.cx, wallH / 2, wall.cz]}
+          size={[wall.hx * 2, wallH, wall.hz * 2]}
+          color="#e8e2d8"
+        />
+      ))}
+
+      {/* 主臥窗 */}
+      <mesh position={[-5.2, 1.55, ROOM_BOUNDS.minZ + 0.05]}>
+        <boxGeometry args={[2.4, 1.1, 0.04]} />
+        <meshStandardMaterial color="#a8c8d8" transparent opacity={0.45} />
       </mesh>
-      <mesh position={[-2.6, 1.35, 0]} castShadow receiveShadow>
-        <boxGeometry args={[0.12, 2.7, 4.4]} />
-        <meshStandardMaterial color="#e4dfd7" />
+      <mesh position={[0, 1.55, ROOM_BOUNDS.minZ + 0.05]}>
+        <boxGeometry args={[2.0, 1.1, 0.04]} />
+        <meshStandardMaterial color="#a8c8d8" transparent opacity={0.45} />
       </mesh>
-      <mesh position={[2.6, 1.35, 0]} castShadow receiveShadow>
-        <boxGeometry args={[0.12, 2.7, 4.4]} />
-        <meshStandardMaterial color="#e4dfd7" />
+      <mesh position={[5.2, 1.55, ROOM_BOUNDS.minZ + 0.05]}>
+        <boxGeometry args={[2.0, 1.1, 0.04]} />
+        <meshStandardMaterial color="#a8c8d8" transparent opacity={0.45} />
       </mesh>
-      <mesh position={[0, 1.55, -2.13]}>
-        <boxGeometry args={[2.2, 1.1, 0.04]} />
-        <meshStandardMaterial color="#a8c8d8" transparent opacity={0.45} roughness={0.1} metalness={0.2} />
-      </mesh>
+
+      {/* 房名地板標示 */}
+      <FloorLabel text="主臥" position={[-5.2, 0.03, -3.5]} />
+      <FloorLabel text="次臥" position={[0, 0.03, -3.5]} />
+      <FloorLabel text="客房" position={[5.2, 0.03, -3.5]} />
+      <FloorLabel text="客廳" position={[-4, 0.03, 1.2]} />
+      <FloorLabel text="餐廳" position={[4, 0.03, 1.2]} />
     </group>
+  )
+}
+
+function FloorLabel({ text, position }: { text: string; position: [number, number, number] }) {
+  const texture = useMemo(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 256
+    canvas.height = 128
+    const ctx = canvas.getContext('2d')!
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'
+    ctx.font = 'bold 48px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(text, 128, 64)
+    const tex = new THREE.CanvasTexture(canvas)
+    tex.needsUpdate = true
+    return tex
+  }, [text])
+  useEffect(() => () => texture.dispose(), [texture])
+  return (
+    <mesh position={position} rotation={[-Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[1.6, 0.8]} />
+      <meshBasicMaterial map={texture} transparent depthWrite={false} />
+    </mesh>
   )
 }
 
@@ -175,15 +241,18 @@ export function SeatMarkers({
   seats: Record<string, string | null>
   furniture: FurnitureItem[]
   selfId: string | null
-  onSit: (seatId: 'bed' | 'chair' | 'desk') => void
+  onSit: (seatId: string) => void
 }) {
-  const markers = (['bed', 'chair', 'desk'] as const).map((id) => {
-    const item = furniture.find((f) => f.seat === id)
-    const pos: [number, number, number] = item
-      ? [item.position[0], 0.05, id === 'bed' ? item.position[2] + 0.35 : item.position[2] - (id === 'desk' ? 0.35 : 0)]
-      : [0, 0.05, 0]
-    return { id, pos }
-  })
+  const markers = furniture
+    .filter((f) => f.seat)
+    .map((item) => ({
+      id: item.seat!,
+      pos: [
+        item.position[0],
+        0.05,
+        item.seat!.startsWith('bed') ? item.position[2] + 0.4 : item.position[2],
+      ] as [number, number, number],
+    }))
 
   return (
     <group>
@@ -208,6 +277,47 @@ export function SeatMarkers({
   )
 }
 
+/** 點地板貼便籤 */
+export function NotePlacementPlane() {
+  const pending = useAppStore((s) => s.pendingNote)
+  const setPendingNote = useAppStore((s) => s.setPendingNote)
+  const setToast = useAppStore((s) => s.setToast)
+  const { raycaster, camera, gl } = useThree()
+  const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
+  const hit = useMemo(() => new THREE.Vector3(), [])
+
+  useEffect(() => {
+    if (!pending) return
+    const onClick = (ev: PointerEvent) => {
+      const rect = gl.domElement.getBoundingClientRect()
+      const x = ((ev.clientX - rect.left) / rect.width) * 2 - 1
+      const y = -((ev.clientY - rect.top) / rect.height) * 2 + 1
+      raycaster.setFromCamera(new THREE.Vector2(x, y), camera)
+      if (!raycaster.ray.intersectPlane(plane, hit)) return
+      const pos: [number, number, number] = [
+        Math.max(ROOM_BOUNDS.minX, Math.min(ROOM_BOUNDS.maxX, hit.x)),
+        0.9 + pending.fontSize,
+        Math.max(ROOM_BOUNDS.minZ, Math.min(ROOM_BOUNDS.maxZ, hit.z)),
+      ]
+      void emitAddNote(pending.text, pos, pending.fontSize).then(() => {
+        setPendingNote(null)
+        setToast('便籤已貼上')
+        setTimeout(() => setToast(null), 1600)
+      })
+    }
+    window.addEventListener('pointerdown', onClick)
+    return () => window.removeEventListener('pointerdown', onClick)
+  }, [pending, camera, gl, plane, hit, raycaster, setPendingNote, setToast])
+
+  if (!pending) return null
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
+      <planeGeometry args={[20, 16]} />
+      <meshBasicMaterial color="#81b29a" transparent opacity={0.08} depthWrite={false} />
+    </mesh>
+  )
+}
+
 export function StickyNotes3D({
   notes,
   selfId,
@@ -229,36 +339,37 @@ export function StickyNotes3D({
               if (note.authorId === selfId || isHost) onRemove(note.id)
             }}
           >
-            <planeGeometry args={[0.45, 0.35]} />
+            <planeGeometry args={[note.fontSize * 4.2, note.fontSize * 3.2]} />
             <meshStandardMaterial color={note.color} />
           </mesh>
-          <NoteLabel text={`${note.author}: ${note.text}`} />
+          <NoteLabel text={`${note.author}: ${note.text}`} fontSize={note.fontSize} />
         </group>
       ))}
     </group>
   )
 }
 
-function NoteLabel({ text }: { text: string }) {
+function NoteLabel({ text, fontSize }: { text: string; fontSize: number }) {
   const texture = useMemo(() => {
     const canvas = document.createElement('canvas')
     canvas.width = 512
     canvas.height = 256
     const ctx = canvas.getContext('2d')!
     ctx.fillStyle = '#111'
-    ctx.font = 'bold 36px sans-serif'
+    const px = Math.max(22, Math.min(64, fontSize * 280))
+    ctx.font = `bold ${px}px sans-serif`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    wrapText(ctx, text, 256, 128, 460, 42)
+    wrapText(ctx, text, 256, 128, 460, px * 1.15)
     const tex = new THREE.CanvasTexture(canvas)
     tex.needsUpdate = true
     return tex
-  }, [text])
+  }, [text, fontSize])
 
   useEffect(() => () => texture.dispose(), [texture])
 
   return (
-    <sprite position={[0, 0, 0.02]} scale={[0.45, 0.22, 1]}>
+    <sprite position={[0, 0, 0.02]} scale={[fontSize * 4.2, fontSize * 2.1, 1]}>
       <spriteMaterial map={texture} transparent depthWrite={false} />
     </sprite>
   )

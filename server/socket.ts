@@ -1,7 +1,7 @@
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import { loadPersistedRoom, savePersistedRoom } from './persist.ts'
-import type { FurnitureItem } from '../shared/furniture.ts'
+import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
 export interface RoomState {
@@ -9,7 +9,7 @@ export interface RoomState {
   hostId: string | null
   players: Record<string, PlayerState>
   notes: StickyNote[]
-  seats: Record<SeatId, string | null>
+  seats: Record<string, string | null>
   furniture: FurnitureItem[]
 }
 
@@ -23,7 +23,7 @@ function createRoom(roomId: string): RoomState {
     hostId: null,
     players: {},
     notes: persisted.notes,
-    seats: { bed: null, chair: null, desk: null },
+    seats: {},
     furniture: persisted.furniture,
   }
 }
@@ -54,17 +54,19 @@ function publicRoom(room: RoomState) {
 
 function seatWorldPos(room: RoomState, seatId: SeatId): Vec3 {
   const item = room.furniture.find((f) => f.seat === seatId)
-  if (!item) {
-    const fallback: Record<SeatId, Vec3> = {
-      bed: [0, 0.4, -1.05],
-      chair: [0.15, 0.4, 0.95],
-      desk: [0.15, 0.65, 1.45],
-    }
-    return fallback[seatId]
-  }
-  if (seatId === 'bed') return [item.position[0], 0.4, item.position[2] + 0.15]
-  if (seatId === 'chair') return [item.position[0], 0.4, item.position[2]]
-  return [item.position[0], 0.65, item.position[2] - 0.15]
+  if (!item) return [0, 0.4, 0]
+  if (seatId.startsWith('bed')) return [item.position[0], 0.4, item.position[2] + 0.2]
+  return [item.position[0], 0.4, item.position[2]]
+}
+
+function clampFurniturePos(item: FurnitureItem, pos: Vec3): Vec3 {
+  const hx = item.collider?.[0] ?? 0.2
+  const hz = item.collider?.[1] ?? 0.2
+  return [
+    Math.max(ROOM_BOUNDS.minX + hx, Math.min(ROOM_BOUNDS.maxX - hx, pos[0])),
+    item.position[1],
+    Math.max(ROOM_BOUNDS.minZ + hz, Math.min(ROOM_BOUNDS.maxZ - hz, pos[2])),
+  ]
 }
 
 export function attachSocketServer(httpServer: HttpServer) {
@@ -95,7 +97,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           id: socket.id,
           name,
           color,
-          position: [-0.4 + spawnIndex * 0.55, 0, 0.2],
+          position: [-4.0 + spawnIndex * 0.6, 0, 2.8],
           rotationY: Math.PI,
           seated: null,
           role,
@@ -155,7 +157,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.seats[seatId] = socket.id
       player.seated = seatId
       player.position = seatWorldPos(room, seatId)
-      player.rotationY = seatId === 'bed' ? 0 : Math.PI
+      player.rotationY = seatId.startsWith('bed') ? 0 : Math.PI
 
       ack?.(true)
       io.to(currentRoomId).emit('room:state', publicRoom(room))
@@ -163,7 +165,10 @@ export function attachSocketServer(httpServer: HttpServer) {
 
     socket.on(
       'note:add',
-      (payload: { text: string; position?: Vec3; color?: string }, ack?: (note: StickyNote | null) => void) => {
+      (
+        payload: { text: string; position?: Vec3; color?: string; fontSize?: number },
+        ack?: (note: StickyNote | null) => void,
+      ) => {
         if (!currentRoomId) return
         const room = rooms.get(currentRoomId)
         if (!room) return
@@ -176,17 +181,19 @@ export function attachSocketServer(httpServer: HttpServer) {
           return
         }
 
+        const fontSize = Math.max(0.06, Math.min(0.4, payload.fontSize ?? 0.12))
         const note: StickyNote = {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           text,
           author: player.name,
           authorId: socket.id,
-          position: payload.position || [0.8 + Math.random() * 0.6, 1.4, -1.85],
+          position: payload.position || [-4, 1.2, 1],
           color: payload.color || '#ffe566',
+          fontSize,
           createdAt: Date.now(),
         }
         room.notes.push(note)
-        if (room.notes.length > 40) room.notes.shift()
+        if (room.notes.length > 60) room.notes.shift()
         persist(room)
 
         ack?.(note)
@@ -231,20 +238,37 @@ export function attachSocketServer(httpServer: HttpServer) {
           return
         }
 
-        item.position = [
-          Math.max(-2.2, Math.min(2.2, payload.position[0])),
-          item.position[1],
-          Math.max(-1.9, Math.min(1.9, payload.position[2])),
-        ]
+        item.position = clampFurniturePos(item, payload.position)
         if (typeof payload.rotationY === 'number') item.rotationY = payload.rotationY
         persist(room)
         ack?.(true)
-        io.to(currentRoomId).emit('furniture:updated', { id: item.id, position: item.position, rotationY: item.rotationY })
-        io.to(currentRoomId).emit('room:state', publicRoom(room))
+        io.to(currentRoomId).emit('furniture:updated', {
+          id: item.id,
+          position: item.position,
+          rotationY: item.rotationY,
+        })
       },
     )
 
-    // WebRTC signaling (mesh voice)
+    /** 任何人走路推動家具 */
+    socket.on('furniture:push', (payload: { id: string; position: Vec3 }) => {
+      if (!currentRoomId) return
+      const room = rooms.get(currentRoomId)
+      if (!room) return
+      if (!room.players[socket.id]) return
+
+      const item = room.furniture.find((f) => f.id === payload.id)
+      if (!item || !item.pushable) return
+
+      item.position = clampFurniturePos(item, payload.position)
+      persist(room)
+      io.to(currentRoomId).emit('furniture:updated', {
+        id: item.id,
+        position: item.position,
+        rotationY: item.rotationY,
+      })
+    })
+
     socket.on('voice:signal', (payload: { to: string; data: unknown }) => {
       if (!currentRoomId || !payload?.to) return
       io.to(payload.to).emit('voice:signal', { from: socket.id, data: payload.data })
@@ -265,7 +289,6 @@ export function attachSocketServer(httpServer: HttpServer) {
         if (next) next.role = 'host'
       }
 
-      // 持久化資料保留；只清記憶體中的空房
       persist(room)
 
       socket.to(currentRoomId).emit('player:left', { id: socket.id })

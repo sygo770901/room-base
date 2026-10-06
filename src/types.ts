@@ -1,7 +1,7 @@
 import type { FurnitureItem } from '../shared/furniture'
 
 export type Vec3 = [number, number, number]
-export type SeatId = 'bed' | 'chair' | 'desk'
+export type SeatId = string
 
 export interface PlayerState {
   id: string
@@ -20,6 +20,7 @@ export interface StickyNote {
   authorId: string
   position: Vec3
   color: string
+  fontSize: number
   createdAt: number
 }
 
@@ -28,7 +29,7 @@ export interface RoomSnapshot {
   hostId: string | null
   players: Record<string, PlayerState>
   notes: StickyNote[]
-  seats: Record<SeatId, string | null>
+  seats: Record<string, string | null>
   furniture: FurnitureItem[]
 }
 
