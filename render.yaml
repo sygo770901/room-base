@@ -1,0 +1,14 @@
+# Render Free Web Service
+# 注意：Free 方案無法掛 persistent disk，留言/家具在服務休眠或重新部署後可能重置。
+services:
+  - type: web
+    name: room-base
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

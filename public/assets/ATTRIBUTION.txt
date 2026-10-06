@@ -1,0 +1,4 @@
+# Kenney Furniture Kit
+Source: https://kenney.nl/assets/furniture-kit
+License: CC0 1.0 (public domain)
+Credit appreciated but not required: Kenney.nl

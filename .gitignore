@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-server
+.DS_Store
+*.log
+kenney_furniture.zip
+data/rooms.json
+public/assets/kenney/Isometric/
+public/assets/kenney/Topdown/
+public/assets/kenney/Unity package/
+public/assets/kenney/Preview*.png
+public/assets/kenney/Sample*.png
+public/assets/kenney/Models/*.fbx
