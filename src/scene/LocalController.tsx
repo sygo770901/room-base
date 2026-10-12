@@ -107,11 +107,21 @@ export function LocalController({
     }
   }, [])
 
+  // priority -2：OrbitControls 在 -1 才 update。先把鏡頭和平移到角色，
+  // 它才只會套用手指轉的角度，走路本身不會把視角帶著轉。
   useFrame((_, dt) => {
     const orbit = controls as { target?: THREE.Vector3 } | null
+    const stickCamera = (x: number, z: number) => {
+      const target = orbit?.target
+      if (!target) return
+      camera.position.x += x - target.x
+      camera.position.y += 0.9 - target.y
+      camera.position.z += z - target.z
+      target.set(x, 0.9, z)
+    }
 
     if (player.seated) {
-      orbit?.target?.set(player.position[0], 0.9, player.position[2])
+      stickCamera(player.position[0], player.position[2])
       onPose(player.position, player.rotationY)
       return
     }
@@ -162,7 +172,7 @@ export function LocalController({
       }
     }
 
-    orbit?.target?.set(pos.current.x, 0.9, pos.current.z)
+    stickCamera(pos.current.x, pos.current.z)
 
     const pose: Vec3 = [pos.current.x, 0, pos.current.z]
     onPose(pose, rotY.current)
@@ -172,7 +182,7 @@ export function LocalController({
       lastSent.current = now
       emitMove(pose, rotY.current)
     }
-  })
+  }, -2)
 
   return null
 }

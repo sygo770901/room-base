@@ -1,16 +1,35 @@
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
-import { FLOOR_PLACES, PROP_LIST, WALL_PLACES, type Place } from '../../shared/dungeon'
+import {
+  CORNER_PLACES,
+  FLOOR_DECALS,
+  FLOOR_PLACES,
+  PROP_LIST,
+  WALL_PLACES,
+  type Place,
+} from '../../shared/dungeon'
 
-const FLOOR_URL = '/assets/kaykit/tileBrickA_medium.gltf.glb'
-const WALL_URL = '/assets/kaykit/wall.gltf.glb'
+const CHUNK = 32
+const ROOT = '/assets/kenney/dungeon'
 
-useGLTF.preload(FLOOR_URL)
-useGLTF.preload(WALL_URL)
+const ALL_PLACES: Place[] = [
+  ...FLOOR_PLACES,
+  ...FLOOR_DECALS,
+  ...WALL_PLACES,
+  ...CORNER_PLACES,
+  ...PROP_LIST.map((prop) => ({
+    x: prop.x,
+    y: prop.y,
+    z: prop.z,
+    rotY: prop.rotY,
+    model: prop.model,
+  })),
+]
 
-const PROP_MODELS = [...new Set(PROP_LIST.map((p) => p.model))]
-for (const name of PROP_MODELS) useGLTF.preload(`/assets/kaykit/${name}`)
+for (const name of new Set(ALL_PLACES.map((place) => place.model))) {
+  useGLTF.preload(`${ROOT}/${name}`)
+}
 
 type Part = {
   geometry: THREE.BufferGeometry
@@ -33,23 +52,26 @@ function partsOf(scene: THREE.Object3D): Part[] {
   return parts
 }
 
-function InstanceChunk({ part, places, cast }: { part: Part; places: Place[]; cast?: boolean }) {
+function InstanceChunk({ part, places, cast }: { part: Part; places: Place[]; cast: boolean }) {
   const ref = useRef<THREE.InstancedMesh>(null)
+
   useLayoutEffect(() => {
     const mesh = ref.current
     if (!mesh || places.length === 0) return
     const dummy = new THREE.Object3D()
-    const m = new THREE.Matrix4()
+    const matrix = new THREE.Matrix4()
     for (let i = 0; i < places.length; i++) {
-      const p = places[i]
-      dummy.position.set(p.x, p.y, p.z)
-      dummy.rotation.set(0, p.rotY, 0)
-      dummy.scale.set(1, 1, 1)
+      const place = places[i]
+      dummy.position.set(place.x, place.y, place.z)
+      dummy.rotation.set(0, place.rotY, 0)
+      dummy.scale.setScalar(place.scale ?? 1)
       dummy.updateMatrix()
-      m.multiplyMatrices(dummy.matrix, part.matrix)
-      mesh.setMatrixAt(i, m)
+      matrix.multiplyMatrices(dummy.matrix, part.matrix)
+      mesh.setMatrixAt(i, matrix)
     }
     mesh.instanceMatrix.needsUpdate = true
+    mesh.computeBoundingSphere()
+    mesh.frustumCulled = true
   }, [part, places])
 
   if (places.length === 0) return null
@@ -57,57 +79,58 @@ function InstanceChunk({ part, places, cast }: { part: Part; places: Place[]; ca
     <instancedMesh
       ref={ref}
       args={[part.geometry, part.material, places.length]}
-      castShadow={!!cast}
+      castShadow={cast}
       receiveShadow
-      frustumCulled={false}
+      frustumCulled
     />
   )
 }
 
-function KaykitInstances({ url, places, cast }: { url: string; places: Place[]; cast?: boolean }) {
-  const gltf = useGLTF(url)
+function KitModel({ model, places }: { model: string; places: Place[] }) {
+  const gltf = useGLTF(`${ROOT}/${model}`)
   const parts = useMemo(() => partsOf(gltf.scene), [gltf])
+  const chunks = useMemo(() => {
+    const map = new Map<string, Place[]>()
+    for (const place of places) {
+      const key = `${Math.floor(place.x / CHUNK)}:${Math.floor(place.z / CHUNK)}`
+      const list = map.get(key)
+      if (list) list.push(place)
+      else map.set(key, [place])
+    }
+    return [...map.values()]
+  }, [places])
+  const cast = model.startsWith('template-detail')
   return (
     <group>
-      {parts.map((part, i) => (
-        <InstanceChunk key={i} part={part} places={places} cast={cast} />
-      ))}
+      {chunks.map((chunk, chunkIndex) =>
+        parts.map((part, partIndex) => (
+          <InstanceChunk
+            key={`${chunkIndex}-${partIndex}`}
+            part={part}
+            places={chunk}
+            cast={cast}
+          />
+        )),
+      )}
     </group>
   )
 }
 
-export function Dungeon() {
-  const floors = useMemo(
-    () => FLOOR_PLACES.map((p, i) => ({ ...p, rotY: (i % 4) * (Math.PI / 2) })),
-    [],
-  )
-  const propGroups = useMemo(() => {
+export function Dungeon(_props: { focusX: number; focusZ: number }) {
+  const groups = useMemo(() => {
     const map = new Map<string, Place[]>()
-    for (const p of PROP_LIST) {
-      const list = map.get(p.model) ?? []
-      list.push({ x: p.x, y: p.y, z: p.z, rotY: p.rotY })
-      map.set(p.model, list)
+    for (const place of ALL_PLACES) {
+      const list = map.get(place.model) ?? []
+      list.push(place)
+      map.set(place.model, list)
     }
     return [...map.entries()]
   }, [])
-  const lights = PROP_LIST.filter((p) => p.light).slice(0, 8)
 
   return (
     <group>
-      <KaykitInstances url={FLOOR_URL} places={floors} />
-      <KaykitInstances url={WALL_URL} places={WALL_PLACES} cast />
-      {propGroups.map(([model, places]) => (
-        <KaykitInstances key={model} url={`/assets/kaykit/${model}`} places={places} cast />
-      ))}
-      {lights.map((p) => (
-        <pointLight
-          key={p.id}
-          position={[p.x, 1.8, p.z]}
-          color="#ff9a45"
-          intensity={7}
-          distance={14}
-          decay={2}
-        />
+      {groups.map(([model, places]) => (
+        <KitModel key={model} model={model} places={places} />
       ))}
     </group>
   )

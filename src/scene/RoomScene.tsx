@@ -71,7 +71,7 @@ function FollowLight() {
 function CameraGuard() {
   const { camera, controls, gl, scene } = useThree()
   // priority > 0 會關掉 Fiber 的自動 render，這一層必須自己畫，否則畫布維持透明。
-  useFrame(() => {
+  useFrame((_, dt) => {
     const orbit = controls as { target?: THREE.Vector3 } | null
     const target = orbit?.target
     if (target) {
@@ -81,10 +81,14 @@ function CameraGuard() {
       const dist = Math.hypot(dx, dy, dz)
       if (dist >= 1.25) {
         const inv = 1 / dist
-        const hit = rayOcclusion(target.x, target.y, target.z, dx * inv, dy * inv, dz * inv, dist)
+        const dirx = dx * inv
+        const diry = dy * inv
+        const dirz = dz * inv
+        const hit = rayOcclusion(target.x, target.y, target.z, dirx, diry, dirz, dist)
         if (hit < dist - 0.15) {
-          const nd = Math.max(1.2, hit - 0.32)
-          camera.position.set(target.x + (dx * inv) * nd, target.y + (dy * inv) * nd, target.z + (dz * inv) * nd)
+          const desired = Math.max(1.2, hit - 0.32)
+          const nd = THREE.MathUtils.damp(dist, desired, 8, dt)
+          camera.position.set(target.x + dirx * nd, target.y + diry * nd, target.z + dirz * nd)
         }
       }
     }
@@ -108,18 +112,19 @@ function SceneContent() {
   }, [self, localPose])
 
   const isHost = !!selfId && hostId === selfId
+  const lookAt = useMemo(() => new THREE.Vector3(SPAWN.x, 0.9, SPAWN.z), [])
 
   return (
     <>
       <BlockContextMenu />
-      <color attach="background" args={['#1a1612']} />
-      <fog attach="fog" args={['#1a1612', 28, 86]} />
+      <color attach="background" args={['#3a3544']} />
+      <fog attach="fog" args={['#3a3544', 28, 92]} />
       <hemisphereLight args={['#cbbba6', '#3a2c24', 1.25]} />
       <ambientLight intensity={0.8} />
       <FollowLight />
 
       <Suspense fallback={null}>
-        <Dungeon />
+        <Dungeon focusX={displaySelf?.position[0] ?? SPAWN.x} focusZ={displaySelf?.position[2] ?? SPAWN.z} />
         <Monsters />
       </Suspense>
 
@@ -144,12 +149,13 @@ function SceneContent() {
         enableZoom
         enableRotate
         enableDamping
-        dampingFactor={0.08}
+        dampingFactor={0.4}
+        rotateSpeed={0.82}
         minDistance={2.6}
         maxDistance={18}
         minPolarAngle={0.08}
         maxPolarAngle={Math.PI / 2.05}
-        target={[SPAWN.x, 1.2, SPAWN.z]}
+        target={lookAt}
         mouseButtons={{
           LEFT: -1 as unknown as MOUSE,
           MIDDLE: MOUSE.DOLLY,

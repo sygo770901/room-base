@@ -1,4 +1,4 @@
-/** KayKit Dungeon Pack 1.0（CC0）地城。格子 4m，牆厚 1.5m、高 4m。 */
+/** Kenney Modular Dungeon Kit（CC0）拼在 4m 格子上。牆厚約 2m，擺在走道外側。 */
 
 export const CELL = 4
 export const MAP_W = 42
@@ -12,6 +12,8 @@ export interface Place {
   y: number
   z: number
   rotY: number
+  model: string
+  scale?: number
 }
 
 export interface DungeonProp {
@@ -243,30 +245,71 @@ export function cellCenter(gx: number, gz: number): PatrolPoint {
 }
 
 const floorPlaces: Place[] = []
+const floorDecals: Place[] = []
 const wallPlaces: Place[] = []
+const cornerPlaces: Place[] = []
 const wallBoxes: WallBox[] = []
+const cornerSeen = new Set<string>()
+
+function addCorner(x: number, z: number, rotY: number) {
+  const key = `${x},${z}`
+  if (cornerSeen.has(key)) return
+  cornerSeen.add(key)
+  cornerPlaces.push({ x, y: 0, z, rotY, model: 'template-wall-corner.glb', scale: 2 })
+  const ox = rotY === 0 || rotY === Math.PI / 2 ? -1 : 1
+  const oz = rotY === 0 || rotY === -Math.PI / 2 ? -1 : 1
+  wallBoxes.push({ cx: x + ox, cz: z + oz, hx: 1, hz: 1 })
+}
 
 for (let z = 0; z < MAP_H; z++) {
   for (let x = 0; x < MAP_W; x++) {
     if (!floor[z][x]) continue
-    floorPlaces.push({ x: (x + 0.5) * CELL, y: -FLOOR_SINK, z: (z + 0.5) * CELL, rotY: 0 })
-    const edges: [number, number, number, number, number][] = [
-      [0, 1, (x + 0.5) * CELL, (z + 1) * CELL, 0],
-      [0, -1, (x + 0.5) * CELL, z * CELL, 0],
-      [1, 0, (x + 1) * CELL, (z + 0.5) * CELL, Math.PI / 2],
-      [-1, 0, x * CELL, (z + 0.5) * CELL, Math.PI / 2],
-    ]
-    for (const [dx, dz, wx, wz, rot] of edges) {
-      if (isFloorCell(x + dx, z + dz)) continue
-      wallPlaces.push({ x: wx, y: 0, z: wz, rotY: rot })
-      const alongX = rot === 0
-      wallBoxes.push({
-        cx: wx,
-        cz: wz,
-        hx: alongX ? 2 : 0.75,
-        hz: alongX ? 0.75 : 2,
+    const cx = (x + 0.5) * CELL
+    const cz = (z + 0.5) * CELL
+    floorPlaces.push({ x: cx, y: -0.5, z: cz, rotY: 0, model: 'template-floor-layer.glb' })
+    if ((x * 3 + z) % 4 === 0) {
+      floorDecals.push({
+        x: cx,
+        y: 0.02,
+        z: cz,
+        rotY: (x + z) % 2 ? Math.PI / 2 : 0,
+        model: (x + z) % 8 === 0 ? 'template-floor-detail-a.glb' : 'template-floor-detail.glb',
       })
     }
+    let north = false
+    let south = false
+    let east = false
+    let west = false
+    const edges: [number, number, number, number, number, 'n' | 's' | 'e' | 'w'][] = [
+      [0, 1, cx, (z + 1) * CELL, Math.PI, 'n'],
+      [0, -1, cx, z * CELL, 0, 's'],
+      [1, 0, (x + 1) * CELL, cz, -Math.PI / 2, 'e'],
+      [-1, 0, x * CELL, cz, Math.PI / 2, 'w'],
+    ]
+    for (const [dx, dz, wx, wz, rot, side] of edges) {
+      if (isFloorCell(x + dx, z + dz)) continue
+      if (side === 'n') north = true
+      if (side === 's') south = true
+      if (side === 'e') east = true
+      if (side === 'w') west = true
+      const detailed = (x * 5 + z * 3 + (side === 'n' ? 1 : 0)) % 6 === 0
+      wallPlaces.push({
+        x: wx,
+        y: 0,
+        z: wz,
+        rotY: rot,
+        model: detailed ? 'template-wall-detail-a.glb' : 'template-wall.glb',
+      })
+      if (side === 'n' || side === 's') {
+        wallBoxes.push({ cx: wx, cz: wz + (side === 'n' ? 1 : -1), hx: 2, hz: 1 })
+      } else {
+        wallBoxes.push({ cx: wx + (side === 'e' ? 1 : -1), cz: wz, hx: 1, hz: 2 })
+      }
+    }
+    if (north && east) addCorner((x + 1) * CELL, (z + 1) * CELL, Math.PI)
+    if (north && west) addCorner(x * CELL, (z + 1) * CELL, Math.PI / 2)
+    if (south && east) addCorner((x + 1) * CELL, z * CELL, -Math.PI / 2)
+    if (south && west) addCorner(x * CELL, z * CELL, 0)
   }
 }
 
@@ -336,41 +379,6 @@ function isOpen(gx: number, gz: number) {
   )
 }
 
-for (const [gx, gz] of [
-  [14, 4],
-  [26, 4],
-  [15, 28],
-  [25, 28],
-  [6, 20],
-  [8, 20],
-  [33, 20],
-  [36, 20],
-] as const) {
-  if (isOpen(gx, gz)) addProp('pillar.gltf.glb', gx, gz, 0, 0, 0.72, 0.72, true)
-}
-
-for (const [gx, gz] of [
-  [33, 6],
-  [36, 6],
-  [34, 7],
-] as const) {
-  addProp('chest_common.gltf.glb', gx, gz, 0.4, 0, 0.7, 0.5, true)
-}
-
-for (const [gx, gz, rot] of [
-  [32, 23, Math.PI],
-  [35, 23, Math.PI],
-  [38, 23, Math.PI],
-  [31, 18, 0],
-] as const) {
-  addProp('bookcaseFilled.gltf.glb', gx, gz, rot, 0, 0.5, 0.28, true)
-}
-
-addProp('tableMedium.gltf.glb', 35, 20, 0.2, 0, 1, 0.6, true)
-addProp('tableMedium.gltf.glb', 5, 20, 1.2, 0, 1, 0.6, true)
-addProp('banner.gltf.glb', 16, 30, 0, 2.53, 0, 0, false)
-addProp('banner.gltf.glb', 24, 30, Math.PI, 2.53, 0, 0, false)
-
 const hideSpots: PatrolPoint[] = []
 const DIRS = [
   [1, 0],
@@ -379,130 +387,31 @@ const DIRS = [
   [0, -1],
 ] as const
 
-function nearProp(x: number, z: number, r: number) {
-  const r2 = r * r
-  return props.some((p) => (p.x - x) * (p.x - x) + (p.z - z) * (p.z - z) < r2)
+for (let z = 2; z < MAP_H - 2; z++) {
+  for (let x = 2; x < MAP_W - 2; x++) {
+    if (!isOpen(x, z)) continue
+    if (x >= 16 && x <= 24 && z >= 2 && z <= 8) continue
+    if ((x * 5 + z * 3) % 11 !== 0) continue
+    addProp('template-detail.glb', x, z, 0, 0, 0.75, 0.75, true)
+    const c = cellCenter(x, z)
+    hideSpots.push({ x: c.x + 1.15, z: c.z })
+  }
 }
 
 for (const [gx, gz] of deadEnds) {
   if (rogueKeys.has(keyOf(gx, gz))) continue
   if (gx >= 14 && gx <= 26 && gz >= 2 && gz <= 7) continue
-  let nx = 0
-  let nz = -1
+  let ox = 0
+  let oz = -1
   for (const [dx, dz] of DIRS) {
     if (isFloorCell(gx + dx, gz + dz)) {
-      nx = dx
-      nz = dz
+      ox = dx
+      oz = dz
     }
   }
-  const dark = (gx + gz) % 4 === 0
-  addProp(dark ? 'crateDark.gltf.glb' : 'crate.gltf.glb', gx, gz, 0.4, 0.53, 0.48, 0.48, true, false, nx * 0.9, nz * 0.9)
-  addProp((gx + gz) % 2 ? 'barrel.gltf.glb' : 'barrelDark.gltf.glb', gx, gz, 0.8, 0.4, 0.42, 0.42, true, false, -nz * 0.75, nx * 0.75)
+  addProp('template-detail.glb', gx, gz, 0, 0, 0.75, 0.75, true, false, -ox * 0.85, -oz * 0.85)
   const c = cellCenter(gx, gz)
-  hideSpots.push({ x: c.x - nx * 0.95, z: c.z - nz * 0.95 })
-}
-
-let dress = 0
-for (let z = 1; z < MAP_H - 1; z++) {
-  for (let x = 1; x < MAP_W - 1; x++) {
-    if (!floor[z][x]) continue
-    if ((x * 3 + z * 7) % 4 !== 0) continue
-    const walls = DIRS.filter(([dx, dz]) => !isFloorCell(x + dx, z + dz))
-    if (walls.length !== 1) continue
-    const [dx, dz] = walls[0]
-    const c = cellCenter(x, z)
-    const px = c.x + dx * 1.15
-    const pz = c.z + dz * 1.15
-    if (nearProp(px, pz, 1.6)) continue
-    const kind = (x + z * 2) % 6
-    if (kind === 0) addProp('crate.gltf.glb', x, z, 0.2, 0.53, 0.48, 0.48, true, false, dx * 1.15, dz * 1.15)
-    else if (kind === 1) addProp('barrelDark.gltf.glb', x, z, 0.5, 0.4, 0.42, 0.42, true, false, dx * 1.2, dz * 1.2)
-    else if (kind === 2) addProp('bookcaseFilled.gltf.glb', x, z, dx !== 0 ? Math.PI / 2 : 0, 0, 0.5, 0.28, true, false, dx * 1.15, dz * 1.15)
-    else if (kind === 3) addProp('tableMedium.gltf.glb', x, z, 0.3, 0, 0.7, 0.45, true, false, dx * 0.85, dz * 0.85)
-    else if (kind === 4) addProp('chest_common.gltf.glb', x, z, 0.6, 0, 0.7, 0.5, true, false, dx * 1.05, dz * 1.05)
-    else addProp('potA.gltf.glb', x, z, 0, 0, 0.22, 0.22, false, false, dx * 1.25, dz * 1.25)
-    if (kind <= 2) hideSpots.push({ x: c.x + dx * 0.15, z: c.z + dz * 0.15 })
-    if (++dress > 90) break
-  }
-  if (dress > 90) break
-}
-
-for (let x = 6; x <= 36; x += 5) {
-  if (!isFloorCell(x, 13)) continue
-  addProp('torch.gltf.glb', x, 13, 0, 0.7, 0, 0, false, true, 0, 1.15)
-}
-for (let z = 16; z <= 30; z += 4) {
-  if (!isFloorCell(19, z)) continue
-  addProp('torch.gltf.glb', 19, z, Math.PI / 2, 0.7, 0, 0, false, true, -1.15, 0)
-}
-
-for (const [gx, gz] of [
-  [4, 4],
-  [7, 5],
-  [32, 5],
-  [37, 8],
-  [3, 19],
-  [10, 21],
-] as const) {
-  addProp((gx + gz) % 2 ? 'barrelDark.gltf.glb' : 'barrel.gltf.glb', gx, gz, 0.5, 0.4, 0.42, 0.42, true)
-  addProp('potA.gltf.glb', gx, gz, 0, 0, 0, 0, false, false, 0.7, 0.4)
-}
-
-// 大廳與長廊中央的掩體。貼牆擺設蓋不到這些開闊區，躲貓貓會一眼望穿。
-function addCover(
-  model: string,
-  gx: number,
-  gz: number,
-  rotY: number,
-  y: number,
-  hx: number,
-  hz: number,
-  hide: boolean,
-) {
-  if (!isFloorCell(gx, gz)) return
-  if (gx >= 17 && gx <= 23 && gz >= 2 && gz <= 7) return
-  const c = cellCenter(gx, gz)
-  if (nearProp(c.x, c.z, 1.7)) return
-  addProp(model, gx, gz, rotY, y, hx, hz, true)
-  if (hide) hideSpots.push({ x: c.x + 0.95, z: c.z })
-}
-
-for (const [gx, gz] of [
-  [14, 5],
-  [25, 6],
-  [15, 3],
-  [24, 4],
-] as const) {
-  addCover(gz % 2 ? 'crate.gltf.glb' : 'crateDark.gltf.glb', gx, gz, 0.4, 0.53, 0.48, 0.48, true)
-}
-for (const [gx, gz] of [
-  [8, 13],
-  [16, 14],
-  [24, 13],
-  [32, 14],
-  [20, 18],
-  [21, 22],
-] as const) {
-  addCover(gx % 2 ? 'barrel.gltf.glb' : 'barrelDark.gltf.glb', gx, gz, 0.6, 0.4, 0.42, 0.42, true)
-}
-for (const [gx, gz] of [
-  [16, 28],
-  [22, 28],
-  [17, 30],
-  [23, 27],
-] as const) {
-  addCover('tableMedium.gltf.glb', gx, gz, gx > 20 ? 0.4 : -0.4, 0, 0.7, 0.45, false)
-}
-for (const [gx, gz, rot] of [
-  [4, 21, 0],
-  [8, 19, Math.PI / 2],
-  [9, 22, 0],
-  [33, 21, Math.PI],
-  [37, 19, 0],
-  [5, 4, 0.3],
-  [3, 5, 1],
-] as const) {
-  addCover(rot > 0.5 ? 'bookcaseFilled.gltf.glb' : 'chest_common.gltf.glb', gx, gz, rot, 0, rot > 0.5 ? 0.5 : 0.7, rot > 0.5 ? 0.28 : 0.5, true)
+  hideSpots.push({ x: c.x + ox * 0.35, z: c.z + oz * 0.35 })
 }
 
 const propBoxes: WallBox[] = props
@@ -510,7 +419,9 @@ const propBoxes: WallBox[] = props
   .map((p) => ({ cx: p.x, cz: p.z, hx: p.hx, hz: p.hz }))
 
 export const FLOOR_PLACES = floorPlaces
+export const FLOOR_DECALS = floorDecals
 export const WALL_PLACES = wallPlaces
+export const CORNER_PLACES = cornerPlaces
 export const PROP_LIST = props
 export const HIDE_SPOTS = hideSpots
 export const HIDE_RANGE = 1.35
@@ -630,13 +541,7 @@ export type OccBox = {
 }
 
 function propTop(model: string) {
-  if (model.startsWith('pillar')) return 4
-  if (model.startsWith('bookcase')) return 2
-  if (model.startsWith('banner')) return 2.6
-  if (model.startsWith('table')) return 0.85
-  if (model.startsWith('crate')) return 1.2
-  if (model.startsWith('barrel')) return 1.05
-  if (model.startsWith('chest')) return 0.9
+  if (model.startsWith('template-detail') || model.startsWith('pillar')) return 4.3
   return 1
 }
 
