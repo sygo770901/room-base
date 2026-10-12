@@ -14,6 +14,11 @@ import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
 const SPAWN = SPAWN_POINTS[0] ?? { x: 80, z: 22 }
+// 0 是頭頂正上方，PI/2 是水平。鎖在這個範圍，避免走到牆邊時被拉到頭頂。
+const MIN_PHI = 0.72
+const MAX_PHI = 1.42
+const rigOffset = new THREE.Vector3()
+const rigSpherical = new THREE.Spherical()
 
 function BlockContextMenu() {
   const gl = useThree((s) => s.gl)
@@ -66,6 +71,78 @@ function FollowLight() {
       />
     </>
   )
+}
+
+function CameraRig() {
+  const { camera, controls, gl } = useThree()
+  const saved = useRef({ theta: 0, phi: 1, radius: 12, ready: false })
+  const rotating = useRef(false)
+  const zooming = useRef(false)
+  const touchIds = useRef(new Set<number>())
+  const wheeled = useRef(false)
+
+  useEffect(() => {
+    const el = gl.domElement
+    const down = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') touchIds.current.add(e.pointerId)
+      else if (e.button === 2) rotating.current = true
+      else if (e.button === 1) zooming.current = true
+    }
+    const up = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') touchIds.current.delete(e.pointerId)
+      else if (e.button === 2) rotating.current = false
+      else if (e.button === 1) zooming.current = false
+    }
+    const wheel = () => {
+      wheeled.current = true
+    }
+    el.addEventListener('pointerdown', down)
+    el.addEventListener('wheel', wheel, { passive: true })
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+    return () => {
+      el.removeEventListener('pointerdown', down)
+      el.removeEventListener('wheel', wheel)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+    }
+  }, [gl])
+
+  // OrbitControls 在 -1。這裡把走路、遮擋拉近造成的仰角改動蓋掉，只留下手指轉的角度。
+  useFrame(() => {
+    const target = (controls as { target?: THREE.Vector3 } | null)?.target
+    if (!target) return
+    rigOffset.copy(camera.position).sub(target)
+    if (rigOffset.lengthSq() < 0.01) return
+    rigSpherical.setFromVector3(rigOffset)
+    const shot = saved.current
+    const fingers = touchIds.current.size
+    const looking = rotating.current || fingers === 1
+    const pinching = fingers >= 2
+    if (!shot.ready) {
+      shot.theta = rigSpherical.theta
+      shot.phi = THREE.MathUtils.clamp(rigSpherical.phi, MIN_PHI, MAX_PHI)
+      shot.radius = THREE.MathUtils.clamp(rigSpherical.radius, 2.6, 18)
+      shot.ready = true
+    } else if (looking || pinching) {
+      shot.theta = rigSpherical.theta
+      shot.phi = THREE.MathUtils.clamp(rigSpherical.phi, MIN_PHI, MAX_PHI)
+      if (pinching || zooming.current) {
+        shot.radius = THREE.MathUtils.clamp(rigSpherical.radius, 2.6, 18)
+      }
+    } else if (zooming.current || wheeled.current) {
+      shot.radius = THREE.MathUtils.clamp(rigSpherical.radius, 2.6, 18)
+    }
+    wheeled.current = false
+    rigSpherical.theta = shot.theta
+    rigSpherical.phi = shot.phi
+    rigSpherical.radius = shot.radius
+    rigOffset.setFromSpherical(rigSpherical)
+    camera.position.copy(target).add(rigOffset)
+    camera.up.set(0, 1, 0)
+    camera.lookAt(target)
+  }, 0)
+  return null
 }
 
 function CameraGuard() {
@@ -141,6 +218,7 @@ function SceneContent() {
         />
       )}
 
+      <CameraRig />
       <CameraGuard />
 
       <OrbitControls
@@ -148,13 +226,12 @@ function SceneContent() {
         enablePan={false}
         enableZoom
         enableRotate
-        enableDamping
-        dampingFactor={0.4}
+        enableDamping={false}
         rotateSpeed={0.82}
         minDistance={2.6}
         maxDistance={18}
-        minPolarAngle={0.08}
-        maxPolarAngle={Math.PI / 2.05}
+        minPolarAngle={MIN_PHI}
+        maxPolarAngle={MAX_PHI}
         target={lookAt}
         mouseButtons={{
           LEFT: -1 as unknown as MOUSE,
