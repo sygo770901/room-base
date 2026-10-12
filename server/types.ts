@@ -9,6 +9,7 @@ export interface PlayerState {
   rotationY: number
   seated: SeatId | null
   role: 'host' | 'guest'
+  hp: number
 }
 
 export interface StickyNote {

@@ -1,3 +1,4 @@
+import type { MonsterState } from '../shared/combat'
 import type { FurnitureItem } from '../shared/furniture'
 
 export type Vec3 = [number, number, number]
@@ -11,6 +12,7 @@ export interface PlayerState {
   rotationY: number
   seated: SeatId | null
   role: 'host' | 'guest'
+  hp: number
 }
 
 export interface StickyNote {
@@ -31,6 +33,9 @@ export interface RoomSnapshot {
   notes: StickyNote[]
   seats: Record<string, string | null>
   furniture: FurnitureItem[]
+  monsters: MonsterState[]
 }
+
+export type { MonsterState }
 
 export type { FurnitureItem }

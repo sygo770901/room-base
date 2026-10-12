@@ -358,10 +358,15 @@ export function NotePlacementPlane() {
     return () => window.removeEventListener('pointerdown', onClick)
   }, [pending, camera, gl, plane, hit, raycaster, setPendingNote, setToast])
 
+  const w = ROOM_BOUNDS.maxX - ROOM_BOUNDS.minX
+  const d = ROOM_BOUNDS.maxZ - ROOM_BOUNDS.minZ
+  const cx = (ROOM_BOUNDS.minX + ROOM_BOUNDS.maxX) / 2
+  const cz = (ROOM_BOUNDS.minZ + ROOM_BOUNDS.maxZ) / 2
+
   if (!pending) return null
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
-      <planeGeometry args={[20, 16]} />
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0.02, cz]}>
+      <planeGeometry args={[w, d]} />
       <meshBasicMaterial color="#81b29a" transparent opacity={0.08} depthWrite={false} />
     </mesh>
   )

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { type MonsterState } from '../shared/combat'
 import { DEFAULT_FURNITURE, type FurnitureItem } from '../shared/furniture'
 import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
 
@@ -11,20 +12,22 @@ interface AppState {
   notes: StickyNote[]
   seats: Record<string, string | null>
   furniture: FurnitureItem[]
+  monsters: MonsterState[]
   hostId: string | null
   toast: string | null
   micOn: boolean
   followCam: boolean
   /** 搖桿輸入 -1..1 */
   joy: { x: number; y: number }
-  /** 待貼便籤模式 */
+  /** 被怪物打倒後遞增，讓本地控制器把座標拉回入口 */
+  respawnToken: number
   pendingNote: { text: string; fontSize: number } | null
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
   upsertPlayer: (player: PlayerState) => void
   removePlayer: (id: string) => void
-  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated'>>) => void
+  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp'>>) => void
   addNote: (note: StickyNote) => void
   removeNote: (id: string) => void
   patchFurniture: (id: string, patch: Partial<Pick<FurnitureItem, 'position' | 'rotationY'>>) => void
@@ -34,6 +37,8 @@ interface AppState {
   setFollowCam: (on: boolean) => void
   setJoy: (x: number, y: number) => void
   setPendingNote: (note: { text: string; fontSize: number } | null) => void
+  setMonsters: (monsters: MonsterState[]) => void
+  bumpRespawn: () => void
   leaveToLobby: () => void
 }
 
@@ -46,11 +51,13 @@ export const useAppStore = create<AppState>((set) => ({
   notes: [],
   seats: {},
   furniture: DEFAULT_FURNITURE,
+  monsters: [],
   hostId: null,
   toast: null,
   micOn: false,
   followCam: true,
   joy: { x: 0, y: 0 },
+  respawnToken: 0,
   pendingNote: null,
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
@@ -62,6 +69,7 @@ export const useAppStore = create<AppState>((set) => ({
       notes: snapshot.notes,
       seats: snapshot.seats,
       furniture: snapshot.furniture?.length ? snapshot.furniture : DEFAULT_FURNITURE,
+      monsters: snapshot.monsters ?? [],
       hostId: snapshot.hostId,
     }),
   applySnapshot: (snapshot) =>
@@ -70,6 +78,7 @@ export const useAppStore = create<AppState>((set) => ({
       notes: snapshot.notes,
       seats: snapshot.seats,
       furniture: snapshot.furniture?.length ? snapshot.furniture : DEFAULT_FURNITURE,
+      monsters: snapshot.monsters ?? [],
       hostId: snapshot.hostId,
       roomId: snapshot.roomId,
     }),
@@ -99,6 +108,8 @@ export const useAppStore = create<AppState>((set) => ({
   setFollowCam: (on) => set({ followCam: on }),
   setJoy: (x, y) => set({ joy: { x, y } }),
   setPendingNote: (note) => set({ pendingNote: note }),
+  setMonsters: (monsters) => set({ monsters }),
+  bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
   leaveToLobby: () =>
     set({
       phase: 'lobby',
@@ -107,6 +118,7 @@ export const useAppStore = create<AppState>((set) => ({
       notes: [],
       seats: {},
       furniture: DEFAULT_FURNITURE,
+      monsters: [],
       hostId: null,
       micOn: false,
       pendingNote: null,

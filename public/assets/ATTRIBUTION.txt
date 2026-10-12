@@ -2,3 +2,10 @@
 Source: https://kenney.nl/assets/furniture-kit
 License: CC0 1.0 (public domain)
 Credit appreciated but not required: Kenney.nl
+
+# KayKit Dungeon Pack 1.0
+Source: https://opengameart.org/content/kaykit-dungeon-pack-10
+Author: Kay Lousberg
+License: CC0 1.0 (public domain)
+Used for the dungeon walls, floors, props, and monster characters.
+

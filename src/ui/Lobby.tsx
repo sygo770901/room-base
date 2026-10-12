@@ -36,9 +36,9 @@ export function Lobby() {
   return (
     <div className="lobby">
       <form className="lobby-card" onSubmit={onSubmit}>
-        <h1>Room Base</h1>
+        <h1>地城迴廊</h1>
         <p>
-          你的數位房間基地。留言與家具配置會保存；房主可拖家具；可開語音。朋友用同一個房間 ID 進來。
+          多人躲貓貓加打怪。石牆和木箱會擋住怪物視線。左鍵或 F 攻擊面朝的怪物。朋友用同一個房間 ID 進來。
         </p>
         <label>
           顯示名稱

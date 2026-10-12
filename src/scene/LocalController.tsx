@@ -1,12 +1,13 @@
 import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
-import { emitFurniturePush, emitMove, emitSit } from '../net/socket'
+import { ATTACK_COOLDOWN_MS } from '../../shared/combat'
+import { emitAttack, emitFurniturePush, emitMove, emitSit } from '../net/socket'
 import { resolvePlayerMove } from '../physics/collision'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
-const SPEED = 3.4
+const SPEED = 5.2
 const up = new THREE.Vector3(0, 1, 0)
 const forward = new THREE.Vector3()
 const right = new THREE.Vector3()
@@ -25,20 +26,38 @@ export function LocalController({
   const rotY = useRef(player.rotationY)
   const lastSent = useRef(0)
   const lastPush = useRef(0)
+  const lastAttack = useRef(0)
   const seatedRef = useRef(player.seated)
   const furnitureRef = useRef(furniture)
   const joyRef = useRef(joy)
   const { camera, controls } = useThree()
+
+  const respawnToken = useAppStore((s) => s.respawnToken)
 
   seatedRef.current = player.seated
   furnitureRef.current = furniture
   joyRef.current = joy
 
   useEffect(() => {
+    const p = useAppStore.getState().players[player.id]
+    if (!p) return
+    pos.current.set(p.position[0], 0, p.position[2])
+    rotY.current = p.rotationY
+  }, [respawnToken, player.id])
+
+  useEffect(() => {
     if (!player.seated) return
     pos.current.set(...player.position)
     rotY.current = player.rotationY
   }, [player.seated, player.position[0], player.position[1], player.position[2], player.rotationY])
+
+  function tryAttack() {
+    if (seatedRef.current) return
+    const now = performance.now()
+    if (now - lastAttack.current < ATTACK_COOLDOWN_MS) return
+    lastAttack.current = now
+    emitAttack()
+  }
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -48,6 +67,7 @@ export function LocalController({
       if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
         e.preventDefault()
       }
+      if (e.code === 'KeyF') tryAttack()
       if (e.code === 'KeyE' && seatedRef.current) void emitSit(null)
     }
     const up = (e: KeyboardEvent) => {
@@ -55,9 +75,18 @@ export function LocalController({
     }
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
+    const onPointer = (e: PointerEvent) => {
+      if (e.button !== 0) return
+      const el = e.target as HTMLElement | null
+      if (el?.closest('button, input, textarea, .hud-bottom, .hud-top, .note-panel')) return
+      if (useAppStore.getState().pendingNote) return
+      tryAttack()
+    }
+    window.addEventListener('pointerdown', onPointer)
     return () => {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
+      window.removeEventListener('pointerdown', onPointer)
     }
   }, [])
 

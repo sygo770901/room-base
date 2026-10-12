@@ -1,7 +1,10 @@
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
-import { loadPersistedRoom, savePersistedRoom } from './persist.ts'
+import { PLAYER_MAX_HP } from '../shared/combat.ts'
+import { SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
+import { createMonsters, handleAttack, publicMonsters, tickRoom } from './combat.ts'
+import { loadPersistedRoom, savePersistedRoom } from './persist.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
 export interface RoomState {
@@ -11,6 +14,9 @@ export interface RoomState {
   notes: StickyNote[]
   seats: Record<string, string | null>
   furniture: FurnitureItem[]
+  monsters: ReturnType<typeof createMonsters>
+  hurtUntil: Record<string, number>
+  nextAttack: Record<string, number>
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -25,6 +31,9 @@ function createRoom(roomId: string): RoomState {
     notes: persisted.notes,
     seats: {},
     furniture: persisted.furniture,
+    monsters: createMonsters(),
+    hurtUntil: {},
+    nextAttack: {},
   }
 }
 
@@ -49,6 +58,7 @@ function publicRoom(room: RoomState) {
     notes: room.notes,
     seats: room.seats,
     furniture: room.furniture,
+    monsters: publicMonsters(room.monsters),
   }
 }
 
@@ -93,14 +103,16 @@ export function attachSocketServer(httpServer: HttpServer) {
 
         const color = COLORS[Object.keys(room.players).length % COLORS.length]
         const spawnIndex = Object.keys(room.players).length
+        const sp = SPAWN_POINTS[spawnIndex % SPAWN_POINTS.length]
         const player: PlayerState = {
           id: socket.id,
           name,
           color,
-          position: [-4.2 + spawnIndex * 0.55, 0, 2.4],
-          rotationY: Math.PI,
+          position: [sp.x, 0, sp.z],
+          rotationY: 0,
           seated: null,
           role,
+          hp: PLAYER_MAX_HP,
         }
 
         room.players[socket.id] = player
@@ -269,6 +281,13 @@ export function attachSocketServer(httpServer: HttpServer) {
       })
     })
 
+    socket.on('attack', () => {
+      if (!currentRoomId) return
+      const room = rooms.get(currentRoomId)
+      if (!room) return
+      handleAttack(room, socket.id, io, Date.now())
+    })
+
     socket.on('voice:signal', (payload: { to: string; data: unknown }) => {
       if (!currentRoomId || !payload?.to) return
       io.to(payload.to).emit('voice:signal', { from: socket.id, data: payload.data })
@@ -300,6 +319,14 @@ export function attachSocketServer(httpServer: HttpServer) {
       }
     })
   })
+
+  setInterval(() => {
+    const now = Date.now()
+    for (const room of rooms.values()) {
+      if (Object.keys(room.players).length === 0) continue
+      tickRoom(room, io, now, 0.1)
+    }
+  }, 100)
 
   return io
 }

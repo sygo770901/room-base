@@ -1,3 +1,4 @@
+import { isWalkableWorld } from '../../shared/dungeon'
 import {
   INNER_WALLS,
   PLAYER_RADIUS,
@@ -7,6 +8,14 @@ import {
 } from '../../shared/furniture'
 
 export type Aabb = { minX: number; maxX: number; minZ: number; maxZ: number; id?: string }
+
+const STATIC_AABBS: Aabb[] = INNER_WALLS.map((w) => ({
+  minX: w.cx - w.hx,
+  maxX: w.cx + w.hx,
+  minZ: w.cz - w.hz,
+  maxZ: w.cz + w.hz,
+  id: 'wall',
+}))
 
 export function wallToAabb(w: WallBox): Aabb {
   return {
@@ -79,7 +88,7 @@ export function resolveFurniturePlace(
     maxZ: c.z + hz,
     id: moving.id,
   }
-  const walls = INNER_WALLS.map(wallToAabb)
+  const walls = STATIC_AABBS
   const others = furniture
     .filter((f) => f.id !== moving.id)
     .map(furnitureToAabb)
@@ -102,15 +111,18 @@ function tryMove(
   dx: number,
   dz: number,
   furniture: FurnitureItem[],
+  radius: number,
 ): MoveResult {
-  const r = PLAYER_RADIUS
+  const r = radius
   let nx = fromX + dx
   let nz = fromZ + dz
   const clamped = clampToRoom(nx, nz)
   nx = clamped.x
   nz = clamped.z
 
-  for (const w of INNER_WALLS.map(wallToAabb)) {
+  if (!isWalkableWorld(nx, nz, r)) return { x: fromX, z: fromZ }
+
+  for (const w of STATIC_AABBS) {
     if (circleHitsAabb(nx, nz, r, w)) return { x: fromX, z: fromZ }
   }
 
@@ -143,20 +155,21 @@ export function resolvePlayerMove(
   dx: number,
   dz: number,
   furniture: FurnitureItem[],
+  radius = PLAYER_RADIUS,
 ): MoveResult {
   let x = fromX
   let z = fromZ
   let pushed: MoveResult['pushed']
 
   if (dx !== 0) {
-    const rx = tryMove(x, z, dx, 0, furniture)
+    const rx = tryMove(x, z, dx, 0, furniture, radius)
     x = rx.x
     z = rx.z
     if (rx.pushed) pushed = rx.pushed
   }
   if (dz !== 0) {
     const furn = withPushed(furniture, pushed)
-    const rz = tryMove(x, z, 0, dz, furn)
+    const rz = tryMove(x, z, 0, dz, furn, radius)
     x = rz.x
     z = rz.z
     if (rz.pushed) pushed = rz.pushed

@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client'
 import type { FurnitureItem } from '../../shared/furniture'
-import type { PlayerState, RoomSnapshot, SeatId, StickyNote, Vec3 } from '../types'
+import type { MonsterState, PlayerState, RoomSnapshot, SeatId, StickyNote, Vec3 } from '../types'
 import { useAppStore } from '../store'
 import { startVoiceSession, stopVoiceSession } from './voice'
 
@@ -34,6 +34,28 @@ export function connectSocket() {
       position: payload.position,
       rotationY: payload.rotationY,
     })
+  })
+
+  socket.on('player:vitals', ({ id, hp }: { id: string; hp: number }) => {
+    useAppStore.getState().patchPlayer(id, { hp })
+  })
+
+  socket.on('player:respawn', (payload: { position: Vec3; hp: number; rotationY: number }) => {
+    const selfId = useAppStore.getState().selfId
+    if (!selfId) return
+    useAppStore.getState().patchPlayer(selfId, {
+      position: payload.position,
+      rotationY: payload.rotationY,
+      hp: payload.hp,
+      seated: null,
+    })
+    useAppStore.getState().bumpRespawn()
+    useAppStore.getState().setToast('你被打倒了，已送回入口')
+    setTimeout(() => useAppStore.getState().setToast(null), 2200)
+  })
+
+  socket.on('monsters:sync', (monsters: MonsterState[]) => {
+    useAppStore.getState().setMonsters(monsters)
   })
 
   socket.on('note:added', (note: StickyNote) => {
@@ -107,6 +129,10 @@ export function emitFurnitureMove(id: string, position: Vec3, rotationY?: number
 
 export function emitFurniturePush(id: string, position: Vec3) {
   socket?.emit('furniture:push', { id, position })
+}
+
+export function emitAttack() {
+  socket?.emit('attack')
 }
 
 export function disconnectSocket() {
