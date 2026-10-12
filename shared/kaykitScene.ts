@@ -73,14 +73,6 @@ export const KAYKIT_EXTRA_WALLS: WallBox[] = [
 ]
 
 export const KAYKIT_OCCLUDERS: OccBox[] = [
-  ...FLOOR_PLACES.map((floor) => ({
-    minX: floor.x - 2,
-    maxX: floor.x + 2,
-    minY: 4,
-    maxY: 4.45,
-    minZ: floor.z - 2,
-    maxZ: floor.z + 2,
-  })),
   { minX: 54.5, maxX: 61.5, minY: 0, maxY: 5.1, minZ: 12, maxZ: 16 },
   { minX: 93.5, maxX: 98.5, minY: 0, maxY: 5.1, minZ: 108, maxZ: 116 },
   { minX: 64.9, maxX: 67.1, minY: 0, maxY: 2.2, minZ: 24.85, maxZ: 27.15 },

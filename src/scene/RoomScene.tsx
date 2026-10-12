@@ -21,6 +21,10 @@ const MAX_PHI = 1.35
 const MIN_RADIUS = 4.2
 const MAX_RADIUS = 14
 const ROTATE_SPEED = 0.3
+// 天花板底在 y=4。鏡頭若沿斜上方向被牆擋檢測拉近，會貼進天花板裡。
+// KayKit 改把俯角放平、距離縮到天花板底下，不把鏡頭推進石磚。
+const KAYKIT_CAM_Y = 3.2
+const KAYKIT_MAX_RADIUS = 10.5
 const rigOffset = new THREE.Vector3()
 const rigSpherical = new THREE.Spherical()
 
@@ -88,7 +92,8 @@ function CameraRig() {
     const el = gl.domElement
     const arm = (scale: number) => {
       const next = saved.current
-      next.radius = THREE.MathUtils.clamp(next.radius * scale, MIN_RADIUS, MAX_RADIUS)
+      const maxR = useAppStore.getState().scene === 'kaykit' ? KAYKIT_MAX_RADIUS : MAX_RADIUS
+      next.radius = THREE.MathUtils.clamp(next.radius * scale, MIN_RADIUS, maxR)
     }
     const down = (e: PointerEvent) => {
       if (e.pointerType === 'touch') {
@@ -174,6 +179,16 @@ function CameraRig() {
         shot.ready = true
       }
     }
+    if (useAppStore.getState().scene === 'kaykit') {
+      const maxR = KAYKIT_MAX_RADIUS
+      shot.radius = THREE.MathUtils.clamp(shot.radius, MIN_RADIUS, maxR)
+      const rise = KAYKIT_CAM_Y - target.y
+      const flattest = Math.cos(MAX_PHI)
+      if (shot.radius * flattest > rise) shot.radius = rise / flattest
+      const phiFloor = Math.acos(THREE.MathUtils.clamp(rise / shot.radius, -1, 1))
+      if (shot.phi < phiFloor) shot.phi = phiFloor
+      shot.phi = THREE.MathUtils.clamp(shot.phi, MIN_PHI, MAX_PHI)
+    }
     rigSpherical.set(shot.radius, shot.phi, shot.theta)
     rigOffset.setFromSpherical(rigSpherical)
     camera.position.copy(target).add(rigOffset)
@@ -202,11 +217,7 @@ function CameraGuard() {
         const extra = useAppStore.getState().scene === 'kaykit' ? KAYKIT_OCCLUDERS : []
         const hit = rayOcclusion(target.x, target.y, target.z, dirx, diry, dirz, dist, extra)
         if (hit < dist - 0.2) {
-          let desired = Math.max(MIN_RADIUS, hit - 0.45)
-          if (extra.length && diry > 0.02) {
-            const underCeiling = (3.65 - target.y) / diry
-            if (underCeiling > 1.6) desired = Math.min(desired, underCeiling)
-          }
+          const desired = Math.max(MIN_RADIUS, hit - 0.45)
           if (desired < dist) {
             const nd = THREE.MathUtils.damp(dist, desired, 3, dt)
             camera.position.set(target.x + dirx * nd, target.y + diry * nd, target.z + dirz * nd)
@@ -281,11 +292,15 @@ function SceneContent() {
 }
 
 export function RoomScene() {
+  const kaykit = useAppStore((s) => s.scene) === 'kaykit'
+  const cameraPos: [number, number, number] = kaykit
+    ? [SPAWN.x + 5.5, KAYKIT_CAM_Y, SPAWN.z + 6.8]
+    : [SPAWN.x + 7, 9, SPAWN.z + 9]
   return (
     <Canvas
       shadows
       gl={{ toneMappingExposure: 1.35 }}
-      camera={{ position: [SPAWN.x + 7, 9, SPAWN.z + 9], fov: 48, near: 0.1, far: 180 }}
+      camera={{ position: cameraPos, fov: 48, near: 0.1, far: 180 }}
       style={{ width: '100%', height: '100%', touchAction: 'none' }}
     >
       <SceneContent />
