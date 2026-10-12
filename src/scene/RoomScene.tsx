@@ -68,22 +68,26 @@ function FollowLight() {
 }
 
 function CameraGuard() {
-  const { camera, controls } = useThree()
+  const { camera, controls, gl, scene } = useThree()
+  // priority > 0 會關掉 Fiber 的自動 render，這一層必須自己畫，否則畫布維持透明。
   useFrame(() => {
     const orbit = controls as { target?: THREE.Vector3 } | null
     const target = orbit?.target
-    if (!target) return
-    const dx = camera.position.x - target.x
-    const dy = camera.position.y - target.y
-    const dz = camera.position.z - target.z
-    const dist = Math.hypot(dx, dy, dz)
-    if (dist < 1.25) return
-    const inv = 1 / dist
-    const hit = rayOcclusion(target.x, target.y, target.z, dx * inv, dy * inv, dz * inv, dist)
-    if (hit < dist - 0.15) {
-      const nd = Math.max(1.2, hit - 0.32)
-      camera.position.set(target.x + (dx * inv) * nd, target.y + (dy * inv) * nd, target.z + (dz * inv) * nd)
+    if (target) {
+      const dx = camera.position.x - target.x
+      const dy = camera.position.y - target.y
+      const dz = camera.position.z - target.z
+      const dist = Math.hypot(dx, dy, dz)
+      if (dist >= 1.25) {
+        const inv = 1 / dist
+        const hit = rayOcclusion(target.x, target.y, target.z, dx * inv, dy * inv, dz * inv, dist)
+        if (hit < dist - 0.15) {
+          const nd = Math.max(1.2, hit - 0.32)
+          camera.position.set(target.x + (dx * inv) * nd, target.y + (dy * inv) * nd, target.z + (dz * inv) * nd)
+        }
+      }
     }
+    gl.render(scene, camera)
   }, 1)
   return null
 }
