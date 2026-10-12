@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react'
-import { disconnectSocket, emitAttack } from '../net/socket'
+import { disconnectSocket, emitAddNote, emitRemoveNote, emitUpdateNote, performAttack } from '../net/socket'
 import { setMicEnabled } from '../net/voice'
 import { useAppStore } from '../store'
 import { VirtualJoystick } from './VirtualJoystick'
@@ -11,13 +11,19 @@ export function Hud() {
   const toast = useAppStore((s) => s.toast)
   const micOn = useAppStore((s) => s.micOn)
   const pendingNote = useAppStore((s) => s.pendingNote)
+  const noteAsk = useAppStore((s) => s.noteAsk)
+  const notes = useAppStore((s) => s.notes)
   const setMicOn = useAppStore((s) => s.setMicOn)
   const setToast = useAppStore((s) => s.setToast)
   const setPendingNote = useAppStore((s) => s.setPendingNote)
+  const setNoteAsk = useAppStore((s) => s.setNoteAsk)
   const self = selfId ? players[selfId] : null
   const [note, setNote] = useState('')
   const [fontSize, setFontSize] = useState(0.12)
   const [busyMic, setBusyMic] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editText, setEditText] = useState('')
+  const managed = noteAsk?.kind === 'manage' ? notes.find((n) => n.id === noteAsk.id) : null
 
   function armNote(e: FormEvent) {
     e.preventDefault()
@@ -74,27 +80,24 @@ export function Hud() {
 
       <VirtualJoystick />
 
+      <div className="dock">
+        <button type="button" className="hud-btn attack-btn" onClick={() => performAttack()}>
+          攻擊
+        </button>
+        <button type="button" className="hud-btn" onClick={() => void toggleMic()} disabled={busyMic}>
+          {micOn ? '語音開' : '語音關'}
+        </button>
+        <button type="button" className="hud-btn" onClick={() => disconnectSocket()}>
+          離開
+        </button>
+      </div>
+
       <div className="hud-bottom">
         <div className="help">
-          WASD／搖桿：移動（相對鏡頭）· 右鍵拖曳：繞角色看 · 滾輪縮放
+          WASD／搖桿移動 · 右鍵繞角色看 · 滾輪縮放（被牆擋住會自動拉近）
           <br />
-          左鍵或 F：朝面朝方向打怪 · 牆和木箱擋視線 · 被打倒會送回入口
-          <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" className="hud-btn" onClick={() => emitAttack()}>
-              攻擊
-            </button>
-            <button type="button" className="hud-btn" onClick={() => void toggleMic()} disabled={busyMic}>
-              {micOn ? '語音開' : '語音關'}
-            </button>
-            {pendingNote && (
-              <button type="button" className="hud-btn" onClick={() => setPendingNote(null)}>
-                取消貼籤
-              </button>
-            )}
-            <button type="button" className="hud-btn" onClick={() => disconnectSocket()}>
-              離開
-            </button>
-          </div>
+          左鍵或 F 揮劍 · E 靠木箱躲藏，再走會離開
+          {pendingNote ? ' · 移動滑鼠看虛影，點地面後確認' : ''}
         </div>
         <form className="note-panel" onSubmit={armNote}>
           <div className="note-font">
@@ -117,8 +120,105 @@ export function Hud() {
             maxLength={80}
           />
           <button type="submit">貼上</button>
+          {pendingNote && (
+            <button type="button" onClick={() => setPendingNote(null)}>
+              取消
+            </button>
+          )}
         </form>
       </div>
+
+      {noteAsk?.kind === 'place' && (
+        <div className="modal">
+          <p>要把便籤貼在這裡嗎？</p>
+          <p className="modal-preview">{noteAsk.text}</p>
+          <div className="modal-actions">
+            <button
+              type="button"
+              onClick={() => {
+                void emitAddNote(noteAsk.text, noteAsk.position, noteAsk.fontSize).then(() => {
+                  setPendingNote(null)
+                  setNoteAsk(null)
+                  setToast('便籤已貼上')
+                  setTimeout(() => setToast(null), 1400)
+                })
+              }}
+            >
+              確認貼上
+            </button>
+            <button type="button" className="ghost" onClick={() => setNoteAsk(null)}>
+              換個位置
+            </button>
+          </div>
+        </div>
+      )}
+
+      {noteAsk?.kind === 'manage' && managed && (
+        <div className="modal">
+          {editing ? (
+            <>
+              <p>編輯便籤</p>
+              <textarea value={editText} maxLength={80} onChange={(e) => setEditText(e.target.value)} />
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = editText.trim()
+                    if (!text) return
+                    emitUpdateNote(managed.id, text, managed.fontSize)
+                    setEditing(false)
+                    setNoteAsk(null)
+                  }}
+                >
+                  儲存
+                </button>
+                <button type="button" className="ghost" onClick={() => setEditing(false)}>
+                  返回
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p>
+                {managed.author}：{managed.text}
+              </p>
+              <div className="modal-actions">
+                {managed.authorId === selfId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditText(managed.text)
+                      setEditing(true)
+                    }}
+                  >
+                    編輯內容
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    emitRemoveNote(managed.id)
+                    setNoteAsk(null)
+                    setEditing(false)
+                  }}
+                >
+                  拆除
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    setNoteAsk(null)
+                    setEditing(false)
+                  }}
+                >
+                  取消
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }

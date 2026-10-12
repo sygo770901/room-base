@@ -1,5 +1,7 @@
 import { io, Socket } from 'socket.io-client'
+import { ATTACK_COOLDOWN_MS } from '../../shared/combat'
 import type { FurnitureItem } from '../../shared/furniture'
+import { attackBlocked } from '../scene/inputLock'
 import type { MonsterState, PlayerState, RoomSnapshot, SeatId, StickyNote, Vec3 } from '../types'
 import { useAppStore } from '../store'
 import { startVoiceSession, stopVoiceSession } from './voice'
@@ -66,6 +68,18 @@ export function connectSocket() {
     useAppStore.getState().removeNote(id)
   })
 
+  socket.on('note:updated', (note: StickyNote) => {
+    useAppStore.getState().patchNote(note)
+  })
+
+  socket.on('player:swing', ({ id }: { id: string }) => {
+    useAppStore.getState().setSwing(id, performance.now())
+  })
+
+  socket.on('player:hidden', ({ id, hidden }: { id: string; hidden: boolean }) => {
+    useAppStore.getState().patchPlayer(id, { hidden })
+  })
+
   socket.on(
     'furniture:updated',
     (payload: { id: string; position: Vec3; rotationY: number }) => {
@@ -117,6 +131,26 @@ export function emitAddNote(text: string, position?: Vec3, fontSize?: number) {
 
 export function emitRemoveNote(id: string) {
   socket?.emit('note:remove', { id })
+}
+
+export function emitUpdateNote(id: string, text: string, fontSize?: number) {
+  socket?.emit('note:update', { id, text, fontSize })
+}
+
+export function emitHide(hidden: boolean) {
+  socket?.emit('hide', { hidden })
+}
+
+let lastAttackAt = 0
+export function performAttack() {
+  const now = performance.now()
+  if (attackBlocked()) return
+  const state = useAppStore.getState()
+  if (state.pendingNote || state.noteAsk) return
+  if (now - lastAttackAt < ATTACK_COOLDOWN_MS) return
+  lastAttackAt = now
+  if (state.selfId) state.setSwing(state.selfId, now)
+  socket?.emit('attack')
 }
 
 export function emitFurnitureMove(id: string, position: Vec3, rotationY?: number) {

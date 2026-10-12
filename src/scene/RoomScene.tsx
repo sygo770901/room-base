@@ -3,14 +3,13 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { MOUSE, TOUCH } from 'three'
 import * as THREE from 'three'
-import { SPAWN_POINTS } from '../../shared/dungeon'
+import { rayOcclusion, SPAWN_POINTS } from '../../shared/dungeon'
 import { NotePlacementPlane, StickyNotes3D } from './Furniture'
 import { Dungeon } from './Dungeon'
 import { Monsters } from './Monsters'
 import { LocalAvatar, RemotePlayers } from './Players'
 import { LocalController } from './LocalController'
 import { useAppStore } from '../store'
-import { emitRemoveNote } from '../net/socket'
 import type { PlayerState, Vec3 } from '../types'
 
 const SPAWN = SPAWN_POINTS[0] ?? { x: 80, z: 22 }
@@ -64,6 +63,27 @@ function FollowLight() {
   )
 }
 
+function CameraGuard() {
+  const { camera, controls } = useThree()
+  useFrame(() => {
+    const orbit = controls as { target?: THREE.Vector3 } | null
+    const target = orbit?.target
+    if (!target) return
+    const dx = camera.position.x - target.x
+    const dy = camera.position.y - target.y
+    const dz = camera.position.z - target.z
+    const dist = Math.hypot(dx, dy, dz)
+    if (dist < 1.25) return
+    const inv = 1 / dist
+    const hit = rayOcclusion(target.x, target.y, target.z, dx * inv, dy * inv, dz * inv, dist)
+    if (hit < dist - 0.15) {
+      const nd = Math.max(1.2, hit - 0.32)
+      camera.position.set(target.x + (dx * inv) * nd, target.y + (dy * inv) * nd, target.z + (dz * inv) * nd)
+    }
+  }, 1)
+  return null
+}
+
 function SceneContent() {
   const selfId = useAppStore((s) => s.selfId)
   const players = useAppStore((s) => s.players)
@@ -94,12 +114,7 @@ function SceneContent() {
         <Monsters />
       </Suspense>
 
-      <StickyNotes3D
-        notes={notes}
-        selfId={selfId}
-        isHost={isHost}
-        onRemove={(id) => emitRemoveNote(id)}
-      />
+      <StickyNotes3D notes={notes} selfId={selfId} isHost={isHost} />
       <NotePlacementPlane />
 
       <RemotePlayers players={players} selfId={selfId} />
@@ -110,6 +125,8 @@ function SceneContent() {
           onPose={(position, rotationY) => setLocalPose({ position, rotationY })}
         />
       )}
+
+      <CameraGuard />
 
       <OrbitControls
         makeDefault

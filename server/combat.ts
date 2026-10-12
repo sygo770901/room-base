@@ -115,6 +115,7 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
     let target: PlayerState | null = null
     let best = SIGHT
     for (const p of Object.values(room.players)) {
+      if (p.hidden) continue
       const d = Math.hypot(p.position[0] - m.x, p.position[2] - m.z)
       if (d > SIGHT || d >= best) continue
       if (!hasLineOfSight(m.x, m.z, p.position[0], p.position[2])) continue
@@ -163,6 +164,7 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
   if (!player || player.seated) return
   if ((room.nextAttack[playerId] ?? 0) > now) return
   room.nextAttack[playerId] = now + ATTACK_COOLDOWN_MS
+  io.to(room.roomId).except(playerId).emit('player:swing', { id: playerId })
 
   const fx = Math.sin(player.rotationY)
   const fz = Math.cos(player.rotationY)

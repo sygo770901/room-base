@@ -13,6 +13,7 @@ export interface PlayerState {
   seated: SeatId | null
   role: 'host' | 'guest'
   hp: number
+  hidden?: boolean
 }
 
 export interface StickyNote {

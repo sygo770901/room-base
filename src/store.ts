@@ -3,6 +3,10 @@ import { type MonsterState } from '../shared/combat'
 import { DEFAULT_FURNITURE, type FurnitureItem } from '../shared/furniture'
 import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
 
+export type NoteAsk =
+  | { kind: 'place'; position: Vec3; text: string; fontSize: number }
+  | { kind: 'manage'; id: string }
+
 interface AppState {
   phase: 'lobby' | 'room'
   selfId: string | null
@@ -22,13 +26,16 @@ interface AppState {
   /** 被怪物打倒後遞增，讓本地控制器把座標拉回入口 */
   respawnToken: number
   pendingNote: { text: string; fontSize: number } | null
+  noteAsk: NoteAsk | null
+  swings: Record<string, number>
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
   upsertPlayer: (player: PlayerState) => void
   removePlayer: (id: string) => void
-  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp'>>) => void
+  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp' | 'hidden'>>) => void
   addNote: (note: StickyNote) => void
+  patchNote: (note: StickyNote) => void
   removeNote: (id: string) => void
   patchFurniture: (id: string, patch: Partial<Pick<FurnitureItem, 'position' | 'rotationY'>>) => void
   setFurniture: (furniture: FurnitureItem[]) => void
@@ -37,6 +44,8 @@ interface AppState {
   setFollowCam: (on: boolean) => void
   setJoy: (x: number, y: number) => void
   setPendingNote: (note: { text: string; fontSize: number } | null) => void
+  setNoteAsk: (ask: NoteAsk | null) => void
+  setSwing: (id: string, at: number) => void
   setMonsters: (monsters: MonsterState[]) => void
   bumpRespawn: () => void
   leaveToLobby: () => void
@@ -59,6 +68,8 @@ export const useAppStore = create<AppState>((set) => ({
   joy: { x: 0, y: 0 },
   respawnToken: 0,
   pendingNote: null,
+  noteAsk: null,
+  swings: {},
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
     set({
@@ -97,6 +108,7 @@ export const useAppStore = create<AppState>((set) => ({
       return { players: { ...s.players, [id]: { ...prev, ...patch } } }
     }),
   addNote: (note) => set((s) => ({ notes: [...s.notes.filter((n) => n.id !== note.id), note] })),
+  patchNote: (note) => set((s) => ({ notes: s.notes.map((n) => (n.id === note.id ? note : n)) })),
   removeNote: (id) => set((s) => ({ notes: s.notes.filter((n) => n.id !== id) })),
   patchFurniture: (id, patch) =>
     set((s) => ({
@@ -107,7 +119,9 @@ export const useAppStore = create<AppState>((set) => ({
   setMicOn: (on) => set({ micOn: on }),
   setFollowCam: (on) => set({ followCam: on }),
   setJoy: (x, y) => set({ joy: { x, y } }),
-  setPendingNote: (note) => set({ pendingNote: note }),
+  setPendingNote: (note) => set({ pendingNote: note, noteAsk: null }),
+  setNoteAsk: (ask) => set({ noteAsk: ask }),
+  setSwing: (id, at) => set((s) => ({ swings: { ...s.swings, [id]: at } })),
   setMonsters: (monsters) => set({ monsters }),
   bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
   leaveToLobby: () =>
@@ -122,6 +136,8 @@ export const useAppStore = create<AppState>((set) => ({
       hostId: null,
       micOn: false,
       pendingNote: null,
+      noteAsk: null,
+      swings: {},
       joy: { x: 0, y: 0 },
     }),
 }))

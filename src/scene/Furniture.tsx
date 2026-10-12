@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { ThreeEvent, useLoader, useThree } from '@react-three/fiber'
+import { ThreeEvent, useFrame, useLoader, useThree } from '@react-three/fiber'
+import { Billboard } from '@react-three/drei'
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import * as THREE from 'three'
+import { isWalkableWorld } from '../../shared/dungeon'
 import { INNER_WALLS, ROOM_BOUNDS, type FurnitureItem } from '../../shared/furniture'
-import { emitAddNote, emitFurnitureMove } from '../net/socket'
+import { emitFurnitureMove } from '../net/socket'
 import { resolveFurniturePlace } from '../physics/collision'
+import { blockAttack } from './inputLock'
 import { useAppStore } from '../store'
 
 const MODEL_BASE = '/assets/kenney/Models'
@@ -329,46 +332,81 @@ export function SeatMarkers({
 /** 點地板貼便籤 */
 export function NotePlacementPlane() {
   const pending = useAppStore((s) => s.pendingNote)
-  const setPendingNote = useAppStore((s) => s.setPendingNote)
   const setToast = useAppStore((s) => s.setToast)
   const { raycaster, camera, gl } = useThree()
   const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
   const hit = useMemo(() => new THREE.Vector3(), [])
 
+  const noteAsk = useAppStore((s) => s.noteAsk)
+  const setNoteAsk = useAppStore((s) => s.setNoteAsk)
+  const ghost = useRef<THREE.Group>(null)
+  const pointer = useRef(new THREE.Vector2(0, 0))
+
   useEffect(() => {
-    if (!pending) return
-    const onClick = (ev: PointerEvent) => {
+    const move = (ev: PointerEvent) => {
       const rect = gl.domElement.getBoundingClientRect()
-      const x = ((ev.clientX - rect.left) / rect.width) * 2 - 1
-      const y = -((ev.clientY - rect.top) / rect.height) * 2 + 1
-      raycaster.setFromCamera(new THREE.Vector2(x, y), camera)
+      pointer.current.set(
+        ((ev.clientX - rect.left) / rect.width) * 2 - 1,
+        -((ev.clientY - rect.top) / rect.height) * 2 + 1,
+      )
+    }
+    window.addEventListener('pointermove', move)
+    return () => window.removeEventListener('pointermove', move)
+  }, [gl])
+
+  useFrame(() => {
+    if (!ghost.current) return
+    if (noteAsk?.kind === 'place') {
+      ghost.current.position.set(noteAsk.position[0], noteAsk.position[1], noteAsk.position[2])
+      ghost.current.visible = true
+      return
+    }
+    if (!pending) return
+    raycaster.setFromCamera(pointer.current, camera)
+    if (!raycaster.ray.intersectPlane(plane, hit) || !isWalkableWorld(hit.x, hit.z, 0)) {
+      ghost.current.visible = false
+      return
+    }
+    ghost.current.position.set(hit.x, 1.25, hit.z)
+    ghost.current.visible = true
+  })
+
+  useEffect(() => {
+    if (!pending || noteAsk) return
+    const onClick = (ev: PointerEvent) => {
+      const el = ev.target as HTMLElement | null
+      if (el?.closest('button, input, textarea, .modal, .note-panel, .hud-top, .dock')) return
+      raycaster.setFromCamera(pointer.current, camera)
       if (!raycaster.ray.intersectPlane(plane, hit)) return
-      const pos: [number, number, number] = [
-        Math.max(ROOM_BOUNDS.minX, Math.min(ROOM_BOUNDS.maxX, hit.x)),
-        0.9 + pending.fontSize,
-        Math.max(ROOM_BOUNDS.minZ, Math.min(ROOM_BOUNDS.maxZ, hit.z)),
-      ]
-      void emitAddNote(pending.text, pos, pending.fontSize).then(() => {
-        setPendingNote(null)
-        setToast('便籤已貼上')
-        setTimeout(() => setToast(null), 1600)
+      if (!isWalkableWorld(hit.x, hit.z, 0)) {
+        setToast('這裡貼不上')
+        setTimeout(() => setToast(null), 1400)
+        return
+      }
+      blockAttack()
+      setNoteAsk({
+        kind: 'place',
+        text: pending.text,
+        fontSize: pending.fontSize,
+        position: [hit.x, 1.25, hit.z],
       })
     }
     window.addEventListener('pointerdown', onClick)
     return () => window.removeEventListener('pointerdown', onClick)
-  }, [pending, camera, gl, plane, hit, raycaster, setPendingNote, setToast])
-
-  const w = ROOM_BOUNDS.maxX - ROOM_BOUNDS.minX
-  const d = ROOM_BOUNDS.maxZ - ROOM_BOUNDS.minZ
-  const cx = (ROOM_BOUNDS.minX + ROOM_BOUNDS.maxX) / 2
-  const cz = (ROOM_BOUNDS.minZ + ROOM_BOUNDS.maxZ) / 2
+  }, [pending, noteAsk, camera, plane, hit, raycaster, setNoteAsk, setToast])
 
   if (!pending) return null
+  const w = pending.fontSize * 4.2
+  const h = pending.fontSize * 3.2
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0.02, cz]}>
-      <planeGeometry args={[w, d]} />
-      <meshBasicMaterial color="#81b29a" transparent opacity={0.08} depthWrite={false} />
-    </mesh>
+    <group ref={ghost} visible={false}>
+      <Billboard>
+        <mesh>
+          <planeGeometry args={[w, h]} />
+          <meshBasicMaterial color="#ffe566" transparent opacity={0.4} depthWrite={false} />
+        </mesh>
+      </Billboard>
+    </group>
   )
 }
 
@@ -376,28 +414,28 @@ export function StickyNotes3D({
   notes,
   selfId,
   isHost,
-  onRemove,
 }: {
   notes: import('../types').StickyNote[]
   selfId: string | null
   isHost: boolean
-  onRemove: (id: string) => void
 }) {
+  const setNoteAsk = useAppStore((s) => s.setNoteAsk)
   return (
     <group>
       {notes.map((note) => (
-        <group key={note.id} position={note.position}>
+        <Billboard key={note.id} position={note.position}>
           <mesh
-            onClick={(e) => {
+            onPointerDown={(e) => {
               e.stopPropagation()
-              if (note.authorId === selfId || isHost) onRemove(note.id)
+              blockAttack()
+              if (note.authorId === selfId || isHost) setNoteAsk({ kind: 'manage', id: note.id })
             }}
           >
             <planeGeometry args={[note.fontSize * 4.2, note.fontSize * 3.2]} />
-            <meshStandardMaterial color={note.color} />
+            <meshBasicMaterial color={note.color} />
           </mesh>
           <NoteLabel text={`${note.author}: ${note.text}`} fontSize={note.fontSize} />
-        </group>
+        </Billboard>
       ))}
     </group>
   )
@@ -407,14 +445,15 @@ function NoteLabel({ text, fontSize }: { text: string; fontSize: number }) {
   const texture = useMemo(() => {
     const canvas = document.createElement('canvas')
     canvas.width = 512
-    canvas.height = 256
+    canvas.height = 320
     const ctx = canvas.getContext('2d')!
-    ctx.fillStyle = '#111'
-    const px = Math.max(22, Math.min(64, fontSize * 280))
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = '#1a1408'
+    const px = Math.max(28, Math.min(72, fontSize * 300))
     ctx.font = `bold ${px}px sans-serif`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    wrapText(ctx, text, 256, 128, 460, px * 1.15)
+    wrapText(ctx, text, 256, 160, 460, px * 1.2)
     const tex = new THREE.CanvasTexture(canvas)
     tex.needsUpdate = true
     return tex
@@ -422,10 +461,20 @@ function NoteLabel({ text, fontSize }: { text: string; fontSize: number }) {
 
   useEffect(() => () => texture.dispose(), [texture])
 
+  const w = fontSize * 3.9
+  const h = fontSize * 2.4
   return (
-    <sprite position={[0, 0, 0.02]} scale={[fontSize * 4.2, fontSize * 2.1, 1]}>
-      <spriteMaterial map={texture} transparent depthWrite={false} />
-    </sprite>
+    <mesh position={[0, 0, 0.02]} renderOrder={2}>
+      <planeGeometry args={[w, h]} />
+      <meshBasicMaterial
+        map={texture}
+        transparent
+        depthWrite={false}
+        polygonOffset
+        polygonOffsetFactor={-2}
+        polygonOffsetUnits={-2}
+      />
+    </mesh>
   )
 }
 

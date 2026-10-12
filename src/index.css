@@ -257,9 +257,120 @@ input {
   pointer-events: none;
 }
 
+.dock {
+  position: absolute;
+  right: 16px;
+  top: 46%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+  z-index: 14;
+}
+
+.attack-btn {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: #c44536;
+  color: #fff;
+  font-size: 1rem;
+}
+
+.modal {
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  transform: translate(-50%, -50%);
+  z-index: 40;
+  width: min(360px, calc(100% - 32px));
+  background: rgba(22, 18, 16, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.modal p {
+  margin: 0 0 8px;
+}
+
+.modal-preview {
+  opacity: 0.8;
+}
+
+.modal textarea {
+  width: 100%;
+  min-height: 72px;
+  margin: 8px 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.35);
+  color: inherit;
+  padding: 8px;
+  resize: vertical;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.modal-actions button {
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #f2cc8f;
+  color: #2b2112;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.modal-actions button.ghost {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f4f1ec;
+}
+
 @media (pointer: coarse), (max-width: 900px) {
   .joystick {
     display: flex;
+    left: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    width: 100px;
+    height: 100px;
+  }
+
+  .hud-bottom {
+    left: 12px;
+    right: 12px;
+    bottom: calc(124px + env(safe-area-inset-bottom));
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .help {
+    display: none;
+  }
+
+  .note-panel {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .dock {
+    top: auto;
+    transform: none;
+    right: 12px;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .player-list {
+    max-width: 46vw;
+    max-height: 28vh;
+    overflow: auto;
   }
 }
 

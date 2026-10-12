@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
+import { useAppStore } from '../store'
 import type { PlayerState } from '../types'
 
 const SKIN = '#f0c9a8'
@@ -47,6 +48,9 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
   const phase = useRef(0)
   const swing = useRef(0)
   const seated = player.seated
+  const swingAt = useAppStore((s) => s.swings[player.id] ?? 0)
+  const swingRef = useRef(0)
+  if (swingAt > swingRef.current) swingRef.current = swingAt
 
   useFrame((_, dt) => {
     const here = new THREE.Vector3(player.position[0], player.position[1], player.position[2])
@@ -80,6 +84,16 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
     if (kneeR.current) kneeR.current.rotation.x = bendOpp
     if (elbowL.current) elbowL.current.rotation.x = -0.15 - bendOpp * 0.4
     if (elbowR.current) elbowR.current.rotation.x = -0.15 - bend * 0.4
+
+    const age = (performance.now() - swingRef.current) / 1000
+    if (age >= 0 && age < 0.42) {
+      const k = Math.sin((age / 0.42) * Math.PI)
+      if (armR.current) {
+        armR.current.rotation.x = -2.2 * k
+        armR.current.rotation.z = 0.45 * k
+      }
+      if (elbowR.current) elbowR.current.rotation.x = -1.25 * k
+    }
   })
 
   const shirt = player.color
@@ -87,6 +101,7 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
 
   return (
     <group position={player.position} rotation={[0, player.rotationY, 0]}>
+      <group scale={[1, player.hidden ? 0.58 : 1, 1]}>
       {/* 左腿：大腿樞紐在髖 */}
       <group ref={legL} position={[-0.1, 0.86, 0]}>
         <Limb args={[0.07, 0.28]} position={[0, -0.2, 0]} color={PANTS} radius={0.065} />
@@ -139,6 +154,10 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
             <sphereGeometry args={[0.045, 10, 10]} />
             <meshStandardMaterial color={SKIN} roughness={0.55} />
           </mesh>
+          <mesh position={[0, -0.46, 0.04]} rotation={[0.35, 0, 0]} castShadow>
+            <boxGeometry args={[0.05, 0.52, 0.08]} />
+            <meshStandardMaterial color="#ece7dc" metalness={0.62} roughness={0.28} />
+          </mesh>
         </group>
       </group>
 
@@ -167,8 +186,9 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
         <capsuleGeometry args={[0.012, 0.03, 3, 6]} />
         <meshStandardMaterial color="#e0b090" />
       </mesh>
+      </group>
 
-      <Billboard position={[0, 1.9, 0]}>
+      <Billboard position={[0, player.hidden ? 1.25 : 1.9, 0]}>
         <Text
           fontSize={0.16}
           color={isSelf ? '#f2cc8f' : '#ffffff'}
@@ -179,6 +199,7 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
         >
           {player.name}
           {player.role === 'host' ? ' · 房主' : ''}
+          {player.hidden ? ' · 躲藏' : ''}
         </Text>
       </Billboard>
     </group>

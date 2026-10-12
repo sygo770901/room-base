@@ -1,7 +1,7 @@
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import { PLAYER_MAX_HP } from '../shared/combat.ts'
-import { SPAWN_POINTS } from '../shared/dungeon.ts'
+import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
 import { createMonsters, handleAttack, publicMonsters, tickRoom } from './combat.ts'
 import { loadPersistedRoom, savePersistedRoom } from './persist.ts'
@@ -113,6 +113,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           seated: null,
           role,
           hp: PLAYER_MAX_HP,
+          hidden: false,
         }
 
         room.players[socket.id] = player
@@ -133,6 +134,13 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (!room) return
       const player = room.players[socket.id]
       if (!player || player.seated) return
+      if (player.hidden) {
+        const moved = Math.hypot(payload.position[0] - player.position[0], payload.position[2] - player.position[2])
+        if (moved > 0.2) {
+          player.hidden = false
+          io.to(currentRoomId).emit('player:hidden', { id: socket.id, hidden: false })
+        }
+      }
       player.position = payload.position
       player.rotationY = payload.rotationY
       socket.to(currentRoomId).emit('player:moved', {
@@ -213,6 +221,21 @@ export function attachSocketServer(httpServer: HttpServer) {
       },
     )
 
+    socket.on('note:update', (payload: { id: string; text: string; fontSize?: number }) => {
+      if (!currentRoomId) return
+      const room = rooms.get(currentRoomId)
+      if (!room) return
+      const player = room.players[socket.id]
+      const note = room.notes.find((n) => n.id === payload.id)
+      if (!player || !note || note.authorId !== socket.id) return
+      const text = (payload.text || '').trim().slice(0, 80)
+      if (!text) return
+      note.text = text
+      if (typeof payload.fontSize === 'number') note.fontSize = Math.max(0.06, Math.min(0.4, payload.fontSize))
+      persist(room)
+      io.to(currentRoomId).emit('note:updated', note)
+    })
+
     socket.on('note:remove', (payload: { id: string }) => {
       if (!currentRoomId) return
       const room = rooms.get(currentRoomId)
@@ -279,6 +302,23 @@ export function attachSocketServer(httpServer: HttpServer) {
         position: item.position,
         rotationY: item.rotationY,
       })
+    })
+
+    socket.on('hide', (payload: { hidden: boolean }) => {
+      if (!currentRoomId) return
+      const room = rooms.get(currentRoomId)
+      if (!room) return
+      const player = room.players[socket.id]
+      if (!player) return
+      const want = !!payload?.hidden
+      if (want) {
+        const near = HIDE_SPOTS.some(
+          (s) => Math.hypot(s.x - player.position[0], s.z - player.position[2]) <= HIDE_RANGE,
+        )
+        if (!near) return
+      }
+      player.hidden = want
+      io.to(currentRoomId).emit('player:hidden', { id: socket.id, hidden: want })
     })
 
     socket.on('attack', () => {

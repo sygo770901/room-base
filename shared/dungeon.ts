@@ -371,14 +371,60 @@ addProp('tableMedium.gltf.glb', 5, 20, 1.2, 0, 1, 0.6, true)
 addProp('banner.gltf.glb', 16, 30, 0, 2.53, 0, 0, false)
 addProp('banner.gltf.glb', 24, 30, Math.PI, 2.53, 0, 0, false)
 
-let crateToggle = 0
+const hideSpots: PatrolPoint[] = []
+const DIRS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+] as const
+
+function nearProp(x: number, z: number, r: number) {
+  const r2 = r * r
+  return props.some((p) => (p.x - x) * (p.x - x) + (p.z - z) * (p.z - z) < r2)
+}
+
 for (const [gx, gz] of deadEnds) {
   if (rogueKeys.has(keyOf(gx, gz))) continue
   if (gx >= 14 && gx <= 26 && gz >= 2 && gz <= 7) continue
-  if (crateToggle++ % 2 !== 0) continue
+  let nx = 0
+  let nz = -1
+  for (const [dx, dz] of DIRS) {
+    if (isFloorCell(gx + dx, gz + dz)) {
+      nx = dx
+      nz = dz
+    }
+  }
   const dark = (gx + gz) % 4 === 0
-  addProp(dark ? 'crateDark.gltf.glb' : 'crate.gltf.glb', gx, gz, ((gx * 3) % 5) * 0.3, 0.53, 0.48, 0.48, true)
-  if (props.length > 80) break
+  addProp(dark ? 'crateDark.gltf.glb' : 'crate.gltf.glb', gx, gz, 0.4, 0.53, 0.48, 0.48, true, false, nx * 0.9, nz * 0.9)
+  addProp((gx + gz) % 2 ? 'barrel.gltf.glb' : 'barrelDark.gltf.glb', gx, gz, 0.8, 0.4, 0.42, 0.42, true, false, -nz * 0.75, nx * 0.75)
+  const c = cellCenter(gx, gz)
+  hideSpots.push({ x: c.x - nx * 0.95, z: c.z - nz * 0.95 })
+}
+
+let dress = 0
+for (let z = 1; z < MAP_H - 1; z++) {
+  for (let x = 1; x < MAP_W - 1; x++) {
+    if (!floor[z][x]) continue
+    if ((x * 3 + z * 7) % 4 !== 0) continue
+    const walls = DIRS.filter(([dx, dz]) => !isFloorCell(x + dx, z + dz))
+    if (walls.length !== 1) continue
+    const [dx, dz] = walls[0]
+    const c = cellCenter(x, z)
+    const px = c.x + dx * 1.15
+    const pz = c.z + dz * 1.15
+    if (nearProp(px, pz, 1.6)) continue
+    const kind = (x + z * 2) % 6
+    if (kind === 0) addProp('crate.gltf.glb', x, z, 0.2, 0.53, 0.48, 0.48, true, false, dx * 1.15, dz * 1.15)
+    else if (kind === 1) addProp('barrelDark.gltf.glb', x, z, 0.5, 0.4, 0.42, 0.42, true, false, dx * 1.2, dz * 1.2)
+    else if (kind === 2) addProp('bookcaseFilled.gltf.glb', x, z, dx !== 0 ? Math.PI / 2 : 0, 0, 0.5, 0.28, true, false, dx * 1.15, dz * 1.15)
+    else if (kind === 3) addProp('tableMedium.gltf.glb', x, z, 0.3, 0, 0.7, 0.45, true, false, dx * 0.85, dz * 0.85)
+    else if (kind === 4) addProp('chest_common.gltf.glb', x, z, 0.6, 0, 0.7, 0.5, true, false, dx * 1.05, dz * 1.05)
+    else addProp('potA.gltf.glb', x, z, 0, 0, 0.22, 0.22, false, false, dx * 1.25, dz * 1.25)
+    if (kind <= 2) hideSpots.push({ x: c.x + dx * 0.15, z: c.z + dz * 0.15 })
+    if (++dress > 90) break
+  }
+  if (dress > 90) break
 }
 
 for (let x = 6; x <= 36; x += 5) {
@@ -402,6 +448,63 @@ for (const [gx, gz] of [
   addProp('potA.gltf.glb', gx, gz, 0, 0, 0, 0, false, false, 0.7, 0.4)
 }
 
+// 大廳與長廊中央的掩體。貼牆擺設蓋不到這些開闊區，躲貓貓會一眼望穿。
+function addCover(
+  model: string,
+  gx: number,
+  gz: number,
+  rotY: number,
+  y: number,
+  hx: number,
+  hz: number,
+  hide: boolean,
+) {
+  if (!isFloorCell(gx, gz)) return
+  if (gx >= 17 && gx <= 23 && gz >= 2 && gz <= 7) return
+  const c = cellCenter(gx, gz)
+  if (nearProp(c.x, c.z, 1.7)) return
+  addProp(model, gx, gz, rotY, y, hx, hz, true)
+  if (hide) hideSpots.push({ x: c.x + 0.95, z: c.z })
+}
+
+for (const [gx, gz] of [
+  [14, 5],
+  [25, 6],
+  [15, 3],
+  [24, 4],
+] as const) {
+  addCover(gz % 2 ? 'crate.gltf.glb' : 'crateDark.gltf.glb', gx, gz, 0.4, 0.53, 0.48, 0.48, true)
+}
+for (const [gx, gz] of [
+  [8, 13],
+  [16, 14],
+  [24, 13],
+  [32, 14],
+  [20, 18],
+  [21, 22],
+] as const) {
+  addCover(gx % 2 ? 'barrel.gltf.glb' : 'barrelDark.gltf.glb', gx, gz, 0.6, 0.4, 0.42, 0.42, true)
+}
+for (const [gx, gz] of [
+  [16, 28],
+  [22, 28],
+  [17, 30],
+  [23, 27],
+] as const) {
+  addCover('tableMedium.gltf.glb', gx, gz, gx > 20 ? 0.4 : -0.4, 0, 0.7, 0.45, false)
+}
+for (const [gx, gz, rot] of [
+  [4, 21, 0],
+  [8, 19, Math.PI / 2],
+  [9, 22, 0],
+  [33, 21, Math.PI],
+  [37, 19, 0],
+  [5, 4, 0.3],
+  [3, 5, 1],
+] as const) {
+  addCover(rot > 0.5 ? 'bookcaseFilled.gltf.glb' : 'chest_common.gltf.glb', gx, gz, rot, 0, rot > 0.5 ? 0.5 : 0.7, rot > 0.5 ? 0.28 : 0.5, true)
+}
+
 const propBoxes: WallBox[] = props
   .filter((p) => p.hx > 0 && p.hz > 0)
   .map((p) => ({ cx: p.x, cz: p.z, hx: p.hx, hz: p.hz }))
@@ -409,6 +512,8 @@ const propBoxes: WallBox[] = props
 export const FLOOR_PLACES = floorPlaces
 export const WALL_PLACES = wallPlaces
 export const PROP_LIST = props
+export const HIDE_SPOTS = hideSpots
+export const HIDE_RANGE = 1.35
 export const ALL_BLOCKERS: WallBox[] = [...wallBoxes, ...propBoxes]
 export const SIGHT_BLOCKERS: WallBox[] = [
   ...wallBoxes,
@@ -513,4 +618,83 @@ export function hasLineOfSight(x0: number, z0: number, x1: number, z1: number) {
     }
   }
   return true
+}
+
+export type OccBox = {
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+  minZ: number
+  maxZ: number
+}
+
+function propTop(model: string) {
+  if (model.startsWith('pillar')) return 4
+  if (model.startsWith('bookcase')) return 2
+  if (model.startsWith('banner')) return 2.6
+  if (model.startsWith('table')) return 0.85
+  if (model.startsWith('crate')) return 1.2
+  if (model.startsWith('barrel')) return 1.05
+  if (model.startsWith('chest')) return 0.9
+  return 1
+}
+
+export const CAMERA_OCCLUDERS: OccBox[] = [
+  ...wallBoxes.map((w) => ({
+    minX: w.cx - w.hx,
+    maxX: w.cx + w.hx,
+    minY: 0,
+    maxY: 4,
+    minZ: w.cz - w.hz,
+    maxZ: w.cz + w.hz,
+  })),
+  ...props
+    .filter((p) => p.hx > 0.15 && p.hz > 0.15)
+    .map((p) => ({
+      minX: p.x - p.hx,
+      maxX: p.x + p.hx,
+      minY: 0,
+      maxY: propTop(p.model),
+      minZ: p.z - p.hz,
+      maxZ: p.z + p.hz,
+    })),
+]
+
+function rayBox(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, b: OccBox) {
+  let tmin = 0
+  let tmax = Number.POSITIVE_INFINITY
+  const span: [number, number, number, number][] = [
+    [b.minX, b.maxX, ox, dx],
+    [b.minY, b.maxY, oy, dy],
+    [b.minZ, b.maxZ, oz, dz],
+  ]
+  for (const [min, max, o, d] of span) {
+    if (Math.abs(d) < 1e-8) {
+      if (o < min || o > max) return null
+      continue
+    }
+    let t1 = (min - o) / d
+    let t2 = (max - o) / d
+    if (t1 > t2) {
+      const s = t1
+      t1 = t2
+      t2 = s
+    }
+    tmin = Math.max(tmin, t1)
+    tmax = Math.min(tmax, t2)
+    if (tmin > tmax) return null
+  }
+  if (tmax < 0) return null
+  return tmin >= 0 ? tmin : null
+}
+
+/** 從角色射向鏡頭，回傳最先被牆或道具擋住的距離。 */
+export function rayOcclusion(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number) {
+  let best = maxDist
+  for (const b of CAMERA_OCCLUDERS) {
+    const t = rayBox(ox, oy, oz, dx, dy, dz, b)
+    if (t != null && t > 0.05 && t < best) best = t
+  }
+  return best
 }

@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
-import { ATTACK_COOLDOWN_MS } from '../../shared/combat'
-import { emitAttack, emitFurniturePush, emitMove, emitSit } from '../net/socket'
+import { HIDE_RANGE, HIDE_SPOTS } from '../../shared/dungeon'
+import { emitFurniturePush, emitHide, emitMove, emitSit, performAttack } from '../net/socket'
 import { resolvePlayerMove } from '../physics/collision'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
@@ -26,7 +26,6 @@ export function LocalController({
   const rotY = useRef(player.rotationY)
   const lastSent = useRef(0)
   const lastPush = useRef(0)
-  const lastAttack = useRef(0)
   const seatedRef = useRef(player.seated)
   const furnitureRef = useRef(furniture)
   const joyRef = useRef(joy)
@@ -51,12 +50,25 @@ export function LocalController({
     rotY.current = player.rotationY
   }, [player.seated, player.position[0], player.position[1], player.position[2], player.rotationY])
 
-  function tryAttack() {
-    if (seatedRef.current) return
-    const now = performance.now()
-    if (now - lastAttack.current < ATTACK_COOLDOWN_MS) return
-    lastAttack.current = now
-    emitAttack()
+  function tryHide() {
+    const state = useAppStore.getState()
+    const me = state.players[player.id]
+    if (!me || me.seated) return
+    if (me.hidden) {
+      emitHide(false)
+      state.patchPlayer(player.id, { hidden: false })
+      return
+    }
+    const near = HIDE_SPOTS.some(
+      (s) => Math.hypot(s.x - pos.current.x, s.z - pos.current.z) <= HIDE_RANGE,
+    )
+    if (!near) {
+      state.setToast('靠近木箱、木桶或書櫃才能躲')
+      setTimeout(() => useAppStore.getState().setToast(null), 1600)
+      return
+    }
+    emitHide(true)
+    state.patchPlayer(player.id, { hidden: true })
   }
 
   useEffect(() => {
@@ -67,8 +79,11 @@ export function LocalController({
       if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
         e.preventDefault()
       }
-      if (e.code === 'KeyF') tryAttack()
-      if (e.code === 'KeyE' && seatedRef.current) void emitSit(null)
+      if (e.code === 'KeyF') performAttack()
+      if (e.code === 'KeyE') {
+        if (seatedRef.current) void emitSit(null)
+        else tryHide()
+      }
     }
     const up = (e: KeyboardEvent) => {
       keys.current[e.code] = false
@@ -79,8 +94,9 @@ export function LocalController({
       if (e.button !== 0) return
       const el = e.target as HTMLElement | null
       if (el?.closest('button, input, textarea, .hud-bottom, .hud-top, .note-panel')) return
-      if (useAppStore.getState().pendingNote) return
-      tryAttack()
+      const state = useAppStore.getState()
+      if (state.pendingNote || state.noteAsk) return
+      performAttack()
     }
     window.addEventListener('pointerdown', onPointer)
     return () => {
@@ -108,6 +124,11 @@ export function LocalController({
 
     const fwd = keyFwd || -joyRef.current.y
     const strafe = keyStrafe || joyRef.current.x
+
+    if ((fwd !== 0 || strafe !== 0) && player.hidden) {
+      emitHide(false)
+      useAppStore.getState().patchPlayer(player.id, { hidden: false })
+    }
 
     if (fwd !== 0 || strafe !== 0) {
       camera.getWorldDirection(forward)
