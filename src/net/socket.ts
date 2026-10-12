@@ -60,6 +60,13 @@ export function connectSocket() {
     useAppStore.getState().setMonsters(monsters)
   })
 
+  socket.on(
+    'combat:hit',
+    (payload: { id: string; kind: 'player' | 'monster'; amount: number; x: number; z: number }) => {
+      useAppStore.getState().pushHit(payload)
+    },
+  )
+
   socket.on('note:added', (note: StickyNote) => {
     useAppStore.getState().addNote(note)
   })

@@ -80,10 +80,11 @@ export function Hud() {
 
       <VirtualJoystick />
 
+      <button type="button" className="attack-btn" onClick={() => performAttack()}>
+        攻擊
+      </button>
+
       <div className="dock">
-        <button type="button" className="hud-btn attack-btn" onClick={() => performAttack()}>
-          攻擊
-        </button>
         <button type="button" className="hud-btn" onClick={() => void toggleMic()} disabled={busyMic}>
           {micOn ? '語音開' : '語音關'}
         </button>
@@ -94,9 +95,9 @@ export function Hud() {
 
       <div className="hud-bottom">
         <div className="help">
-          WASD／搖桿移動 · 右鍵繞角色看 · 滾輪縮放（被牆擋住會自動拉近）
+          WASD／搖桿移動 · 右鍵或手機單指拖曳繞角色看 · 滾輪／雙指縮放（被牆擋住會自動拉近）
           <br />
-          左鍵或 F 揮劍 · E 靠木箱躲藏，再走會離開
+          左鍵、F 或攻擊鈕揮劍 · E 靠木箱躲藏，再走會離開
           {pendingNote ? ' · 移動滑鼠看虛影，點地面後確認' : ''}
         </div>
         <form className="note-panel" onSubmit={armNote}>

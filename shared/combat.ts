@@ -24,3 +24,5 @@ export const PATROL_SPEED = 2.15
 export const RESPAWN_MS = 9000
 export const IFRAME_MS = 2000
 export const MONSTER_RADIUS = 0.42
+/** 玩家半徑 0.26 加上怪物半徑。身體重疊時直接算打中，避免貼身距離變成 0 被丟掉。 */
+export const ATTACK_EMBED = 0.26 + MONSTER_RADIUS

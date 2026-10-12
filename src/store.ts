@@ -7,6 +7,16 @@ export type NoteAsk =
   | { kind: 'place'; position: Vec3; text: string; fontSize: number }
   | { kind: 'manage'; id: string }
 
+export type HitFx = {
+  key: number
+  id: string
+  kind: 'player' | 'monster'
+  amount: number
+  x: number
+  z: number
+  at: number
+}
+
 interface AppState {
   phase: 'lobby' | 'room'
   selfId: string | null
@@ -28,6 +38,8 @@ interface AppState {
   pendingNote: { text: string; fontSize: number } | null
   noteAsk: NoteAsk | null
   swings: Record<string, number>
+  hits: HitFx[]
+  hitSeq: number
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
@@ -46,6 +58,7 @@ interface AppState {
   setPendingNote: (note: { text: string; fontSize: number } | null) => void
   setNoteAsk: (ask: NoteAsk | null) => void
   setSwing: (id: string, at: number) => void
+  pushHit: (hit: Omit<HitFx, 'key' | 'at'>) => void
   setMonsters: (monsters: MonsterState[]) => void
   bumpRespawn: () => void
   leaveToLobby: () => void
@@ -70,6 +83,8 @@ export const useAppStore = create<AppState>((set) => ({
   pendingNote: null,
   noteAsk: null,
   swings: {},
+  hits: [],
+  hitSeq: 1,
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
     set({
@@ -122,6 +137,13 @@ export const useAppStore = create<AppState>((set) => ({
   setPendingNote: (note) => set({ pendingNote: note, noteAsk: null }),
   setNoteAsk: (ask) => set({ noteAsk: ask }),
   setSwing: (id, at) => set((s) => ({ swings: { ...s.swings, [id]: at } })),
+  pushHit: (hit) =>
+    set((s) => {
+      const now = performance.now()
+      const hits = s.hits.filter((h) => now - h.at < 800)
+      hits.push({ ...hit, key: s.hitSeq, at: now })
+      return { hits: hits.slice(-20), hitSeq: s.hitSeq + 1 }
+    }),
   setMonsters: (monsters) => set({ monsters }),
   bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
   leaveToLobby: () =>
@@ -138,6 +160,8 @@ export const useAppStore = create<AppState>((set) => ({
       pendingNote: null,
       noteAsk: null,
       swings: {},
+      hits: [],
+      hitSeq: 1,
       joy: { x: 0, y: 0 },
     }),
 }))

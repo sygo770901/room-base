@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import { rayOcclusion, SPAWN_POINTS } from '../../shared/dungeon'
 import { NotePlacementPlane, StickyNotes3D } from './Furniture'
 import { Dungeon } from './Dungeon'
+import { HitEffects } from './HitEffects'
 import { Monsters } from './Monsters'
 import { LocalAvatar, RemotePlayers } from './Players'
 import { LocalController } from './LocalController'
@@ -125,6 +126,7 @@ function SceneContent() {
       <StickyNotes3D notes={notes} selfId={selfId} isHost={isHost} />
       <NotePlacementPlane />
 
+      <HitEffects />
       <RemotePlayers players={players} selfId={selfId} />
       {displaySelf && <LocalAvatar player={displaySelf} />}
       {self && (
@@ -154,7 +156,7 @@ function SceneContent() {
           RIGHT: MOUSE.ROTATE,
         }}
         touches={{
-          ONE: -1 as unknown as TOUCH,
+          ONE: TOUCH.ROTATE,
           TWO: TOUCH.DOLLY_ROTATE,
         }}
       />

@@ -92,8 +92,9 @@ export function LocalController({
     window.addEventListener('keyup', up)
     const onPointer = (e: PointerEvent) => {
       if (e.button !== 0) return
+      if (e.pointerType === 'touch') return
       const el = e.target as HTMLElement | null
-      if (el?.closest('button, input, textarea, .hud-bottom, .hud-top, .note-panel')) return
+      if (el?.closest('button, input, textarea, .hud-bottom, .hud-top, .note-panel, .joystick, .attack-btn')) return
       const state = useAppStore.getState()
       if (state.pendingNote || state.noteAsk) return
       performAttack()

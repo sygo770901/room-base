@@ -4,6 +4,7 @@ import {
   ATTACK_COS,
   ATTACK_COOLDOWN_MS,
   ATTACK_DAMAGE,
+  ATTACK_EMBED,
   ATTACK_RANGE,
   CHASE_SPEED,
   IFRAME_MS,
@@ -77,7 +78,16 @@ export function publicMonsters(list: ServerMonster[]): MonsterState[] {
 }
 
 function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: number, now: number) {
+  const x = player.position[0]
+  const z = player.position[2]
   player.hp = Math.max(0, (player.hp ?? PLAYER_MAX_HP) - dmg)
+  io.to(room.roomId).emit('combat:hit', {
+    id: player.id,
+    kind: 'player',
+    amount: dmg,
+    x,
+    z,
+  })
   if (player.hp <= 0) {
     const sp = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)]
     player.hp = PLAYER_MAX_HP
@@ -175,13 +185,22 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
     const dx = m.x - player.position[0]
     const dz = m.z - player.position[2]
     const dist = Math.hypot(dx, dz)
-    if (dist > bestD || dist < 0.05) continue
-    const dot = (dx / dist) * fx + (dz / dist) * fz
-    if (dot < ATTACK_COS) continue
+    if (dist > bestD) continue
+    if (dist >= ATTACK_EMBED) {
+      const dot = (dx / dist) * fx + (dz / dist) * fz
+      if (dot < ATTACK_COS) continue
+    }
     best = m
     bestD = dist
   }
   if (!best) return
+  io.to(room.roomId).emit('combat:hit', {
+    id: best.id,
+    kind: 'monster',
+    amount: ATTACK_DAMAGE,
+    x: best.x,
+    z: best.z,
+  })
   best.hp -= ATTACK_DAMAGE
   if (best.hp <= 0) {
     best.hp = 0
