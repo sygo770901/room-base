@@ -1,5 +1,6 @@
 import type { MonsterState } from '../shared/combat'
 import type { FurnitureItem } from '../shared/furniture'
+import type { SceneId } from '../shared/scenes'
 
 export type Vec3 = [number, number, number]
 export type SeatId = string
@@ -29,6 +30,7 @@ export interface StickyNote {
 
 export interface RoomSnapshot {
   roomId: string
+  scene: SceneId
   hostId: string | null
   players: Record<string, PlayerState>
   notes: StickyNote[]

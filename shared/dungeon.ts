@@ -513,18 +513,19 @@ export const MONSTER_DEFS: MonsterDef[] = [
   },
 ]
 
-export function hasLineOfSight(x0: number, z0: number, x1: number, z1: number) {
+export function hasLineOfSight(x0: number, z0: number, x1: number, z1: number, extra: WallBox[] = []) {
   const dx = x1 - x0
   const dz = z1 - z0
   const dist = Math.hypot(dx, dz)
   if (dist < 0.2) return true
   const steps = Math.ceil(dist / 0.4)
+  const blockers = extra.length ? SIGHT_BLOCKERS.concat(extra) : SIGHT_BLOCKERS
   for (let i = 1; i < steps; i++) {
     const t = i / steps
     const x = x0 + dx * t
     const z = z0 + dz * t
     if (!isWalkableWorld(x, z, 0)) return false
-    for (const b of SIGHT_BLOCKERS) {
+    for (const b of blockers) {
       if (x >= b.cx - b.hx && x <= b.cx + b.hx && z >= b.cz - b.hz && z <= b.cz + b.hz) return false
     }
   }
@@ -595,9 +596,19 @@ function rayBox(ox: number, oy: number, oz: number, dx: number, dy: number, dz: 
 }
 
 /** 從角色射向鏡頭，回傳最先被牆或道具擋住的距離。 */
-export function rayOcclusion(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number) {
+export function rayOcclusion(
+  ox: number,
+  oy: number,
+  oz: number,
+  dx: number,
+  dy: number,
+  dz: number,
+  maxDist: number,
+  extra: OccBox[] = [],
+) {
   let best = maxDist
-  for (const b of CAMERA_OCCLUDERS) {
+  const boxes = extra.length ? CAMERA_OCCLUDERS.concat(extra) : CAMERA_OCCLUDERS
+  for (const b of boxes) {
     const t = rayBox(ox, oy, oz, dx, dy, dz, b)
     if (t != null && t > 0.05 && t < best) best = t
   }

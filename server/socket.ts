@@ -5,10 +5,12 @@ import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
 import { createMonsters, handleAttack, publicMonsters, tickRoom } from './combat.ts'
 import { loadPersistedRoom, savePersistedRoom } from './persist.ts'
+import { isSceneId, type SceneId } from '../shared/scenes.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
 export interface RoomState {
   roomId: string
+  scene: SceneId
   hostId: string | null
   players: Record<string, PlayerState>
   notes: StickyNote[]
@@ -26,6 +28,7 @@ function createRoom(roomId: string): RoomState {
   const persisted = loadPersistedRoom(roomId)
   return {
     roomId,
+    scene: 'kenney',
     hostId: null,
     players: {},
     notes: persisted.notes,
@@ -53,6 +56,7 @@ function persist(room: RoomState) {
 function publicRoom(room: RoomState) {
   return {
     roomId: room.roomId,
+    scene: room.scene,
     hostId: room.hostId,
     players: room.players,
     notes: room.notes,
@@ -89,7 +93,7 @@ export function attachSocketServer(httpServer: HttpServer) {
 
     socket.on(
       'join',
-      (payload: { roomId: string; name: string; wantHost?: boolean }, ack?: (data: unknown) => void) => {
+      (payload: { roomId: string; name: string; wantHost?: boolean; scene?: string }, ack?: (data: unknown) => void) => {
         const roomId = (payload.roomId || 'home').trim().slice(0, 32) || 'home'
         const name = (payload.name || '訪客').trim().slice(0, 16) || '訪客'
         const room = getOrCreateRoom(roomId)
@@ -97,6 +101,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         if (currentRoomId) socket.leave(currentRoomId)
 
         const isFirst = Object.keys(room.players).length === 0
+        if (isFirst && isSceneId(payload.scene)) room.scene = payload.scene
         const role: 'host' | 'guest' =
           isFirst || (payload.wantHost && !room.hostId) ? 'host' : 'guest'
         if (role === 'host') room.hostId = socket.id

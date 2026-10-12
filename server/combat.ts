@@ -1,5 +1,5 @@
 import type { Server } from 'socket.io'
-import { resolvePlayerMove } from '../src/physics/collision.ts'
+import { resolvePlayerMove, KAYKIT_EXTRA_AABBS } from '../src/physics/collision.ts'
 import {
   ATTACK_COS,
   ATTACK_COOLDOWN_MS,
@@ -18,6 +18,7 @@ import {
   SIGHT,
   type MonsterState,
 } from '../shared/combat.ts'
+import { KAYKIT_EXTRA_WALLS } from '../shared/kaykitScene.ts'
 import { MONSTER_DEFS, SPAWN_POINTS, hasLineOfSight, type MonsterDef } from '../shared/dungeon.ts'
 import type { PlayerState } from './types.ts'
 
@@ -39,6 +40,7 @@ export interface ServerMonster {
 
 export interface CombatRoom {
   roomId: string
+  scene?: 'kenney' | 'kaykit'
   players: Record<string, PlayerState>
   monsters: ServerMonster[]
   hurtUntil: Record<string, number>
@@ -109,6 +111,8 @@ function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: numb
 }
 
 export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) {
+  const extraWalls = room.scene === 'kaykit' ? KAYKIT_EXTRA_WALLS : []
+  const extraAabbs = room.scene === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
   for (const m of room.monsters) {
     if (!m.alive) {
       if (now >= m.respawnAt) {
@@ -128,7 +132,7 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
       if (p.hidden) continue
       const d = Math.hypot(p.position[0] - m.x, p.position[2] - m.z)
       if (d > SIGHT || d >= best) continue
-      if (!hasLineOfSight(m.x, m.z, p.position[0], p.position[2])) continue
+      if (!hasLineOfSight(m.x, m.z, p.position[0], p.position[2], extraWalls)) continue
       best = d
       target = p
     }
@@ -155,7 +159,7 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
     const mz = (dz / len) * step
     const beforeX = m.x
     const beforeZ = m.z
-    const moved = resolvePlayerMove(m.x, m.z, mx, mz, [], MONSTER_RADIUS)
+    const moved = resolvePlayerMove(m.x, m.z, mx, mz, [], MONSTER_RADIUS, extraAabbs)
     m.x = moved.x
     m.z = moved.z
     if (Math.abs(m.x - beforeX) > 0.001 || Math.abs(m.z - beforeZ) > 0.001) {

@@ -1,9 +1,9 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
-import { MOUSE, TOUCH } from 'three'
 import * as THREE from 'three'
 import { rayOcclusion, SPAWN_POINTS } from '../../shared/dungeon'
+import { KAYKIT_OCCLUDERS } from '../../shared/kaykitScene'
 import { NotePlacementPlane, StickyNotes3D } from './Furniture'
 import { Dungeon } from './Dungeon'
 import { HitEffects } from './HitEffects'
@@ -14,9 +14,13 @@ import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
 const SPAWN = SPAWN_POINTS[0] ?? { x: 80, z: 22 }
-// 0 是頭頂正上方，PI/2 是水平。鎖在這個範圍，避免走到牆邊時被拉到頭頂。
-const MIN_PHI = 0.72
-const MAX_PHI = 1.42
+// Three.js 預設 minPolarAngle 是 0（頭頂正上方）、rotateSpeed 是 1（拖滿一整個螢幕等於轉 360°）。
+// 這裡把垂直角鎖在斜上方到接近水平，旋轉改慢，避免短距離拖曳就被甩到頭頂。
+const MIN_PHI = 0.85
+const MAX_PHI = 1.35
+const MIN_RADIUS = 4.2
+const MAX_RADIUS = 14
+const ROTATE_SPEED = 0.3
 const rigOffset = new THREE.Vector3()
 const rigSpherical = new THREE.Spherical()
 
@@ -75,68 +79,102 @@ function FollowLight() {
 
 function CameraRig() {
   const { camera, controls, gl } = useThree()
-  const saved = useRef({ theta: 0, phi: 1, radius: 12, ready: false })
-  const rotating = useRef(false)
-  const zooming = useRef(false)
-  const touchIds = useRef(new Set<number>())
-  const wheeled = useRef(false)
+  const saved = useRef({ theta: 0.8, phi: 1.05, radius: 12, ready: false })
+  const drag = useRef<{ id: number; x: number; y: number; mode: 'look' | 'zoom' } | null>(null)
+  const touches = useRef(new Map<number, { x: number; y: number }>())
+  const pinchDist = useRef(0)
 
   useEffect(() => {
     const el = gl.domElement
+    const arm = (scale: number) => {
+      const next = saved.current
+      next.radius = THREE.MathUtils.clamp(next.radius * scale, MIN_RADIUS, MAX_RADIUS)
+    }
     const down = (e: PointerEvent) => {
-      if (e.pointerType === 'touch') touchIds.current.add(e.pointerId)
-      else if (e.button === 2) rotating.current = true
-      else if (e.button === 1) zooming.current = true
+      if (e.pointerType === 'touch') {
+        touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+        if (touches.current.size === 1) {
+          drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, mode: 'look' }
+          pinchDist.current = 0
+        } else {
+          drag.current = null
+          const pts = [...touches.current.values()]
+          pinchDist.current = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+        }
+        return
+      }
+      if (e.button === 2) drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, mode: 'look' }
+      else if (e.button === 1) drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, mode: 'zoom' }
+    }
+    const move = (e: PointerEvent) => {
+      if (e.pointerType === 'touch' && touches.current.has(e.pointerId)) {
+        touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      }
+      if (touches.current.size >= 2) {
+        const pts = [...touches.current.values()]
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+        if (pinchDist.current > 0) arm(dist / pinchDist.current)
+        pinchDist.current = dist
+        return
+      }
+      const active = drag.current
+      if (!active || e.pointerId !== active.id) return
+      const dx = e.clientX - active.x
+      const dy = e.clientY - active.y
+      active.x = e.clientX
+      active.y = e.clientY
+      if (active.mode === 'zoom') {
+        arm(Math.exp(dy * 0.004))
+        return
+      }
+      const k = (2 * Math.PI * ROTATE_SPEED) / (el.clientHeight || 1)
+      const next = saved.current
+      next.theta -= dx * k
+      next.phi = THREE.MathUtils.clamp(next.phi - dy * k, MIN_PHI, MAX_PHI)
     }
     const up = (e: PointerEvent) => {
-      if (e.pointerType === 'touch') touchIds.current.delete(e.pointerId)
-      else if (e.button === 2) rotating.current = false
-      else if (e.button === 1) zooming.current = false
+      touches.current.delete(e.pointerId)
+      if (drag.current?.id === e.pointerId) drag.current = null
+      if (touches.current.size === 1) {
+        const [id, point] = [...touches.current.entries()][0]
+        drag.current = { id, x: point.x, y: point.y, mode: 'look' }
+        pinchDist.current = 0
+      }
     }
-    const wheel = () => {
-      wheeled.current = true
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault()
+      arm(e.deltaY > 0 ? 1.08 : 0.92)
     }
     el.addEventListener('pointerdown', down)
-    el.addEventListener('wheel', wheel, { passive: true })
+    el.addEventListener('wheel', wheel, { passive: false })
+    window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
     window.addEventListener('pointercancel', up)
     return () => {
       el.removeEventListener('pointerdown', down)
       el.removeEventListener('wheel', wheel)
+      window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', up)
     }
   }, [gl])
 
-  // OrbitControls 在 -1。這裡把走路、遮擋拉近造成的仰角改動蓋掉，只留下手指轉的角度。
+  // 角度只存在這裡。走路、擋牆拉近都不會寫回 theta/phi。
   useFrame(() => {
     const target = (controls as { target?: THREE.Vector3 } | null)?.target
     if (!target) return
-    rigOffset.copy(camera.position).sub(target)
-    if (rigOffset.lengthSq() < 0.01) return
-    rigSpherical.setFromVector3(rigOffset)
     const shot = saved.current
-    const fingers = touchIds.current.size
-    const looking = rotating.current || fingers === 1
-    const pinching = fingers >= 2
     if (!shot.ready) {
-      shot.theta = rigSpherical.theta
-      shot.phi = THREE.MathUtils.clamp(rigSpherical.phi, MIN_PHI, MAX_PHI)
-      shot.radius = THREE.MathUtils.clamp(rigSpherical.radius, 2.6, 18)
-      shot.ready = true
-    } else if (looking || pinching) {
-      shot.theta = rigSpherical.theta
-      shot.phi = THREE.MathUtils.clamp(rigSpherical.phi, MIN_PHI, MAX_PHI)
-      if (pinching || zooming.current) {
-        shot.radius = THREE.MathUtils.clamp(rigSpherical.radius, 2.6, 18)
+      rigOffset.copy(camera.position).sub(target)
+      if (rigOffset.lengthSq() > 0.01) {
+        rigSpherical.setFromVector3(rigOffset)
+        shot.theta = rigSpherical.theta
+        shot.phi = THREE.MathUtils.clamp(rigSpherical.phi, MIN_PHI, MAX_PHI)
+        shot.radius = THREE.MathUtils.clamp(rigSpherical.radius, MIN_RADIUS, MAX_RADIUS)
+        shot.ready = true
       }
-    } else if (zooming.current || wheeled.current) {
-      shot.radius = THREE.MathUtils.clamp(rigSpherical.radius, 2.6, 18)
     }
-    wheeled.current = false
-    rigSpherical.theta = shot.theta
-    rigSpherical.phi = shot.phi
-    rigSpherical.radius = shot.radius
+    rigSpherical.set(shot.radius, shot.phi, shot.theta)
     rigOffset.setFromSpherical(rigSpherical)
     camera.position.copy(target).add(rigOffset)
     camera.up.set(0, 1, 0)
@@ -161,11 +199,18 @@ function CameraGuard() {
         const dirx = dx * inv
         const diry = dy * inv
         const dirz = dz * inv
-        const hit = rayOcclusion(target.x, target.y, target.z, dirx, diry, dirz, dist)
-        if (hit < dist - 0.15) {
-          const desired = Math.max(1.2, hit - 0.32)
-          const nd = THREE.MathUtils.damp(dist, desired, 8, dt)
-          camera.position.set(target.x + dirx * nd, target.y + diry * nd, target.z + dirz * nd)
+        const extra = useAppStore.getState().scene === 'kaykit' ? KAYKIT_OCCLUDERS : []
+        const hit = rayOcclusion(target.x, target.y, target.z, dirx, diry, dirz, dist, extra)
+        if (hit < dist - 0.2) {
+          let desired = Math.max(MIN_RADIUS, hit - 0.45)
+          if (extra.length && diry > 0.02) {
+            const underCeiling = (3.65 - target.y) / diry
+            if (underCeiling > 1.6) desired = Math.min(desired, underCeiling)
+          }
+          if (desired < dist) {
+            const nd = THREE.MathUtils.damp(dist, desired, 3, dt)
+            camera.position.set(target.x + dirx * nd, target.y + diry * nd, target.z + dirz * nd)
+          }
         }
       }
     }
@@ -179,6 +224,7 @@ function SceneContent() {
   const players = useAppStore((s) => s.players)
   const notes = useAppStore((s) => s.notes)
   const hostId = useAppStore((s) => s.hostId)
+  const sceneId = useAppStore((s) => s.scene)
   const [localPose, setLocalPose] = useState<{ position: Vec3; rotationY: number } | null>(null)
 
   const self = selfId ? players[selfId] : null
@@ -194,8 +240,8 @@ function SceneContent() {
   return (
     <>
       <BlockContextMenu />
-      <color attach="background" args={['#3a3544']} />
-      <fog attach="fog" args={['#3a3544', 28, 92]} />
+      <color attach="background" args={[sceneId === 'kaykit' ? '#2a2428' : '#3a3544']} />
+      <fog attach="fog" args={sceneId === 'kaykit' ? ['#2a2428', 18, 70] : ['#3a3544', 28, 92]} />
       <hemisphereLight args={['#cbbba6', '#3a2c24', 1.25]} />
       <ambientLight intensity={0.8} />
       <FollowLight />
@@ -223,25 +269,12 @@ function SceneContent() {
 
       <OrbitControls
         makeDefault
+        enabled={false}
         enablePan={false}
-        enableZoom
-        enableRotate
+        enableZoom={false}
+        enableRotate={false}
         enableDamping={false}
-        rotateSpeed={0.82}
-        minDistance={2.6}
-        maxDistance={18}
-        minPolarAngle={MIN_PHI}
-        maxPolarAngle={MAX_PHI}
         target={lookAt}
-        mouseButtons={{
-          LEFT: -1 as unknown as MOUSE,
-          MIDDLE: MOUSE.DOLLY,
-          RIGHT: MOUSE.ROTATE,
-        }}
-        touches={{
-          ONE: TOUCH.ROTATE,
-          TWO: TOUCH.DOLLY_ROTATE,
-        }}
       />
     </>
   )

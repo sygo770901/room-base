@@ -1,4 +1,5 @@
 import { isWalkableWorld } from '../../shared/dungeon'
+import { KAYKIT_EXTRA_WALLS } from '../../shared/kaykitScene'
 import {
   INNER_WALLS,
   PLAYER_RADIUS,
@@ -26,6 +27,8 @@ export function wallToAabb(w: WallBox): Aabb {
     id: 'wall',
   }
 }
+
+export const KAYKIT_EXTRA_AABBS: Aabb[] = KAYKIT_EXTRA_WALLS.map(wallToAabb)
 
 export function furnitureToAabb(f: FurnitureItem): Aabb | null {
   if (!f.collider) return null
@@ -112,6 +115,7 @@ function tryMove(
   dz: number,
   furniture: FurnitureItem[],
   radius: number,
+  extra: Aabb[],
 ): MoveResult {
   const r = radius
   let nx = fromX + dx
@@ -123,6 +127,9 @@ function tryMove(
   if (!isWalkableWorld(nx, nz, r)) return { x: fromX, z: fromZ }
 
   for (const w of STATIC_AABBS) {
+    if (circleHitsAabb(nx, nz, r, w)) return { x: fromX, z: fromZ }
+  }
+  for (const w of extra) {
     if (circleHitsAabb(nx, nz, r, w)) return { x: fromX, z: fromZ }
   }
 
@@ -156,20 +163,21 @@ export function resolvePlayerMove(
   dz: number,
   furniture: FurnitureItem[],
   radius = PLAYER_RADIUS,
+  extra: Aabb[] = [],
 ): MoveResult {
   let x = fromX
   let z = fromZ
   let pushed: MoveResult['pushed']
 
   if (dx !== 0) {
-    const rx = tryMove(x, z, dx, 0, furniture, radius)
+    const rx = tryMove(x, z, dx, 0, furniture, radius, extra)
     x = rx.x
     z = rx.z
     if (rx.pushed) pushed = rx.pushed
   }
   if (dz !== 0) {
     const furn = withPushed(furniture, pushed)
-    const rz = tryMove(x, z, 0, dz, furn, radius)
+    const rz = tryMove(x, z, 0, dz, furn, radius, extra)
     x = rz.x
     z = rz.z
     if (rz.pushed) pushed = rz.pushed

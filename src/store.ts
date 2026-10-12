@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { type MonsterState } from '../shared/combat'
 import { DEFAULT_FURNITURE, type FurnitureItem } from '../shared/furniture'
 import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
+import type { SceneId } from '../shared/scenes'
 
 export type NoteAsk =
   | { kind: 'place'; position: Vec3; text: string; fontSize: number }
@@ -21,6 +22,7 @@ interface AppState {
   phase: 'lobby' | 'room'
   selfId: string | null
   roomId: string
+  scene: SceneId
   displayName: string
   players: Record<string, PlayerState>
   notes: StickyNote[]
@@ -68,6 +70,7 @@ export const useAppStore = create<AppState>((set) => ({
   phase: 'lobby',
   selfId: null,
   roomId: 'home',
+  scene: 'kenney',
   displayName: '',
   players: {},
   notes: [],
@@ -91,6 +94,7 @@ export const useAppStore = create<AppState>((set) => ({
       phase: 'room',
       selfId,
       roomId: snapshot.roomId,
+      scene: snapshot.scene ?? 'kenney',
       players: snapshot.players,
       notes: snapshot.notes,
       seats: snapshot.seats,
@@ -99,7 +103,7 @@ export const useAppStore = create<AppState>((set) => ({
       hostId: snapshot.hostId,
     }),
   applySnapshot: (snapshot) =>
-    set({
+    set((s) => ({
       players: snapshot.players,
       notes: snapshot.notes,
       seats: snapshot.seats,
@@ -107,7 +111,8 @@ export const useAppStore = create<AppState>((set) => ({
       monsters: snapshot.monsters ?? [],
       hostId: snapshot.hostId,
       roomId: snapshot.roomId,
-    }),
+      scene: snapshot.scene ?? s.scene,
+    })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
   removePlayer: (id) =>

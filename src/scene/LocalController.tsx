@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { HIDE_RANGE, HIDE_SPOTS } from '../../shared/dungeon'
 import { emitFurniturePush, emitHide, emitMove, emitSit, performAttack } from '../net/socket'
-import { resolvePlayerMove } from '../physics/collision'
+import { resolvePlayerMove, KAYKIT_EXTRA_AABBS } from '../physics/collision'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
@@ -153,7 +153,8 @@ export function LocalController({
       const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * dt
       const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * dt
 
-      const result = resolvePlayerMove(pos.current.x, pos.current.z, mx, mz, furnitureRef.current)
+      const extra = useAppStore.getState().scene === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
+      const result = resolvePlayerMove(pos.current.x, pos.current.z, mx, mz, furnitureRef.current, undefined, extra)
       const movedX = result.x - pos.current.x
       const movedZ = result.z - pos.current.z
       pos.current.x = result.x

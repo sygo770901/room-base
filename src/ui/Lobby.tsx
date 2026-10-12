@@ -1,6 +1,20 @@
 import { FormEvent, useState } from 'react'
 import { joinRoom } from '../net/socket'
 import { useAppStore } from '../store'
+import type { SceneId } from '../../shared/scenes'
+
+const SCENES: { id: SceneId; title: string; text: string }[] = [
+  {
+    id: 'kenney',
+    title: 'Kenney 模組地城',
+    text: '現在這套。紫色石牆、橙色地板、柱子。',
+  },
+  {
+    id: 'kaykit',
+    title: 'KayKit Dungeon Pack 1.1',
+    text: '石磚貼圖、門、鐵柵、樓梯、天花板。面數是為手機準備的。',
+  },
+]
 
 export function Lobby() {
   const roomId = useAppStore((s) => s.roomId)
@@ -8,6 +22,7 @@ export function Lobby() {
   const setLobby = useAppStore((s) => s.setLobby)
   const [name, setName] = useState(displayName || localStorage.getItem('rb-name') || '')
   const [room, setRoom] = useState(roomId || localStorage.getItem('rb-room') || 'home')
+  const [scene, setScene] = useState<SceneId>(localStorage.getItem('rb-scene') === 'kaykit' ? 'kaykit' : 'kenney')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -19,8 +34,9 @@ export function Lobby() {
     try {
       localStorage.setItem('rb-name', n)
       localStorage.setItem('rb-room', r)
+      localStorage.setItem('rb-scene', scene)
       setLobby(n, r)
-      await joinRoom(r, n, wantHost)
+      await joinRoom(r, n, wantHost, scene)
     } catch (e) {
       setError(e instanceof Error ? e.message : '連線失敗')
     } finally {
@@ -37,9 +53,22 @@ export function Lobby() {
     <div className="lobby">
       <form className="lobby-card" onSubmit={onSubmit}>
         <h1>地城迴廊</h1>
-        <p>
-          多人躲貓貓加打怪。石牆和木箱會擋住怪物視線。左鍵或 F 攻擊面朝的怪物。朋友用同一個房間 ID 進來。
-        </p>
+        <p>多人躲貓貓加打怪。進房前先選場景。房間裡已經有人時，會沿用開房時的場景。</p>
+        <div className="scene-pick" role="radiogroup" aria-label="場景">
+          {SCENES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="radio"
+              aria-checked={scene === item.id}
+              className={scene === item.id ? 'on' : ''}
+              onClick={() => setScene(item.id)}
+            >
+              <strong>{item.title}</strong>
+              <span>{item.text}</span>
+            </button>
+          ))}
+        </div>
         <label>
           顯示名稱
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="小明" maxLength={16} />

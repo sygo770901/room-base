@@ -31,10 +31,43 @@ input {
 }
 
 .lobby-card {
-  width: min(420px, 100%);
+  width: min(480px, 100%);
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.scene-pick {
+  display: grid;
+  gap: 8px;
+}
+
+.lobby .scene-pick button {
+  flex: none;
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.22);
+  color: inherit;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.lobby .scene-pick button.on {
+  border-color: #81b29a;
+  background: rgba(129, 178, 154, 0.16);
+}
+
+.scene-pick strong {
+  display: block;
+}
+
+.scene-pick span {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.82rem;
+  font-weight: 400;
+  opacity: 0.75;
 }
 
 .lobby h1 {

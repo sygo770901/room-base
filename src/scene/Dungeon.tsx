@@ -9,11 +9,14 @@ import {
   WALL_PLACES,
   type Place,
 } from '../../shared/dungeon'
+import { KAYKIT_PLACES } from '../../shared/kaykitScene'
+import { useAppStore } from '../store'
 
 const CHUNK = 32
-const ROOT = '/assets/kenney/dungeon'
+const KENNEY_ROOT = '/assets/kenney/dungeon'
+const KAYKIT_ROOT = '/assets/kaykit/dungeon-1.1'
 
-const ALL_PLACES: Place[] = [
+const KENNEY_PLACES: Place[] = [
   ...FLOOR_PLACES,
   ...FLOOR_DECALS,
   ...WALL_PLACES,
@@ -26,10 +29,6 @@ const ALL_PLACES: Place[] = [
     model: prop.model,
   })),
 ]
-
-for (const name of new Set(ALL_PLACES.map((place) => place.model))) {
-  useGLTF.preload(`${ROOT}/${name}`)
-}
 
 type Part = {
   geometry: THREE.BufferGeometry
@@ -86,8 +85,8 @@ function InstanceChunk({ part, places, cast }: { part: Part; places: Place[]; ca
   )
 }
 
-function KitModel({ model, places }: { model: string; places: Place[] }) {
-  const gltf = useGLTF(`${ROOT}/${model}`)
+function KitModel({ root, model, places }: { root: string; model: string; places: Place[] }) {
+  const gltf = useGLTF(`${root}/${model}`)
   const parts = useMemo(() => partsOf(gltf.scene), [gltf])
   const chunks = useMemo(() => {
     const map = new Map<string, Place[]>()
@@ -99,7 +98,11 @@ function KitModel({ model, places }: { model: string; places: Place[] }) {
     }
     return [...map.values()]
   }, [places])
-  const cast = model.startsWith('template-detail')
+  const cast =
+    model.startsWith('template-detail') ||
+    model.startsWith('pillar') ||
+    model.startsWith('crates') ||
+    model.startsWith('stairs')
   return (
     <group>
       {chunks.map((chunk, chunkIndex) =>
@@ -117,20 +120,25 @@ function KitModel({ model, places }: { model: string; places: Place[] }) {
 }
 
 export function Dungeon(_props: { focusX: number; focusZ: number }) {
+  const scene = useAppStore((s) => s.scene)
+  const root = scene === 'kaykit' ? KAYKIT_ROOT : KENNEY_ROOT
+  const places = scene === 'kaykit' ? KAYKIT_PLACES : KENNEY_PLACES
   const groups = useMemo(() => {
     const map = new Map<string, Place[]>()
-    for (const place of ALL_PLACES) {
+    for (const place of places) {
       const list = map.get(place.model) ?? []
       list.push(place)
       map.set(place.model, list)
     }
     return [...map.entries()]
-  }, [])
+  }, [places])
+
+  for (const [model] of groups) useGLTF.preload(`${root}/${model}`)
 
   return (
     <group>
-      {groups.map(([model, places]) => (
-        <KitModel key={model} model={model} places={places} />
+      {groups.map(([model, list]) => (
+        <KitModel key={`${root}/${model}`} root={root} model={model} places={list} />
       ))}
     </group>
   )
