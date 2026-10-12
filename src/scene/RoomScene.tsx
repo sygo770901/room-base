@@ -27,6 +27,7 @@ function BlockContextMenu() {
 
 function FollowLight() {
   const light = useRef<THREE.DirectionalLight>(null)
+  const fill = useRef<THREE.PointLight>(null)
   const target = useMemo(() => new THREE.Object3D(), [])
   const selfId = useAppStore((s) => s.selfId)
   const players = useAppStore((s) => s.players)
@@ -35,19 +36,22 @@ function FollowLight() {
     const p = selfId ? players[selfId] : null
     const x = p?.position[0] ?? SPAWN.x
     const z = p?.position[2] ?? SPAWN.z
-    if (!light.current) return
-    light.current.position.set(x + 10, 16, z + 8)
-    target.position.set(x, 0, z)
-    target.updateMatrixWorld()
+    if (light.current) {
+      light.current.position.set(x + 10, 16, z + 8)
+      target.position.set(x, 0, z)
+      target.updateMatrixWorld()
+    }
+    fill.current?.position.set(x, 3.4, z)
   })
 
   return (
     <>
       <primitive object={target} />
+      <pointLight ref={fill} color="#ffe2c4" intensity={36} distance={28} decay={2} />
       <directionalLight
         ref={light}
         castShadow
-        intensity={0.72}
+        intensity={1.6}
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
         shadow-bias={-0.0004}
@@ -103,10 +107,10 @@ function SceneContent() {
   return (
     <>
       <BlockContextMenu />
-      <color attach="background" args={['#100e0c']} />
-      <fog attach="fog" args={['#100e0c', 14, 42]} />
-      <hemisphereLight args={['#6e6458', '#1a1410', 0.38]} />
-      <ambientLight intensity={0.18} />
+      <color attach="background" args={['#1a1612']} />
+      <fog attach="fog" args={['#1a1612', 28, 86]} />
+      <hemisphereLight args={['#cbbba6', '#3a2c24', 1.25]} />
+      <ambientLight intensity={0.8} />
       <FollowLight />
 
       <Suspense fallback={null}>
@@ -158,6 +162,7 @@ export function RoomScene() {
   return (
     <Canvas
       shadows
+      gl={{ toneMappingExposure: 1.35 }}
       camera={{ position: [SPAWN.x + 7, 9, SPAWN.z + 9], fov: 48, near: 0.1, far: 180 }}
       style={{ width: '100%', height: '100%', touchAction: 'none' }}
     >
