@@ -266,8 +266,10 @@ function SceneContent() {
       <NotePlacementPlane />
 
       <HitEffects />
-      <RemotePlayers players={players} selfId={selfId} />
-      {displaySelf && <LocalAvatar player={displaySelf} />}
+      <Suspense fallback={null}>
+        <RemotePlayers players={players} selfId={selfId} />
+        {displaySelf && <LocalAvatar player={displaySelf} />}
+      </Suspense>
       {self && (
         <LocalController
           player={self}

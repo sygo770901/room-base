@@ -1,3 +1,4 @@
+import type { ClassId } from '../shared/classes'
 import type { MonsterState } from '../shared/combat'
 import type { FurnitureItem } from '../shared/furniture'
 import type { SceneId } from '../shared/scenes'
@@ -9,6 +10,7 @@ export interface PlayerState {
   id: string
   name: string
   color: string
+  classId: ClassId
   position: Vec3
   rotationY: number
   seated: SeatId | null

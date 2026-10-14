@@ -5,6 +5,7 @@ import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
 import { createMonsters, handleAttack, publicMonsters, tickRoom } from './combat.ts'
 import { loadPersistedRoom, savePersistedRoom } from './persist.ts'
+import { isClassId } from '../shared/classes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
@@ -93,7 +94,7 @@ export function attachSocketServer(httpServer: HttpServer) {
 
     socket.on(
       'join',
-      (payload: { roomId: string; name: string; wantHost?: boolean; scene?: string }, ack?: (data: unknown) => void) => {
+      (payload: { roomId: string; name: string; wantHost?: boolean; scene?: string; classId?: string }, ack?: (data: unknown) => void) => {
         const roomId = (payload.roomId || 'home').trim().slice(0, 32) || 'home'
         const name = (payload.name || '訪客').trim().slice(0, 16) || '訪客'
         const room = getOrCreateRoom(roomId)
@@ -113,6 +114,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           id: socket.id,
           name,
           color,
+          classId: isClassId(payload.classId) ? payload.classId : 'knight',
           position: [sp.x, 0, sp.z],
           rotationY: 0,
           seated: null,

@@ -1,4 +1,5 @@
 import { FormEvent, useState } from 'react'
+import { CLASS_LABELS, isClassId } from '../../shared/classes'
 import { disconnectSocket, emitAddNote, emitRemoveNote, emitUpdateNote, performAttack } from '../net/socket'
 import { setMicEnabled } from '../net/voice'
 import { useAppStore } from '../store'
@@ -69,6 +70,7 @@ export function Hud() {
               <span>
                 {p.name}
                 {p.id === selfId ? '（你）' : ''}
+                {isClassId(p.classId) ? ` · ${CLASS_LABELS[p.classId]}` : ''}
                 {p.hp != null && p.hp < 100 ? ` · ${p.hp}` : ''}
               </span>
             </div>

@@ -3,6 +3,7 @@ import { ATTACK_COOLDOWN_MS } from '../../shared/combat'
 import type { FurnitureItem } from '../../shared/furniture'
 import { attackBlocked } from '../scene/inputLock'
 import type { MonsterState, PlayerState, RoomSnapshot, SeatId, StickyNote, Vec3 } from '../types'
+import type { ClassId } from '../../shared/classes'
 import type { SceneId } from '../../shared/scenes'
 import { useAppStore } from '../store'
 import { startVoiceSession, stopVoiceSession } from './voice'
@@ -101,10 +102,16 @@ export function connectSocket() {
   return socket
 }
 
-export function joinRoom(roomId: string, name: string, wantHost = false, scene: SceneId = 'kenney') {
+export function joinRoom(
+  roomId: string,
+  name: string,
+  wantHost = false,
+  scene: SceneId = 'kenney',
+  classId: ClassId = 'knight',
+) {
   const s = connectSocket()
   return new Promise<RoomSnapshot>((resolve, reject) => {
-    s.emit('join', { roomId, name, wantHost, scene }, (snapshot: RoomSnapshot) => {
+    s.emit('join', { roomId, name, wantHost, scene, classId }, (snapshot: RoomSnapshot) => {
       if (!snapshot) {
         reject(new Error('加入失敗'))
         return

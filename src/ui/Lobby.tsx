@@ -1,7 +1,8 @@
 import { FormEvent, useState } from 'react'
+import { CLASS_BLURBS, CLASS_IDS, CLASS_LABELS, isClassId, type ClassId } from '../../shared/classes'
+import type { SceneId } from '../../shared/scenes'
 import { joinRoom } from '../net/socket'
 import { useAppStore } from '../store'
-import type { SceneId } from '../../shared/scenes'
 
 const SCENES: { id: SceneId; title: string; text: string }[] = [
   {
@@ -16,6 +17,11 @@ const SCENES: { id: SceneId; title: string; text: string }[] = [
   },
 ]
 
+function savedClass(): ClassId {
+  const raw = localStorage.getItem('rb-class')
+  return isClassId(raw) ? raw : 'knight'
+}
+
 export function Lobby() {
   const roomId = useAppStore((s) => s.roomId)
   const displayName = useAppStore((s) => s.displayName)
@@ -23,6 +29,7 @@ export function Lobby() {
   const [name, setName] = useState(displayName || localStorage.getItem('rb-name') || '')
   const [room, setRoom] = useState(roomId || localStorage.getItem('rb-room') || 'home')
   const [scene, setScene] = useState<SceneId>(localStorage.getItem('rb-scene') === 'kaykit' ? 'kaykit' : 'kenney')
+  const [classId, setClassId] = useState<ClassId>(savedClass)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -35,8 +42,9 @@ export function Lobby() {
       localStorage.setItem('rb-name', n)
       localStorage.setItem('rb-room', r)
       localStorage.setItem('rb-scene', scene)
+      localStorage.setItem('rb-class', classId)
       setLobby(n, r)
-      await joinRoom(r, n, wantHost, scene)
+      await joinRoom(r, n, wantHost, scene, classId)
     } catch (e) {
       setError(e instanceof Error ? e.message : '連線失敗')
     } finally {
@@ -53,7 +61,7 @@ export function Lobby() {
     <div className="lobby">
       <form className="lobby-card" onSubmit={onSubmit}>
         <h1>地城迴廊</h1>
-        <p>多人躲貓貓加打怪。進房前先選場景。房間裡已經有人時，會沿用開房時的場景。</p>
+        <p>多人躲貓貓加打怪。進房前先選場景和職業。房間裡已經有人時，會沿用開房時的場景。</p>
         <div className="scene-pick" role="radiogroup" aria-label="場景">
           {SCENES.map((item) => (
             <button
@@ -66,6 +74,21 @@ export function Lobby() {
             >
               <strong>{item.title}</strong>
               <span>{item.text}</span>
+            </button>
+          ))}
+        </div>
+        <div className="class-pick" role="radiogroup" aria-label="職業">
+          {CLASS_IDS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={classId === id}
+              className={classId === id ? 'on' : ''}
+              onClick={() => setClassId(id)}
+            >
+              <strong>{CLASS_LABELS[id]}</strong>
+              <span>{CLASS_BLURBS[id]}</span>
             </button>
           ))}
         </div>
