@@ -22,38 +22,53 @@ export function LocalController({
   const furniture = useAppStore((s) => s.furniture)
   const joy = useAppStore((s) => s.joy)
   const keys = useRef<Record<string, boolean>>({})
-  const pos = useRef(new THREE.Vector3(...player.position))
+  const pos = useRef(new THREE.Vector3(...(player.position ?? [0, 0, 0])))
   const rotY = useRef(player.rotationY)
   const lastSent = useRef(0)
   const lastPush = useRef(0)
+  const wasMoving = useRef(false)
   const seatedRef = useRef(player.seated)
   const furnitureRef = useRef(furniture)
   const joyRef = useRef(joy)
   const { camera, controls } = useThree()
 
   const respawnToken = useAppStore((s) => s.respawnToken)
+  const poseSync = useAppStore((s) => s.poseSync)
+  const tagHud = useAppStore((s) => s.tagHud)
+  const mode = useAppStore((s) => s.mode)
+  const hideUntilAt = useRef(0)
 
   seatedRef.current = player.seated
   furnitureRef.current = furniture
   joyRef.current = joy
 
   useEffect(() => {
+    hideUntilAt.current = tagHud ? Date.now() + tagHud.hideLeftMs : 0
+  }, [tagHud])
+
+  useEffect(() => {
     const p = useAppStore.getState().players[player.id]
-    if (!p) return
+    if (!p?.position) return
     pos.current.set(p.position[0], 0, p.position[2])
     rotY.current = p.rotationY
-  }, [respawnToken, player.id])
+  }, [respawnToken, poseSync, player.id])
 
   useEffect(() => {
     if (!player.seated) return
+    if (!player.position) return
     pos.current.set(...player.position)
     rotY.current = player.rotationY
-  }, [player.seated, player.position[0], player.position[1], player.position[2], player.rotationY])
+  }, [player.seated, player.position?.[0], player.position?.[1], player.position?.[2], player.rotationY])
 
   function tryHide() {
     const state = useAppStore.getState()
     const me = state.players[player.id]
     if (!me || me.seated) return
+    if (me.team === 'ghost' || me.team === 'spectator') {
+      state.setToast(me.team === 'ghost' ? '鬼不能躲箱子' : '觀戰中')
+      setTimeout(() => useAppStore.getState().setToast(null), 1600)
+      return
+    }
     if (me.hidden) {
       emitHide(false)
       state.patchPlayer(player.id, { hidden: false })
@@ -120,9 +135,22 @@ export function LocalController({
       target.set(x, 0.9, z)
     }
 
-    if (player.seated) {
+    if (performance.now() < useAppStore.getState().hitStopUntil) {
+      stickCamera(pos.current.x, pos.current.z)
+      onPose([pos.current.x, 0, pos.current.z], rotY.current)
+      return
+    }
+
+    if (player.seated && player.position) {
       stickCamera(player.position[0], player.position[2])
       onPose(player.position, player.rotationY)
+      return
+    }
+
+    const frozen = mode === 'tag' && player.team === 'ghost' && Date.now() < hideUntilAt.current
+    if (frozen) {
+      stickCamera(pos.current.x, pos.current.z)
+      onPose([pos.current.x, 0, pos.current.z], rotY.current)
       return
     }
 
@@ -180,7 +208,13 @@ export function LocalController({
     onPose(pose, rotY.current)
 
     const now = performance.now()
-    if (now - lastSent.current > 50 && (fwd !== 0 || strafe !== 0)) {
+    const moving = fwd !== 0 || strafe !== 0
+    if (moving && now - lastSent.current > 50) {
+      lastSent.current = now
+      wasMoving.current = true
+      emitMove(pose, rotY.current)
+    } else if (!moving && wasMoving.current) {
+      wasMoving.current = false
       lastSent.current = now
       emitMove(pose, rotY.current)
     }

@@ -15,14 +15,36 @@ export interface MonsterState {
   alive: boolean
   /** 飲水機正在衝撞玩家 */
   pouncing?: boolean
+  phase?: 1 | 2
+}
+
+export interface DamageRank {
+  id: string
+  name: string
+  dmg: number
+  surviveSec?: number
+  catches?: number
+  team?: 'ghost' | 'hider' | 'spectator'
 }
 
 export interface MatchOver {
-  winnerId: string
-  winnerName: string
+  teamWin: boolean
+  reason?: 'timeout' | 'cleared'
+  ranking: DamageRank[]
+  winner?: 'hiders' | 'ghosts'
 }
 
 export const PLAYER_MAX_HP = 100
+export const ROOM_MAX_PLAYERS = 10
+export const MATCH_TIME_LIMIT_SEC = 300
+export const BOSS_COUNTDOWN_MS = 5000
+export function duckKingHp(n: number) {
+  const count = Math.max(1, n)
+  return 3300 + 4500 * (count - 1)
+}
+export function dispenserHp(n: number) {
+  return 160 * Math.max(1, n)
+}
 export const ATTACK_RANGE = 2.5
 export const ATTACK_DAMAGE = 34
 export const ATTACK_COOLDOWN_MS = 460
@@ -34,12 +56,23 @@ export const SIGHT = 14
 export const BOSS_SIGHT = 16
 export const CHASE_SPEED = 4.1
 export const PATROL_SPEED = 2.15
-export const FLEE_SPEED = 4.35
+export const FLEE_SPEED = 5.6
+export const FLEE_SPEED_RAGE = 6.0
+export const SLAM_RANGE = 8
+export const SLAM_RADIUS = 3
+export const SLAM_WINDUP_MS = 1000
+export const SLAM_DAMAGE = 25
+export const SLAM_CD_MS = 6000
+export const SLAM_RADIUS_RAGE = 3.5
+export const SLAM_WINDUP_RAGE_MS = 800
+export const SLAM_CD_RAGE_MS = 4000
 export const PET_FOLLOW_SPEED = 3.7
 export const PET_POUNCE_SPEED = 6.4
 export const PET_DAMAGE = 18
 export const PET_SKILL_CD_MS = 7800
+export const PET_SKILL_CD_RAGE_MS = 5000
 export const PET_POUNCE_MS = 4200
+export const RAGE_PAUSE_MS = 1000
 export const RESPAWN_MS = 9000
 export const IFRAME_MS = 2000
 export const MONSTER_RADIUS = 0.42

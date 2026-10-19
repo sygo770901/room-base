@@ -1,13 +1,28 @@
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import type { Socket } from 'socket.io'
-import { PLAYER_MAX_HP } from '../shared/combat.ts'
-import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
+import { BOSS_COUNTDOWN_MS, PLAYER_MAX_HP, ROOM_MAX_PLAYERS } from '../shared/combat.ts'
+import { SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
-import { createBossMonsters, createMonsters, handleAttack, publicMonsters, tickRoom } from './combat.ts'
+import { createBossMonsters, createMonsters, handleAttack, publicMonsters, scaleBossHealth, tickRoom } from './combat.ts'
+import {
+  acceptMove,
+  emitPlayerHidden,
+  emitPlayerJoined,
+  emitPlayerMoved,
+  handleCheck,
+  maybeRerollGhosts,
+  playersForViewer,
+  resetPlayersForTagRestart,
+  settleTag,
+  startTagRound,
+  tagHudFor,
+  tryHide,
+  type TagState,
+} from './tag.ts'
 import { loadPersistedRoom, savePersistedRoom } from './persist.ts'
 import { PLAYER_CLASS } from '../shared/classes.ts'
-import { isGameMode, type GameMode } from '../shared/modes.ts'
+import { defaultSettings, isGameMode, type GameMode, type RoomSettings } from '../shared/modes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
 import type { MatchOver } from '../shared/combat.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
@@ -26,6 +41,14 @@ export interface RoomState {
   nextAttack: Record<string, number>
   matchOver: MatchOver | null
   awayUntil: Record<string, number>
+  damage: Record<string, { name: string; dmg: number }>
+  settings: RoomSettings
+  matchDeadline: number | null
+  startAt: number
+  hpScaled: boolean
+  started: boolean
+  tag?: TagState
+  lastMoveAt: Record<string, number>
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -50,6 +73,13 @@ function createRoom(roomId: string): RoomState {
     nextAttack: {},
     matchOver: null,
     awayUntil: {},
+    damage: {},
+    settings: defaultSettings(),
+    matchDeadline: null,
+    startAt: 0,
+    hpScaled: false,
+    started: false,
+    lastMoveAt: {},
   }
 }
 
@@ -66,18 +96,29 @@ function persist(room: RoomState) {
   savePersistedRoom(room.roomId, { notes: room.notes, furniture: room.furniture })
 }
 
-function publicRoom(room: RoomState) {
+function snapshotFor(room: RoomState, viewerId: string) {
   return {
     roomId: room.roomId,
     scene: room.scene,
     mode: room.mode,
     hostId: room.hostId,
-    players: room.players,
+    players: playersForViewer(room, viewerId),
     notes: room.notes,
     seats: room.seats,
     furniture: room.furniture,
     monsters: publicMonsters(room.monsters),
     matchOver: room.matchOver,
+    settings: room.settings,
+    timeLeftMs: room.matchDeadline ? Math.max(0, room.matchDeadline - Date.now()) : null,
+    startInMs: room.startAt ? Math.max(0, room.startAt - Date.now()) : 0,
+    started: room.started,
+    tagHud: tagHudFor(room, viewerId),
+  }
+}
+
+function emitState(room: RoomState, io: Server) {
+  for (const id of Object.keys(room.players)) {
+    io.to(id).emit('room:state', snapshotFor(room, id))
   }
 }
 
@@ -137,7 +178,6 @@ function applyResume(
     | {
         position?: Vec3
         rotationY?: number
-        hp?: number
         hidden?: boolean
         seated?: SeatId | null
       }
@@ -145,6 +185,7 @@ function applyResume(
 ) {
   if (!resume) return
   if (
+    !player.hidden &&
     Array.isArray(resume.position) &&
     resume.position.length >= 3 &&
     resume.position.slice(0, 3).every((n) => typeof n === 'number' && Number.isFinite(n))
@@ -154,10 +195,13 @@ function applyResume(
   if (typeof resume.rotationY === 'number' && Number.isFinite(resume.rotationY)) {
     player.rotationY = resume.rotationY
   }
-  if (typeof resume.hp === 'number' && Number.isFinite(resume.hp)) {
-    player.hp = Math.max(0, Math.min(PLAYER_MAX_HP, resume.hp))
+}
+
+function removeFromOtherRooms(playerId: string, keepRoomId: string, io: Server) {
+  for (const room of [...rooms.values()]) {
+    if (room.roomId === keepRoomId) continue
+    if (room.players[playerId]) removePlayer(room, playerId, io)
   }
-  if (typeof resume.hidden === 'boolean') player.hidden = resume.hidden
 }
 
 function removePlayer(room: RoomState, playerId: string, io: Server) {
@@ -168,6 +212,7 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
   delete room.players[playerId]
   delete room.hurtUntil[playerId]
   delete room.nextAttack[playerId]
+  delete room.lastMoveAt[playerId]
   playerSockets.delete(playerId)
 
   if (room.hostId === playerId) {
@@ -179,7 +224,9 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
   persist(room)
   io.to(room.roomId).emit('player:left', { id: playerId })
   io.to(room.roomId).emit('voice:peer-left', { id: playerId })
-  io.to(room.roomId).emit('room:state', publicRoom(room))
+  maybeRerollGhosts(room, io, Date.now())
+  settleTag(room, io, Date.now())
+  emitState(room, io)
 
   if (Object.keys(room.players).length === 0) {
     rooms.delete(room.roomId)
@@ -221,10 +268,10 @@ export function attachSocketServer(httpServer: HttpServer) {
           scene?: string
           mode?: string
           playerId?: string
+          timed?: boolean
           resume?: {
             position?: Vec3
             rotationY?: number
-            hp?: number
             hidden?: boolean
             seated?: SeatId | null
           }
@@ -236,10 +283,14 @@ export function attachSocketServer(httpServer: HttpServer) {
         const playerId = normalizePlayerId(payload.playerId ?? socket.handshake.auth?.playerId, socket.id)
         const room = getOrCreateRoom(roomId)
         const existing = room.players[playerId]
+        if (!existing && Object.keys(room.players).length >= ROOM_MAX_PLAYERS) {
+          ack?.({ error: '房間已滿' })
+          return
+        }
         const sameSocket = existing && playerSockets.get(playerId) === socket.id && currentRoomId === roomId
 
         if (sameSocket && !room.awayUntil[playerId]) {
-          ack?.(publicRoom(room))
+          ack?.(snapshotFor(room, playerId))
           return
         }
 
@@ -251,22 +302,47 @@ export function attachSocketServer(httpServer: HttpServer) {
         socket.data.playerId = playerId
         socket.data.replaced = false
 
+        removeFromOtherRooms(playerId, roomId, io)
+
         const prevSid = playerSockets.get(playerId)
         if (prevSid && prevSid !== socket.id) {
           const prev = io.sockets.sockets.get(prevSid)
           if (prev) {
             prev.data.replaced = true
-            io.to(roomId).emit('voice:peer-left', { id: playerId })
+            const prevRoomId = typeof prev.data.roomId === 'string' ? prev.data.roomId : null
+            if (prevRoomId && prevRoomId !== roomId) {
+              const prevRoom = rooms.get(prevRoomId)
+              if (prevRoom?.players[playerId]) removePlayer(prevRoom, playerId, io)
+            }
+            io.to(prevRoomId || roomId).emit('voice:peer-left', { id: playerId })
             prev.disconnect(true)
           }
         }
 
         const isFirst = Object.keys(room.players).length === 0
         if (isFirst && isSceneId(payload.scene)) room.scene = payload.scene
+        if (isFirst && !isGameMode(payload.mode)) room.started = true
         if (isFirst && isGameMode(payload.mode)) {
           room.mode = payload.mode
-          room.monsters = payload.mode === 'boss' ? createBossMonsters() : createMonsters()
+          room.monsters =
+            payload.mode === 'boss' ? createBossMonsters() : payload.mode === 'tag' ? [] : createMonsters()
           room.matchOver = null
+          room.damage = {}
+          const allowTimed = payload.mode === 'boss' || payload.mode === 'tag'
+          room.settings = {
+            timed: Boolean(payload.timed) && allowTimed,
+            timeLimitSec: payload.timed && allowTimed ? 300 : 0,
+          }
+          if (payload.mode === 'boss' || payload.mode === 'tag') {
+            room.started = false
+            room.startAt = 0
+            room.hpScaled = false
+            room.matchDeadline = null
+          } else {
+            room.started = true
+            room.startAt = 0
+            room.matchDeadline = null
+          }
         }
 
         let player = existing
@@ -289,8 +365,15 @@ export function attachSocketServer(httpServer: HttpServer) {
             role,
             hp: PLAYER_MAX_HP,
             hidden: false,
+            team:
+              room.started && !room.matchOver && (room.mode === 'tag' || room.mode === 'boss')
+                ? 'spectator'
+                : room.mode === 'tag' || room.mode === 'boss'
+                  ? 'hider'
+                  : undefined,
           }
           room.players[playerId] = player
+          room.lastMoveAt[playerId] = Date.now()
           resumed = false
         } else {
           applyResume(player, payload.resume)
@@ -299,18 +382,84 @@ export function attachSocketServer(httpServer: HttpServer) {
         cancelLeave(room, playerId)
         playerSockets.set(playerId, socket.id)
         currentRoomId = roomId
+        socket.data.roomId = roomId
         socket.join(roomId)
         socket.join(playerId)
 
-        const snapshot = publicRoom(room)
-        ack?.(snapshot)
-        if (!resumed) {
-          socket.to(roomId).emit('player:joined', player)
-        }
+        ack?.(snapshotFor(room, playerId))
+        if (!resumed) emitPlayerJoined(room, io, player)
         socket.to(roomId).emit('voice:peer-joined', { id: playerId })
-        io.to(roomId).emit('room:state', snapshot)
+        emitState(room, io)
       },
     )
+
+    socket.on('match:restart', () => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, playerId } = ctx
+      if (room.hostId !== playerId) return
+      if (!room.matchOver) return
+      if (room.mode !== 'boss' && room.mode !== 'tag') return
+      room.matchOver = null
+      room.started = false
+      room.hurtUntil = {}
+      room.nextAttack = {}
+      room.damage = {}
+      room.startAt = 0
+      room.matchDeadline = null
+      if (room.mode === 'boss') {
+        room.monsters = createBossMonsters()
+        room.hpScaled = false
+      } else {
+        room.monsters = []
+        resetPlayersForTagRestart(room)
+        room.tag = undefined
+      }
+      const ids = Object.keys(room.players)
+      ids.forEach((id, i) => {
+        const p = room.players[id]
+        const sp = SPAWN_POINTS[i % SPAWN_POINTS.length]
+        p.hp = PLAYER_MAX_HP
+        p.hidden = false
+        if (p.seated) {
+          room.seats[p.seated] = null
+          p.seated = null
+        }
+        if (room.mode !== 'tag') {
+          p.position = [sp.x, 0, sp.z]
+          p.rotationY = 0
+        }
+        io.to(id).emit('player:respawn', {
+          position: p.position,
+          hp: p.hp,
+          rotationY: p.rotationY,
+          reason: 'restart',
+        })
+      })
+      emitState(room, io)
+    })
+
+    socket.on('match:start', () => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, playerId } = ctx
+      if (room.hostId !== playerId) return
+      if (room.matchOver || room.started) return
+      if (room.mode !== 'boss' && room.mode !== 'tag') return
+      const present = Object.values(room.players).filter((p) => !room.awayUntil[p.id])
+      if (room.mode === 'tag') {
+        if (present.length < 2) return
+        for (const p of present) p.team = 'hider'
+        if (!startTagRound(room, io, Date.now())) return
+      } else {
+        room.started = true
+        room.hpScaled = false
+        room.startAt = Date.now() + BOSS_COUNTDOWN_MS
+        room.matchDeadline = room.settings.timed ? room.startAt + room.settings.timeLimitSec * 1000 : null
+        scaleBossHealth(room)
+      }
+      emitState(room, io)
+    })
 
     socket.on('leave', () => {
       const ctx = inRoom(socket, currentRoomId)
@@ -327,20 +476,19 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (!ctx) return
       const { room, player, playerId } = ctx
       if (player.seated) return
-      if (player.hidden) {
-        const moved = Math.hypot(payload.position[0] - player.position[0], payload.position[2] - player.position[2])
-        if (moved > 0.2) {
-          player.hidden = false
-          io.to(currentRoomId!).emit('player:hidden', { id: playerId, hidden: false })
-        }
+      const now = Date.now()
+      if (player.hidden) return
+      const ok = acceptMove(room, player, payload, now)
+      if (!ok) {
+        io.to(playerId).emit('player:moved', {
+          id: playerId,
+          position: player.position,
+          rotationY: player.rotationY,
+          snap: true,
+        })
+        return
       }
-      player.position = payload.position
-      player.rotationY = payload.rotationY
-      socket.to(currentRoomId!).emit('player:moved', {
-        id: playerId,
-        position: player.position,
-        rotationY: player.rotationY,
-      })
+      emitPlayerMoved(room, io, playerId)
     })
 
     socket.on('sit', (payload: { seatId: SeatId | null }, ack?: (ok: boolean, reason?: string) => void) => {
@@ -354,7 +502,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           player.seated = null
         }
         ack?.(true)
-        io.to(currentRoomId!).emit('room:state', publicRoom(room))
+        emitState(room, io)
         return
       }
 
@@ -371,7 +519,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       player.rotationY = seatId.startsWith('bed') ? 0 : Math.PI
 
       ack?.(true)
-      io.to(currentRoomId!).emit('room:state', publicRoom(room))
+      emitState(room, io)
     })
 
     socket.on(
@@ -489,16 +637,16 @@ export function attachSocketServer(httpServer: HttpServer) {
     socket.on('hide', (payload: { hidden: boolean }) => {
       const ctx = inRoom(socket, currentRoomId)
       if (!ctx) return
-      const { player, playerId } = ctx
-      const want = !!payload?.hidden
-      if (want) {
-        const near = HIDE_SPOTS.some(
-          (s) => Math.hypot(s.x - player.position[0], s.z - player.position[2]) <= HIDE_RANGE,
-        )
-        if (!near) return
-      }
-      player.hidden = want
-      io.to(currentRoomId!).emit('player:hidden', { id: playerId, hidden: want })
+      const { room, playerId } = ctx
+      if (!tryHide(room, playerId, !!payload?.hidden, Date.now())) return
+      emitPlayerHidden(room, io, playerId)
+    })
+
+    socket.on('check', () => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      handleCheck(ctx.room, io, ctx.playerId, Date.now())
+      io.to(ctx.playerId).emit('room:state', snapshotFor(ctx.room, ctx.playerId))
     })
 
     socket.on('attack', () => {
@@ -514,13 +662,30 @@ export function attachSocketServer(httpServer: HttpServer) {
     })
 
     socket.on('disconnect', () => {
-      if (socket.data.replaced) return
-      const ctx = inRoom(socket, currentRoomId)
+      const playerId = playerIdOf(socket)
+      const roomId = currentRoomId || (typeof socket.data.roomId === 'string' ? socket.data.roomId : null)
+      if (socket.data.replaced) {
+        if (playerId && roomId && playerSockets.get(playerId) !== socket.id) {
+          const room = rooms.get(roomId)
+          const ownerSid = playerSockets.get(playerId)
+          const owner = ownerSid ? io.sockets.sockets.get(ownerSid) : undefined
+          const ownerRoom = typeof owner?.data.roomId === 'string' ? owner.data.roomId : null
+          if (room?.players[playerId] && ownerRoom !== room.roomId) {
+            removePlayer(room, playerId, io)
+          }
+        }
+        currentRoomId = null
+        return
+      }
+      const ctx = inRoom(socket, roomId)
       if (!ctx) return
-      const { room, playerId } = ctx
-      if (playerSockets.get(playerId) === socket.id) playerSockets.delete(playerId)
-      io.to(room.roomId).emit('voice:peer-left', { id: playerId })
-      scheduleLeave(room, playerId, io)
+      const { room } = ctx
+      if (playerId && playerSockets.get(playerId) === socket.id) playerSockets.delete(playerId)
+      io.to(room.roomId).emit('voice:peer-left', { id: ctx.playerId })
+      scheduleLeave(room, ctx.playerId, io)
+      maybeRerollGhosts(room, io, Date.now())
+      settleTag(room, io, Date.now())
+      emitState(room, io)
       currentRoomId = null
     })
   })

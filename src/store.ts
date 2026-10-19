@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import { type MatchOver, type MonsterState } from '../shared/combat'
 import { DEFAULT_FURNITURE, type FurnitureItem } from '../shared/furniture'
 import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
-import type { GameMode } from '../shared/modes'
+import { defaultSettings, type GameMode, type RoomSettings } from '../shared/modes'
+import type { TagHud } from '../shared/tag'
 import type { SceneId } from '../shared/scenes'
 import { loadSession } from './net/session'
 
@@ -32,6 +33,17 @@ interface AppState {
   scene: SceneId
   mode: GameMode
   matchOver: MatchOver | null
+  settings: RoomSettings
+  timeLeftMs: number | null
+  startInMs: number
+  started: boolean
+  joinError: string | null
+  tagHud: TagHud | null
+  poseSync: number
+  hitStopUntil: number
+  shakeUntil: number
+  shakeAmp: number
+  sfxOn: boolean
   displayName: string
   players: Record<string, PlayerState>
   notes: StickyNote[]
@@ -51,12 +63,13 @@ interface AppState {
   swings: Record<string, number>
   hits: HitFx[]
   hitSeq: number
+  telegraph: { x: number; z: number; r: number; ms: number; until: number } | null
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
   upsertPlayer: (player: PlayerState) => void
   removePlayer: (id: string) => void
-  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp' | 'hidden'>>) => void
+  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp' | 'hidden' | 'team'>>) => void
   addNote: (note: StickyNote) => void
   patchNote: (note: StickyNote) => void
   removeNote: (id: string) => void
@@ -72,8 +85,14 @@ interface AppState {
   pushHit: (hit: Omit<HitFx, 'key' | 'at'>) => void
   setMonsters: (monsters: MonsterState[]) => void
   setMatchOver: (over: MatchOver | null) => void
+  setTelegraph: (tel: { x: number; z: number; r: number; ms: number } | null) => void
   bumpRespawn: () => void
+  bumpPoseSync: () => void
+  setTagHud: (hud: TagHud | null) => void
+  triggerHitFeel: (kind: 'hit' | 'hurt' | 'slam') => void
+  setSfxOn: (on: boolean) => void
   setConnection: (status: ConnectionStatus) => void
+  setJoinError: (msg: string | null) => void
   leaveToLobby: () => void
 }
 
@@ -85,6 +104,17 @@ export const useAppStore = create<AppState>((set) => ({
   scene: boot?.scene ?? 'kenney',
   mode: boot?.mode ?? 'hunt',
   matchOver: null,
+  settings: defaultSettings(),
+  timeLeftMs: null,
+  startInMs: 0,
+  started: false,
+  joinError: null,
+  tagHud: null,
+  poseSync: 0,
+  hitStopUntil: 0,
+  shakeUntil: 0,
+  shakeAmp: 0,
+  sfxOn: typeof localStorage === 'undefined' ? true : localStorage.getItem('rb-sfx') !== '0',
   displayName: boot?.name ?? '',
   players: {},
   notes: [],
@@ -102,6 +132,7 @@ export const useAppStore = create<AppState>((set) => ({
   swings: {},
   hits: [],
   hitSeq: 1,
+  telegraph: null,
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
     set({
@@ -112,6 +143,12 @@ export const useAppStore = create<AppState>((set) => ({
       scene: snapshot.scene ?? 'kenney',
       mode: snapshot.mode ?? 'hunt',
       matchOver: snapshot.matchOver ?? null,
+      settings: snapshot.settings ?? defaultSettings(),
+      timeLeftMs: snapshot.timeLeftMs ?? null,
+      startInMs: snapshot.startInMs ?? 0,
+      started: snapshot.started ?? false,
+      joinError: null,
+      tagHud: snapshot.tagHud ?? null,
       players: snapshot.players,
       notes: snapshot.notes,
       seats: snapshot.seats,
@@ -130,7 +167,12 @@ export const useAppStore = create<AppState>((set) => ({
       roomId: snapshot.roomId,
       scene: snapshot.scene ?? s.scene,
       mode: snapshot.mode ?? s.mode,
-      matchOver: snapshot.matchOver ?? s.matchOver,
+      matchOver: snapshot.matchOver ?? null,
+      settings: snapshot.settings ?? s.settings,
+      timeLeftMs: snapshot.timeLeftMs ?? s.timeLeftMs,
+      startInMs: snapshot.startInMs ?? s.startInMs,
+      started: snapshot.started ?? s.started,
+      tagHud: snapshot.tagHud ?? s.tagHud,
     })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
@@ -144,7 +186,9 @@ export const useAppStore = create<AppState>((set) => ({
     set((s) => {
       const prev = s.players[id]
       if (!prev) return s
-      return { players: { ...s.players, [id]: { ...prev, ...patch } } }
+      const next = { ...prev, ...patch }
+      if ('position' in patch && patch.position === undefined) delete next.position
+      return { players: { ...s.players, [id]: next } }
     }),
   addNote: (note) => set((s) => ({ notes: [...s.notes.filter((n) => n.id !== note.id), note] })),
   patchNote: (note) => set((s) => ({ notes: s.notes.map((n) => (n.id === note.id ? note : n)) })),
@@ -170,8 +214,28 @@ export const useAppStore = create<AppState>((set) => ({
     }),
   setMonsters: (monsters) => set({ monsters }),
   setMatchOver: (over) => set({ matchOver: over }),
+  setTelegraph: (tel) =>
+    set({
+      telegraph: tel ? { ...tel, until: performance.now() + tel.ms } : null,
+    }),
   bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
+  bumpPoseSync: () => set((s) => ({ poseSync: s.poseSync + 1 })),
+  setTagHud: (hud) => set({ tagHud: hud }),
+  triggerHitFeel: (kind) => {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('rb-sfx') === '0') return
+    const mobile = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
+    const now = performance.now()
+    const stop = kind === 'slam' ? 70 : 42
+    const shake = kind === 'slam' ? 280 : 140
+    const amp = (kind === 'slam' ? 0.16 : 0.07) * (mobile ? 0.45 : 1)
+    set({ hitStopUntil: now + stop, shakeUntil: now + shake, shakeAmp: amp })
+  },
+  setSfxOn: (on) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('rb-sfx', on ? '1' : '0')
+    set({ sfxOn: on, shakeAmp: on ? 0.07 : 0, shakeUntil: on ? 0 : 0 })
+  },
   setConnection: (status) => set({ connection: status }),
+  setJoinError: (msg) => set({ joinError: msg }),
   leaveToLobby: () =>
     set({
       phase: 'lobby',
@@ -183,6 +247,15 @@ export const useAppStore = create<AppState>((set) => ({
       furniture: DEFAULT_FURNITURE,
       monsters: [],
       matchOver: null,
+      settings: defaultSettings(),
+      timeLeftMs: null,
+      startInMs: 0,
+      started: false,
+      joinError: null,
+      tagHud: null,
+      hitStopUntil: 0,
+      shakeUntil: 0,
+      shakeAmp: 0,
       hostId: null,
       micOn: false,
       pendingNote: null,
@@ -190,6 +263,7 @@ export const useAppStore = create<AppState>((set) => ({
       swings: {},
       hits: [],
       hitSeq: 1,
+      telegraph: null,
       joy: { x: 0, y: 0 },
     }),
 }))

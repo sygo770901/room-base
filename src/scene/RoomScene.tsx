@@ -7,6 +7,7 @@ import { KAYKIT_OCCLUDERS } from '../../shared/kaykitScene'
 import { NotePlacementPlane, StickyNotes3D } from './Furniture'
 import { Dungeon } from './Dungeon'
 import { HitEffects } from './HitEffects'
+import { Telegraph } from './Telegraph'
 import { Monsters } from './Monsters'
 import { LocalAvatar, RemotePlayers } from './Players'
 import { LocalController } from './LocalController'
@@ -48,8 +49,8 @@ function FollowLight() {
 
   useFrame(() => {
     const p = selfId ? players[selfId] : null
-    const x = p?.position[0] ?? SPAWN.x
-    const z = p?.position[2] ?? SPAWN.z
+    const x = p?.position?.[0] ?? SPAWN.x
+    const z = p?.position?.[2] ?? SPAWN.z
     if (light.current) {
       light.current.position.set(x + 10, 16, z + 8)
       target.position.set(x, 0, z)
@@ -225,6 +226,14 @@ function CameraGuard() {
         }
       }
     }
+    const feel = useAppStore.getState()
+    if (feel.sfxOn && performance.now() < feel.shakeUntil) {
+      const t = (feel.shakeUntil - performance.now()) / 180
+      const amp = feel.shakeAmp * Math.max(0, t)
+      camera.position.x += (Math.random() - 0.5) * amp
+      camera.position.y += (Math.random() - 0.5) * amp * 0.7
+      camera.position.z += (Math.random() - 0.5) * amp
+    }
     gl.render(scene, camera)
   }, 1)
   return null
@@ -258,7 +267,7 @@ function SceneContent() {
       <FollowLight />
 
       <Suspense fallback={null}>
-        <Dungeon focusX={displaySelf?.position[0] ?? SPAWN.x} focusZ={displaySelf?.position[2] ?? SPAWN.z} />
+        <Dungeon focusX={displaySelf?.position?.[0] ?? SPAWN.x} focusZ={displaySelf?.position?.[2] ?? SPAWN.z} />
         <Monsters />
       </Suspense>
 
@@ -266,9 +275,10 @@ function SceneContent() {
       <NotePlacementPlane />
 
       <HitEffects />
+      <Telegraph />
       <Suspense fallback={null}>
         <RemotePlayers players={players} selfId={selfId} />
-        {displaySelf && <LocalAvatar player={displaySelf} />}
+        {displaySelf?.position && <LocalAvatar player={displaySelf} />}
       </Suspense>
       {self && (
         <LocalController
@@ -301,7 +311,8 @@ export function RoomScene() {
   return (
     <Canvas
       shadows
-      gl={{ toneMappingExposure: 1.35 }}
+      dpr={[1, 1.5]}
+      gl={{ toneMappingExposure: 1.35, powerPreference: 'high-performance' }}
       camera={{ position: cameraPos, fov: 48, near: 0.1, far: 180 }}
       style={{ width: '100%', height: '100%', touchAction: 'none' }}
     >

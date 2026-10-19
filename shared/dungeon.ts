@@ -34,6 +34,12 @@ export interface PatrolPoint {
   z: number
 }
 
+export interface HideSpot {
+  id: string
+  x: number
+  z: number
+}
+
 export interface MonsterDef {
   id: string
   name: string
@@ -70,6 +76,8 @@ stamp(18, 8, 4, 4) // 往北門廊
 stamp(4, 12, 34, 4) // 東西長廊
 stamp(18, 12, 4, 14) // 南北主廊
 stamp(12, 26, 16, 6) // 北禮拜堂
+stamp(30, 24, 4, 5) // 通往東南王房
+stamp(32, 28, 8, 6) // 東南王房
 stamp(2, 17, 10, 7) // 西營房
 stamp(6, 15, 4, 2)
 stamp(30, 17, 10, 8) // 東書庫
@@ -387,7 +395,7 @@ function isOpen(gx: number, gz: number) {
   )
 }
 
-const hideSpots: PatrolPoint[] = []
+const hideSpots: HideSpot[] = []
 const DIRS = [
   [1, 0],
   [-1, 0],
@@ -402,7 +410,7 @@ for (let z = 2; z < MAP_H - 2; z++) {
     if ((x * 5 + z * 3) % 11 !== 0) continue
     addProp('template-detail.glb', x, z, 0, 0, 0.75, 0.75, true)
     const c = cellCenter(x, z)
-    hideSpots.push({ x: c.x + 1.15, z: c.z })
+    hideSpots.push({ id: `box-${hideSpots.length}`, x: c.x + 1.15, z: c.z })
   }
 }
 
@@ -419,7 +427,7 @@ for (const [gx, gz] of deadEnds) {
   }
   addProp('template-detail.glb', gx, gz, 0, 0, 0.75, 0.75, true, false, -ox * 0.85, -oz * 0.85)
   const c = cellCenter(gx, gz)
-  hideSpots.push({ x: c.x + ox * 0.35, z: c.z + oz * 0.35 })
+  hideSpots.push({ id: `box-${hideSpots.length}`, x: c.x + ox * 0.35, z: c.z + oz * 0.35 })
 }
 
 const propBoxes: WallBox[] = props
@@ -522,14 +530,11 @@ export const MONSTER_DEFS: MonsterDef[] = [
 ]
 
 const bossStart = patrol([
-  [17, 4],
-  [16, 4],
-  [16, 5],
-  [19, 7],
-  [20, 12],
-  [18, 14],
-  [28, 14],
-  [8, 14],
+  [34, 30],
+  [36, 30],
+  [34, 32],
+  [36, 32],
+  [35, 31],
 ])
 
 export const BOSS_DEFS: MonsterDef[] = [

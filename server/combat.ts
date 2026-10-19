@@ -5,9 +5,24 @@ import {
   ATTACK_COOLDOWN_MS,
   ATTACK_DAMAGE,
   ATTACK_RANGE,
+  type DamageRank,
+  BOSS_COUNTDOWN_MS,
   BOSS_SIGHT,
+  duckKingHp,
+  dispenserHp,
   CHASE_SPEED,
   FLEE_SPEED,
+  FLEE_SPEED_RAGE,
+  RAGE_PAUSE_MS,
+  SLAM_CD_MS,
+  SLAM_CD_RAGE_MS,
+  SLAM_DAMAGE,
+  SLAM_RADIUS,
+  SLAM_RADIUS_RAGE,
+  SLAM_RANGE,
+  SLAM_WINDUP_MS,
+  SLAM_WINDUP_RAGE_MS,
+  PET_SKILL_CD_RAGE_MS,
   IFRAME_MS,
   MONSTER_DAMAGE,
   MONSTER_HIT_CD,
@@ -37,6 +52,8 @@ import {
   type MonsterDef,
 } from '../shared/dungeon.ts'
 import type { GameMode } from '../shared/modes.ts'
+import type { TagState } from '../shared/tag.ts'
+import { handleTagAttack, tickTag } from './tag.ts'
 import type { PlayerState } from './types.ts'
 
 export interface ServerMonster {
@@ -60,6 +77,12 @@ export interface ServerMonster {
   nextSkill: number
   pounceTargetId: string | null
   spawnedAt: number
+  windupUntil: number
+  nextSlam: number
+  slamResolved: boolean
+  slamRadius: number
+  phase: 1 | 2
+  invulnUntil: number
 }
 
 export interface CombatRoom {
@@ -72,6 +95,14 @@ export interface CombatRoom {
   nextAttack: Record<string, number>
   matchOver?: MatchOver | null
   awayUntil?: Record<string, number>
+  damage?: Record<string, { name: string; dmg: number }>
+  settings?: { timed: boolean; timeLimitSec: 0 | 300 }
+  matchDeadline?: number | null
+  startAt?: number
+  hpScaled?: boolean
+  started?: boolean
+  tag?: TagState
+  lastMoveAt?: Record<string, number>
 }
 
 function fromDef(d: MonsterDef): ServerMonster {
@@ -97,6 +128,12 @@ function fromDef(d: MonsterDef): ServerMonster {
     nextSkill: Date.now() + 4500,
     pounceTargetId: null,
     spawnedAt: Date.now(),
+    windupUntil: 0,
+    nextSlam: 0,
+    slamResolved: true,
+    slamRadius: SLAM_RADIUS,
+    phase: 1,
+    invulnUntil: 0,
   }
 }
 
@@ -121,6 +158,7 @@ export function publicMonsters(list: ServerMonster[]): MonsterState[] {
     maxHp: m.maxHp,
     alive: m.alive,
     pouncing: m.kind === 'dispenser' && m.pounceUntil > Date.now(),
+    phase: m.kind === 'duck-king' ? m.phase : undefined,
   }))
 }
 
@@ -146,6 +184,7 @@ function nearestVisible(
   let best = sight
   for (const p of Object.values(room.players)) {
     if (p.hidden) continue
+    if (p.team === 'spectator') continue
     if (room.awayUntil?.[p.id]) continue
     const d = Math.hypot(p.position[0] - mx, p.position[2] - mz)
     if (d > sight || d >= best) continue
@@ -193,6 +232,7 @@ function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: numb
     amount: dmg,
     x,
     z,
+    by: null,
   })
   if (player.hp <= 0) {
     const sp = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)]
@@ -265,19 +305,84 @@ function tickHunt(room: CombatRoom, io: Server, now: number, dt: number) {
   }
 }
 
+export function scaleBossHealth(room: CombatRoom) {
+  if (room.hpScaled) return
+  room.hpScaled = true
+  const n =
+    Object.values(room.players).filter((p) => !room.awayUntil?.[p.id] && p.team !== 'spectator').length || 1
+  const duckHp = duckKingHp(n)
+  const petHp = dispenserHp(n)
+  for (const m of room.monsters) {
+    if (m.kind === 'duck-king') {
+      m.maxHp = duckHp
+      m.hp = duckHp
+    }
+    if (m.kind === 'dispenser') {
+      m.maxHp = petHp
+      m.hp = petHp
+    }
+  }
+}
+
+function maybeRage(room: CombatRoom, io: Server, now: number) {
+  const duck = room.monsters.find((m) => m.kind === 'duck-king')
+  if (!duck?.alive || duck.phase === 2) return
+  if (duck.hp > duck.maxHp * 0.5) return
+  duck.phase = 2
+  duck.invulnUntil = now + RAGE_PAUSE_MS
+  duck.slamResolved = true
+  duck.windupUntil = 0
+  io.to(room.roomId).emit('boss:phase', { phase: 2 })
+  io.to(room.roomId).emit('combat:skill', { text: '鴨大王生氣了！' })
+  io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
+}
+
 function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
   if (room.matchOver) return
+  if (!room.started) return
+  if (room.startAt && now < room.startAt) return
+  if (room.startAt && now >= room.startAt) scaleBossHealth(room)
   const extraWalls = room.scene === 'kaykit' ? KAYKIT_EXTRA_WALLS : []
   const extraAabbs = room.scene === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
   const duck = room.monsters.find((m) => m.kind === 'duck-king')
   const pet = room.monsters.find((m) => m.kind === 'dispenser')
+  maybeRage(room, io, now)
 
   if (duck?.alive) {
+    const raging = duck.phase === 2
+    const slamR = raging ? SLAM_RADIUS_RAGE : SLAM_RADIUS
+    const slamWind = raging ? SLAM_WINDUP_RAGE_MS : SLAM_WINDUP_MS
+    const slamCd = raging ? SLAM_CD_RAGE_MS : SLAM_CD_MS
+    const petCd = raging ? PET_SKILL_CD_RAGE_MS : PET_SKILL_CD_MS
+    const pausing = now < duck.invulnUntil
+
+    if (duck.windupUntil && !duck.slamResolved && now >= duck.windupUntil) {
+      duck.slamResolved = true
+      for (const p of Object.values(room.players)) {
+        if (room.awayUntil?.[p.id] || p.team === 'spectator') continue
+        const dist = Math.hypot(p.position[0] - duck.x, p.position[2] - duck.z)
+        if (dist <= duck.slamRadius) hurtPlayer(room, io, p, SLAM_DAMAGE, now)
+      }
+    }
+    let nearSlam = false
+    for (const p of Object.values(room.players)) {
+      if (room.awayUntil?.[p.id] || p.team === 'spectator') continue
+      if (Math.hypot(p.position[0] - duck.x, p.position[2] - duck.z) <= SLAM_RANGE) nearSlam = true
+    }
+    if (!pausing && (!duck.windupUntil || now >= duck.windupUntil) && nearSlam && now >= duck.nextSlam) {
+      duck.windupUntil = now + slamWind
+      duck.slamResolved = false
+      duck.slamRadius = slamR
+      duck.nextSlam = now + slamCd
+      io.to(room.roomId).emit('boss:telegraph', { x: duck.x, z: duck.z, r: slamR, ms: slamWind })
+    }
+    const winding = now < duck.windupUntil
+
     const seen = nearestVisible(room, duck.x, duck.z, extraWalls, BOSS_SIGHT)
     let tx = duck.wander.x
     let tz = duck.wander.z
     let speed = PATROL_SPEED
-    const canFlee = now - duck.spawnedAt > 8000
+    const canFlee = now >= (room.startAt ?? duck.spawnedAt)
     if (seen.target && canFlee) {
       const dx = duck.x - seen.target.position[0]
       const dz = duck.z - seen.target.position[2]
@@ -289,24 +394,26 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
         tx = side.x
         tz = side.z
       }
-      speed = FLEE_SPEED
+      speed = raging ? FLEE_SPEED_RAGE : FLEE_SPEED
     }
-    const { remain, moved } = stepMonster(room, duck, tx, tz, speed, dt, extraAabbs)
-    if (!seen.target && (remain < 1.1 || moved < 0.02)) {
-      duck.wander = pickWander(duck.x, duck.z)
+    if (!winding && !pausing) {
+      const { remain, moved } = stepMonster(room, duck, tx, tz, speed, dt, extraAabbs)
+      if (!seen.target && (remain < 1.1 || moved < 0.02)) {
+        duck.wander = pickWander(duck.x, duck.z)
+      }
     }
 
-    if (pet?.alive && seen.target && now >= pet.nextSkill) {
+    if (pet?.alive && seen.target && now >= Math.max(pet.nextSkill, room.startAt ?? 0)) {
       pet.pounceUntil = now + PET_POUNCE_MS
-      pet.nextSkill = now + PET_SKILL_CD_MS
+      pet.nextSkill = now + petCd
       pet.pounceTargetId = seen.target.id
       io.to(room.roomId).emit('combat:skill', { text: '鴨大王派出了飲水機！' })
     }
-  } else if (pet?.alive && now >= pet.nextSkill) {
+  } else if (pet?.alive && now >= Math.max(pet.nextSkill, room.startAt ?? 0)) {
     const seen = nearestVisible(room, pet.x, pet.z, extraWalls, BOSS_SIGHT)
     if (seen.target) {
       pet.pounceUntil = now + PET_POUNCE_MS
-      pet.nextSkill = now + PET_SKILL_CD_MS
+      pet.nextSkill = now + (duck?.phase === 2 ? PET_SKILL_CD_RAGE_MS : PET_SKILL_CD_MS)
       pet.pounceTargetId = seen.target.id
     }
   }
@@ -343,26 +450,49 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
   }
 }
 
+export function rankingOf(room: CombatRoom): DamageRank[] {
+  return Object.entries(room.damage ?? {})
+    .map(([id, v]) => ({ id, name: v.name, dmg: v.dmg }))
+    .sort((a, b) => b.dmg - a.dmg)
+}
+
 export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) {
+  if (room.mode === 'boss' && room.started && !room.matchOver && room.matchDeadline && now >= room.matchDeadline) {
+    const duck = room.monsters.find((m) => m.kind === 'duck-king')
+    if (duck?.alive) {
+      room.matchOver = { teamWin: false, reason: 'timeout', ranking: rankingOf(room) }
+      io.to(room.roomId).emit('match:over', room.matchOver)
+    }
+  }
+  if (room.matchOver) return
+  if (room.mode === 'tag') {
+    tickTag(room, io, now)
+    return
+  }
   if (room.mode === 'boss') tickBoss(room, io, now, dt)
   else tickHunt(room, io, now, dt)
   io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
 }
 
-function maybeWin(room: CombatRoom, io: Server, killerId: string) {
+function maybeWin(room: CombatRoom, io: Server, _killerId: string) {
   if (room.mode !== 'boss' || room.matchOver) return
   const duck = room.monsters.find((m) => m.kind === 'duck-king')
   const pet = room.monsters.find((m) => m.kind === 'dispenser')
   if (!duck || !pet || duck.alive || pet.alive) return
-  const player = room.players[killerId]
-  const winnerName = player?.name ?? '挑戰者'
-  room.matchOver = { winnerId: killerId, winnerName }
+  room.matchOver = { teamWin: true, reason: 'cleared', ranking: rankingOf(room) }
   io.to(room.roomId).emit('match:over', room.matchOver)
 }
 
 export function handleAttack(room: CombatRoom, playerId: string, io: Server, now: number, attackerSocketId?: string) {
+  if (room.mode === 'tag') {
+    handleTagAttack(room, io, playerId, now, attackerSocketId)
+    return
+  }
   const player = room.players[playerId]
-  if (!player || player.seated) return
+  if (!player || player.seated || player.hidden || player.team === 'spectator') return
+  if (room.matchOver) return
+  if (room.mode === 'boss' && !room.started) return
+  if (room.startAt && now < room.startAt) return
   if (room.awayUntil?.[playerId]) return
   if ((room.nextAttack[playerId] ?? 0) > now) return
   room.nextAttack[playerId] = now + ATTACK_COOLDOWN_MS
@@ -390,15 +520,25 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
     bestD = dist
   }
   if (!best) return
+  if (best.kind === 'duck-king' && now < best.invulnUntil) return
+  const dealt = Math.min(ATTACK_DAMAGE, Math.max(0, best.hp))
+  if (dealt <= 0) return
   io.to(room.roomId).emit('combat:hit', {
     id: best.id,
     kind: 'monster',
-    amount: ATTACK_DAMAGE,
+    amount: dealt,
     x: best.x,
     z: best.z,
+    by: playerId,
   })
-  best.hp -= ATTACK_DAMAGE
+  best.hp -= dealt
   best.lastHitBy = playerId
+  if (!room.damage) room.damage = {}
+  const row = room.damage[playerId] ?? { name: player.name, dmg: 0 }
+  row.name = player.name
+  row.dmg += dealt
+  room.damage[playerId] = row
+  maybeRage(room, io, now)
   if (best.hp <= 0) {
     best.hp = 0
     best.alive = false

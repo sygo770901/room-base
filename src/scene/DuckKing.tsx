@@ -11,7 +11,7 @@ const SHOE_SOLE = '#c4b08a'
 const LENS = '#1c1c1c'
 const GLASS = '#9ad4e8'
 
-export function DuckKingMesh({ moving, fleeing }: { moving: boolean; fleeing?: boolean }) {
+export function DuckKingMesh({ moving, fleeing, raging }: { moving: boolean; fleeing?: boolean; raging?: boolean }) {
   const arms = useRef<THREE.Group>(null)
   const head = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
@@ -37,6 +37,10 @@ export function DuckKingMesh({ moving, fleeing }: { moving: boolean; fleeing?: b
   )
 
   useFrame((_, dt) => {
+    shirtMat.color.set(raging ? '#6a1212' : SHIRT)
+    skinMat.color.set(raging ? '#c45a4a' : SKIN)
+    hairMat.color.set(raging ? '#2a0606' : HAIR)
+    jeanMat.color.set(raging ? '#6a2028' : JEANS)
     t.current += dt * (fleeing ? 11 : moving ? 8 : 2.2)
     const swing = moving ? Math.sin(t.current) * (fleeing ? 0.55 : 0.38) : Math.sin(t.current * 0.35) * 0.06
     if (arms.current) {

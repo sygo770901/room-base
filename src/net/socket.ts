@@ -4,8 +4,10 @@ import type { FurnitureItem } from '../../shared/furniture'
 import { attackBlocked } from '../scene/inputLock'
 import type { MonsterState, PlayerState, RoomSnapshot, SeatId, StickyNote, Vec3 } from '../types'
 import type { MatchOver } from '../../shared/combat'
+import type { TagHud } from '../../shared/tag'
 import type { GameMode } from '../../shared/modes'
 import type { SceneId } from '../../shared/scenes'
+import { playSfx, unlockSfx } from '../audio/sfx'
 import { useAppStore } from '../store'
 import { clearSession, getPlayerId, loadSession, saveSession, type RoomSession } from './session'
 import { restartVoiceSession, startVoiceSession, stopVoiceSession } from './voice'
@@ -14,6 +16,7 @@ let socket: Socket | null = null
 let listenersBound = false
 let watchersBound = false
 let joinInFlight: Promise<RoomSnapshot> | null = null
+let joinSeq = 0
 let lastVoiceSocketId: string | null = null
 let lastPose: { position: Vec3; rotationY: number } | null = null
 let bootTimer: ReturnType<typeof setTimeout> | null = null
@@ -37,25 +40,35 @@ function sessionFromStore(wantHost = false): RoomSession | null {
     scene: state.scene || saved?.scene || 'kenney',
     mode: state.mode || saved?.mode || 'hunt',
     wantHost: saved?.wantHost ?? wantHost,
+    timed: saved?.timed ?? false,
   }
+}
+
+function networkOffline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
 }
 
 function markDisconnected() {
   if (leaving || useAppStore.getState().phase !== 'room') return
-  if (useAppStore.getState().connection === 'online') {
+  if (networkOffline() || useAppStore.getState().connection !== 'booting') {
     useAppStore.getState().setConnection('reconnecting')
   }
   if (bootTimer) clearTimeout(bootTimer)
   bootTimer = setTimeout(() => {
-    void (async () => {
-      if (leaving || socket?.connected) return
-      const ok = await pingHealth()
-      if (!ok && useAppStore.getState().phase === 'room') {
-        useAppStore.getState().setConnection('booting')
-      }
-    })()
-  }, 5000)
+    void refreshConnectionBanner()
+  }, 4000)
   startHealthWatch()
+}
+
+async function refreshConnectionBanner() {
+  if (leaving || socket?.connected || useAppStore.getState().phase !== 'room') return
+  if (networkOffline()) {
+    useAppStore.getState().setConnection('reconnecting')
+    return
+  }
+  const health = await pingHealth()
+  if (leaving || socket?.connected) return
+  useAppStore.getState().setConnection(health === 'down' ? 'booting' : 'reconnecting')
 }
 
 function markOnline() {
@@ -67,25 +80,26 @@ function markOnline() {
   useAppStore.getState().setConnection('online')
 }
 
-async function pingHealth() {
+async function pingHealth(): Promise<'ok' | 'down' | 'offline'> {
+  if (networkOffline()) return 'offline'
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 2500)
   try {
-    const res = await fetch('/health', { cache: 'no-store' })
-    return res.ok
+    const res = await fetch('/health', { cache: 'no-store', signal: ctrl.signal })
+    if (res.ok) return 'ok'
+    if (res.status >= 500) return 'down'
+    return 'down'
   } catch {
-    return false
+    return networkOffline() ? 'offline' : 'down'
+  } finally {
+    clearTimeout(timer)
   }
 }
 
 function startHealthWatch() {
   if (healthTimer) return
   const tick = async () => {
-    if (leaving || useAppStore.getState().phase !== 'room') return
-    if (socket?.connected) return
-    const ok = await pingHealth()
-    if (!ok) useAppStore.getState().setConnection('booting')
-    else if (useAppStore.getState().connection === 'booting') {
-      useAppStore.getState().setConnection('reconnecting')
-    }
+    await refreshConnectionBanner()
   }
   void tick()
   healthTimer = setInterval(() => void tick(), 2500)
@@ -110,12 +124,18 @@ function bindWatchers() {
       s.connect()
       return
     }
-    void resumeRoom()
+    void resumeRoom({ force: true })
   }
 
+  document.addEventListener('pointerdown', () => unlockSfx(), { once: true })
   document.addEventListener('visibilitychange', wake)
   window.addEventListener('pageshow', wake)
   window.addEventListener('online', wake)
+  window.addEventListener('offline', () => {
+    if (!leaving && useAppStore.getState().phase === 'room') {
+      useAppStore.getState().setConnection('reconnecting')
+    }
+  })
   window.addEventListener('focus', wake)
 }
 
@@ -126,7 +146,7 @@ function bindListeners(s: Socket) {
   s.on('connect', () => {
     if (leaving) return
     if (loadSession() && useAppStore.getState().phase === 'room') {
-      void resumeRoom()
+      void resumeRoom({ force: true })
     }
   })
 
@@ -136,25 +156,14 @@ function bindListeners(s: Socket) {
     markDisconnected()
   })
 
-  s.io.on('reconnect_attempt', (attempt) => {
+  s.io.on('reconnect_attempt', () => {
     if (leaving || useAppStore.getState().phase !== 'room') return
-    if (useAppStore.getState().connection === 'online') {
-      useAppStore.getState().setConnection('reconnecting')
-    }
-    if (attempt >= 3) {
-      void pingHealth().then((ok) => {
-        if (!ok && !socket?.connected && useAppStore.getState().phase === 'room') {
-          useAppStore.getState().setConnection('booting')
-        }
-      })
-    }
+    void refreshConnectionBanner()
   })
 
   s.io.on('reconnect_error', () => {
     if (leaving || useAppStore.getState().phase !== 'room') return
-    void pingHealth().then((ok) => {
-      if (!ok && !socket?.connected) useAppStore.getState().setConnection('booting')
-    })
+    void refreshConnectionBanner()
   })
 
   s.on('connect_error', () => {
@@ -175,18 +184,24 @@ function bindListeners(s: Socket) {
     useAppStore.getState().removePlayer(id)
   })
 
-  s.on('player:moved', (payload: { id: string; position: Vec3; rotationY: number }) => {
+  s.on('player:moved', (payload: { id: string; position: Vec3; rotationY: number; snap?: boolean }) => {
+    const selfId = useAppStore.getState().selfId
+    if (payload.id === selfId && !payload.snap) return
     useAppStore.getState().patchPlayer(payload.id, {
       position: payload.position,
       rotationY: payload.rotationY,
     })
+    if (payload.snap && payload.id === selfId) {
+      lastPose = { position: payload.position, rotationY: payload.rotationY }
+      useAppStore.getState().bumpPoseSync()
+    }
   })
 
   s.on('player:vitals', ({ id, hp }: { id: string; hp: number }) => {
     useAppStore.getState().patchPlayer(id, { hp })
   })
 
-  s.on('player:respawn', (payload: { position: Vec3; hp: number; rotationY: number }) => {
+  s.on('player:respawn', (payload: { position: Vec3; hp: number; rotationY: number; reason?: string }) => {
     const selfId = useAppStore.getState().selfId
     if (!selfId) return
     useAppStore.getState().patchPlayer(selfId, {
@@ -194,10 +209,11 @@ function bindListeners(s: Socket) {
       rotationY: payload.rotationY,
       hp: payload.hp,
       seated: null,
+      hidden: false,
     })
     lastPose = { position: payload.position, rotationY: payload.rotationY }
     useAppStore.getState().bumpRespawn()
-    useAppStore.getState().setToast('你被打倒了，已送回入口')
+    useAppStore.getState().setToast(payload.reason === 'restart' ? '新的一局開始' : '你被打倒了，已送回入口')
     setTimeout(() => useAppStore.getState().setToast(null), 2200)
   })
 
@@ -207,8 +223,33 @@ function bindListeners(s: Socket) {
 
   s.on('match:over', (over: MatchOver) => {
     useAppStore.getState().setMatchOver(over)
-    useAppStore.getState().setToast(`${over.winnerName} 打倒了鴨大王與飲水機`)
+    const text =
+      over.winner === 'ghosts'
+        ? '鬼贏'
+        : over.winner === 'hiders'
+          ? '躲的人贏'
+          : over.teamWin
+            ? '全隊打倒了鴨大王！'
+            : '時間到，全隊失敗'
+    useAppStore.getState().setToast(text)
     setTimeout(() => useAppStore.getState().setToast(null), 3200)
+  })
+
+  s.on('boss:phase', ({ phase }: { phase: 1 | 2 }) => {
+    if (phase !== 2) return
+    useAppStore.getState().setToast('鴨大王生氣了！')
+    setTimeout(() => useAppStore.getState().setToast(null), 2200)
+  })
+
+  s.on('boss:telegraph', (payload: { x: number; z: number; r: number; ms: number }) => {
+    useAppStore.getState().setTelegraph(payload)
+    useAppStore.getState().setToast('鴨大王要震地了！')
+    setTimeout(() => useAppStore.getState().setToast(null), payload.ms)
+    playSfx('slam')
+    useAppStore.getState().triggerHitFeel('slam')
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(100)
+    }
   })
 
   s.on('combat:skill', ({ text }: { text: string }) => {
@@ -218,8 +259,25 @@ function bindListeners(s: Socket) {
 
   s.on(
     'combat:hit',
-    (payload: { id: string; kind: 'player' | 'monster'; amount: number; x: number; z: number }) => {
+    (payload: {
+      id: string
+      kind: 'player' | 'monster'
+      amount: number
+      x: number
+      z: number
+      by?: string | null
+    }) => {
       useAppStore.getState().pushHit(payload)
+      const selfId = useAppStore.getState().selfId
+      if (payload.kind === 'monster') {
+        if (payload.by === selfId) {
+          playSfx('hit')
+          useAppStore.getState().triggerHitFeel('hit')
+        }
+      } else if (payload.id === selfId) {
+        playSfx('hurt')
+        useAppStore.getState().triggerHitFeel('hurt')
+      }
     },
   )
 
@@ -239,8 +297,16 @@ function bindListeners(s: Socket) {
     useAppStore.getState().setSwing(id, performance.now())
   })
 
-  s.on('player:hidden', ({ id, hidden }: { id: string; hidden: boolean }) => {
-    useAppStore.getState().patchPlayer(id, { hidden })
+  s.on('player:hidden', (payload: { id: string; hidden: boolean; position?: Vec3; rotationY?: number }) => {
+    useAppStore.getState().patchPlayer(payload.id, {
+      hidden: payload.hidden,
+      position: payload.position,
+      rotationY: payload.rotationY,
+    })
+  })
+
+  s.on('tag:hud', (hud: TagHud | null) => {
+    useAppStore.getState().setTagHud(hud)
   })
 
   s.on(
@@ -276,20 +342,22 @@ function emitJoin(session: RoomSession) {
   const playerId = session.playerId || getPlayerId()
   const state = useAppStore.getState()
   const me = state.selfId ? state.players[state.selfId] : null
+  const seq = ++joinSeq
   const resume = lastPose
-    ? { ...lastPose, hp: me?.hp, hidden: me?.hidden, seated: me?.seated }
+    ? { position: lastPose.position, rotationY: lastPose.rotationY, seated: me?.seated }
     : me
       ? {
           position: me.position,
           rotationY: me.rotationY,
-          hp: me.hp,
-          hidden: me.hidden,
           seated: me.seated,
         }
       : undefined
 
   return new Promise<RoomSnapshot>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('加入逾時')), 15000)
+    const timer = setTimeout(() => {
+      if (seq !== joinSeq) return
+      reject(new Error('加入逾時'))
+    }, 8000)
     s.emit(
       'join',
       {
@@ -299,16 +367,19 @@ function emitJoin(session: RoomSession) {
         scene: session.scene,
         mode: session.mode,
         playerId,
+        timed: session.timed,
         resume,
       },
       (snapshot: RoomSnapshot) => {
         clearTimeout(timer)
-        if (!snapshot) {
-          reject(new Error('加入失敗'))
+        if (seq !== joinSeq) return
+        if (!snapshot || snapshot.error) {
+          reject(new Error(snapshot?.error || '加入失敗'))
           return
         }
         saveSession({ ...session, playerId })
         useAppStore.getState().enterRoom(playerId, snapshot)
+        if (snapshot.players[playerId]?.hidden) useAppStore.getState().bumpPoseSync()
         const peers = Object.keys(snapshot.players).filter((id) => id !== playerId)
         const sid = s.id ?? null
         if (sid && sid === lastVoiceSocketId) {
@@ -317,7 +388,8 @@ function emitJoin(session: RoomSession) {
           lastVoiceSocketId = sid
           restartVoiceSession(playerId, peers)
         }
-        if (lastPose) s.emit('move', lastPose)
+        const hid = snapshot.players[playerId]?.hidden
+        if (lastPose && !hid) s.emit('move', lastPose)
         markOnline()
         resolve(snapshot)
       },
@@ -326,16 +398,15 @@ function emitJoin(session: RoomSession) {
 }
 
 async function joinWithRetry(session: RoomSession) {
-  if (joinInFlight) return joinInFlight
   connectSocket()
   const task = emitJoin(session).finally(() => {
-    joinInFlight = null
+    if (joinInFlight === task) joinInFlight = null
   })
   joinInFlight = task
   return task
 }
 
-export async function resumeRoom() {
+export async function resumeRoom(opts?: { force?: boolean }) {
   if (leaving) return null
   const session = sessionFromStore()
   if (!session) return null
@@ -345,12 +416,56 @@ export async function resumeRoom() {
       useAppStore.getState().setConnection('reconnecting')
     }
   }
+  if (joinInFlight && opts?.force) {
+    joinSeq += 1
+    joinInFlight = null
+  }
   try {
     return await joinWithRetry(session)
-  } catch {
-    markDisconnected()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : ''
+    if (msg === '房間已滿') {
+      failJoinFull(msg)
+      return null
+    }
+    if (socket?.connected && opts?.force) {
+      try {
+        return await joinWithRetry(session)
+      } catch (e2) {
+        const msg2 = e2 instanceof Error ? e2.message : ''
+        if (msg2 === '房間已滿') {
+          failJoinFull(msg2)
+          return null
+        }
+      }
+    }
+    if (!socket?.connected) markDisconnected()
+    else void joinWithRetry(session).catch((err) => {
+      const m = err instanceof Error ? err.message : ''
+      if (m === '房間已滿') failJoinFull(m)
+      else markDisconnected()
+    })
     return null
   }
+}
+
+function failJoinFull(msg: string) {
+  joinSeq += 1
+  joinInFlight = null
+  lastPose = null
+  lastVoiceSocketId = null
+  clearSession()
+  if (socket) {
+    socket.io.reconnection(false)
+    socket.removeAllListeners()
+    socket.io.removeAllListeners()
+    socket.disconnect()
+    socket = null
+  }
+  listenersBound = false
+  useAppStore.getState().leaveToLobby()
+  useAppStore.getState().setJoinError(msg)
+  useAppStore.getState().setConnection('online')
 }
 
 export function resumeSessionIfNeeded() {
@@ -373,7 +488,7 @@ export function resumeSessionIfNeeded() {
     })
     state.setConnection('reconnecting')
   }
-  void resumeRoom()
+  void resumeRoom({ force: true })
 }
 
 export function joinRoom(
@@ -382,8 +497,10 @@ export function joinRoom(
   wantHost = false,
   scene: SceneId = 'kenney',
   mode: GameMode = 'hunt',
+  timed = false,
 ) {
   leaving = false
+  useAppStore.getState().setJoinError(null)
   const session: RoomSession = {
     playerId: getPlayerId(),
     roomId,
@@ -391,9 +508,16 @@ export function joinRoom(
     scene,
     mode,
     wantHost,
+    timed,
   }
   saveSession(session)
-  return joinWithRetry(session)
+  return joinWithRetry(session).catch((e) => {
+    if (e instanceof Error && e.message === '房間已滿') {
+      clearSession()
+      useAppStore.getState().setJoinError(e.message)
+    }
+    throw e
+  })
 }
 
 export function emitMove(position: Vec3, rotationY: number) {
@@ -429,15 +553,28 @@ export function emitHide(hidden: boolean) {
   socket?.emit('hide', { hidden })
 }
 
+export function emitCheck() {
+  socket?.emit('check')
+}
+
 let lastAttackAt = 0
 export function performAttack() {
   const now = performance.now()
   if (attackBlocked()) return
   const state = useAppStore.getState()
   if (state.pendingNote || state.noteAsk) return
+  const me = state.selfId ? state.players[state.selfId] : null
+  if ((state.mode === 'boss' || state.mode === 'tag') && !state.started) return
+  if (state.mode === 'tag' && (me?.team === 'spectator' || ((state.tagHud?.hideLeftMs ?? 0) > 0 && me?.team === 'ghost'))) return
+  if (me?.hidden) {
+    state.setToast('躲藏中不能攻擊')
+    setTimeout(() => useAppStore.getState().setToast(null), 1600)
+    return
+  }
   if (now - lastAttackAt < ATTACK_COOLDOWN_MS) return
   lastAttackAt = now
   if (state.selfId) state.setSwing(state.selfId, now)
+  playSfx('attack', 0.96 + Math.random() * 0.08)
   socket?.emit('attack')
 }
 
@@ -457,11 +594,20 @@ export function emitAttack() {
   socket?.emit('attack')
 }
 
+export function emitRestart() {
+  socket?.emit('match:restart')
+}
+
+export function emitStart() {
+  socket?.emit('match:start')
+}
+
 export function disconnectSocket() {
   leaving = true
   lastPose = null
   lastVoiceSocketId = null
   joinInFlight = null
+  joinSeq += 1
   clearSession()
   markOnline()
   stopVoiceSession()

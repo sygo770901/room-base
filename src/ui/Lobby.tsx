@@ -30,7 +30,9 @@ export function Lobby() {
   const [room, setRoom] = useState(roomId || localStorage.getItem('rb-room') || 'home')
   const [scene, setScene] = useState<SceneId>(localStorage.getItem('rb-scene') === 'kaykit' ? 'kaykit' : 'kenney')
   const [mode, setMode] = useState<GameMode>(savedMode)
+  const [timed, setTimed] = useState(localStorage.getItem('rb-timed') === '1')
   const [busy, setBusy] = useState(false)
+  const joinError = useAppStore((s) => s.joinError)
   const [error, setError] = useState('')
 
   async function enter(wantHost: boolean) {
@@ -43,8 +45,9 @@ export function Lobby() {
       localStorage.setItem('rb-room', r)
       localStorage.setItem('rb-scene', scene)
       localStorage.setItem('rb-mode', mode)
+      localStorage.setItem('rb-timed', timed ? '1' : '0')
       setLobby(n, r)
-      await joinRoom(r, n, wantHost, scene, mode)
+      await joinRoom(r, n, wantHost, scene, mode, timed)
     } catch (e) {
       setError(e instanceof Error ? e.message : '連線失敗')
     } finally {
@@ -62,7 +65,7 @@ export function Lobby() {
       <form className="lobby-card" onSubmit={onSubmit}>
         <h1>BOSS大逃殺</h1>
         <p>
-          玩家都是較瘦的遊俠，右手單手劍。進房前選場景和模式。房間裡已經有人時，會沿用開房時的設定。
+          玩家都是較瘦的遊俠，右手單手劍。進房前選場景、模式和時間。房間裡已經有人時，會沿用開房時的設定。最多 10 人。
         </p>
         <div className="scene-pick" role="radiogroup" aria-label="場景">
           {SCENES.map((item) => (
@@ -94,6 +97,18 @@ export function Lobby() {
             </button>
           ))}
         </div>
+        {(mode === 'boss' || mode === 'tag') && (
+          <div className="scene-pick mode-pick" role="radiogroup" aria-label="時間">
+            <button type="button" role="radio" aria-checked={!timed} className={!timed ? 'on' : ''} onClick={() => setTimed(false)}>
+              <strong>不計時</strong>
+              <span>{mode === 'tag' ? '抓到最後一個人為止。' : '打到鴨大王倒下為止。'}</span>
+            </button>
+            <button type="button" role="radio" aria-checked={timed} className={timed ? 'on' : ''} onClick={() => setTimed(true)}>
+              <strong>5 分鐘</strong>
+              <span>{mode === 'tag' ? '不含藏身 30 秒。時間到還有人沒被抓，躲的人贏。' : '時間到鴨王還活著，全隊失敗。'}</span>
+            </button>
+          </div>
+        )}
         <label>
           顯示名稱
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="小明" maxLength={16} />
@@ -102,7 +117,7 @@ export function Lobby() {
           房間 ID
           <input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="home" maxLength={32} />
         </label>
-        {error && <div style={{ color: '#e07a5f' }}>{error}</div>}
+        {(error || joinError) && <div style={{ color: '#e07a5f' }}>{error || joinError}</div>}
         <div className="lobby-actions">
           <button type="button" className="ghost" disabled={busy} onClick={() => void enter(true)}>
             我是房主
