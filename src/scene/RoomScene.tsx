@@ -51,8 +51,12 @@ const rigSpherical = new THREE.Spherical()
 function MapProgressBridge() {
   const { active, progress, errors } = useProgress()
   useEffect(() => {
-    useAppStore.getState().setMapLoadProgress(progress, active)
+    const shown = active && progress < 99.5
+    useAppStore.getState().setMapLoadProgress(progress, shown)
     if (errors.length > 0) useAppStore.getState().setMapLoadFailed(true)
+    if (progress < 95) return
+    const t = window.setTimeout(() => useAppStore.getState().setMapLoadProgress(100, false), 600)
+    return () => window.clearTimeout(t)
   }, [active, progress, errors])
   return null
 }
