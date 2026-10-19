@@ -53,6 +53,12 @@ export interface MatchOver {
   winner?: 'hiders' | 'ghosts'
 }
 
+export interface DuckSpeech {
+  text: string
+  until: number
+  shout?: boolean
+}
+
 export const PLAYER_MAX_HP = 100
 export const ROOM_MAX_PLAYERS = 10
 export const MATCH_TIME_LIMIT_SEC = 300
@@ -114,6 +120,18 @@ export const PET_DAMAGE = 18
 export const PET_SKILL_CD_MS = 7800
 export const PET_SKILL_CD_RAGE_MS = 5000
 export const PET_POUNCE_MS = 4200
+/** 倒數結束後每 30 秒多召喚一台，場上最多 10 台（先定，昱豪可改） */
+export const DUCK_SUMMON_INTERVAL_MS = 30000
+export const DUCK_MAX_DISPENSERS = 10
+export const DUCK_SPEECH_RANGE = 8
+export const DUCK_SPEECH_HOLD_MS = 3000
+export const DUCK_SPEECH_GAP_MS = 2500
+export const DUCK_SUMMON_SHOUT = '出來吧~阿克縫~讓世界看見台灣!!'
+export const DUCK_CHAT_LINES = [
+  '你們這些自以為是的顧客，一點都不懂的審美。',
+  '我的飲水機才不是除濕機，這可是空氣取水呢。',
+  '你知道我是誰嗎？我可是工業教父 洩聾鴨，曾獲得無數紅點設計大獎。',
+] as const
 export const RAGE_PAUSE_MS = 1000
 export const RESPAWN_MS = 9000
 export const IFRAME_MS = 2000

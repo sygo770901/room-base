@@ -1,5 +1,5 @@
 import type { ClassId } from '../shared/classes'
-import type { MatchOver, MonsterState, ProjectileState } from '../shared/combat'
+import type { DuckSpeech, MatchOver, MonsterState, ProjectileState } from '../shared/combat'
 import type { FurnitureItem } from '../shared/furniture'
 import type { GameMode, RoomSettings } from '../shared/modes'
 import type { TagHud } from '../shared/tag'
@@ -59,6 +59,7 @@ export interface RoomSnapshot {
   drops?: LootDrop[]
   projectiles?: ProjectileState[]
   doors?: DoorState[]
+  duckSpeech?: DuckSpeech | null
   error?: string
 }
 

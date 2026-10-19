@@ -49,7 +49,7 @@ import {
 } from '../shared/doors.ts'
 import { defaultSettings, isGameMode, type GameMode, type RoomSettings } from '../shared/modes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
-import type { MatchOver } from '../shared/combat.ts'
+import type { DuckSpeech, MatchOver } from '../shared/combat.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
 export interface RoomState {
@@ -82,6 +82,10 @@ export interface RoomState {
   drops: LootDrop[]
   projectiles: ProjectileState[]
   doors: DoorState[]
+  nextSummonAt?: number
+  duckSpeech?: DuckSpeech | null
+  lastDuckLine?: string
+  speechNextAt?: number
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -159,6 +163,7 @@ function snapshotFor(room: RoomState, viewerId: string) {
     drops: room.drops,
     projectiles: room.projectiles,
     doors: room.doors,
+    duckSpeech: room.duckSpeech && room.duckSpeech.until > Date.now() ? room.duckSpeech : null,
   }
 }
 
@@ -461,6 +466,10 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (room.mode === 'boss') {
         room.monsters = createBossMonsters()
         room.hpScaled = false
+        room.nextSummonAt = undefined
+        room.duckSpeech = null
+        room.lastDuckLine = undefined
+        room.speechNextAt = undefined
       } else {
         room.monsters = []
         resetPlayersForTagRestart(room)

@@ -181,6 +181,56 @@ input {
   font-size: 0.9rem;
 }
 
+.duck-speech-hud {
+  position: absolute;
+  left: 50%;
+  top: 26%;
+  transform: translateX(-50%);
+  z-index: 22;
+  pointer-events: none;
+  max-width: min(86vw, 420px);
+  padding: 8px 14px;
+  border-radius: 14px;
+  background: rgba(18, 14, 12, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  text-align: center;
+  font-size: clamp(0.92rem, 3.4vw, 1.12rem);
+  line-height: 1.4;
+}
+
+.duck-speech-hud.shout {
+  top: 24%;
+  font-size: clamp(1.05rem, 4.2vw, 1.4rem);
+  font-weight: 800;
+  color: #fff4c8;
+  background: rgba(120, 32, 12, 0.92);
+  border-color: #ffcc66;
+}
+
+.duck-bubble {
+  pointer-events: none;
+  max-width: min(72vw, 280px);
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(18, 14, 12, 0.9);
+  color: #f4f1ec;
+  font-size: 14px;
+  line-height: 1.35;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font-family: 'Noto Sans TC', 'Outfit', sans-serif;
+}
+
+.duck-bubble.shout {
+  max-width: min(86vw, 340px);
+  padding: 12px 16px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #fff4c8;
+  background: rgba(120, 32, 12, 0.94);
+  border-color: #ffcc66;
+}
+
 .match-over p:first-child {
   font-size: 1.25rem;
   font-weight: 700;
@@ -764,6 +814,11 @@ input {
   .weapon-pill {
     display: inline-block;
     margin: 6px 0 0;
+  }
+
+  .duck-speech-hud {
+    top: 30%;
+    max-width: 90vw;
   }
 }
 

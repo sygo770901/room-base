@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { type MatchOver, type MonsterState, type ProjectileState } from '../shared/combat'
+import { type DuckSpeech, type MatchOver, type MonsterState, type ProjectileState } from '../shared/combat'
 import type { HitAnim, JumpPhase } from '../shared/anim'
 import { DEFAULT_FURNITURE, type FurnitureItem } from '../shared/furniture'
 import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
@@ -84,6 +84,7 @@ interface AppState {
   telegraphs: { id: string; x: number; z: number; r: number; ms: number; until: number }[]
   projectiles: ProjectileState[]
   doors: DoorState[]
+  duckSpeech: DuckSpeech | null
   hurtFlashUntil: Record<string, number>
   dashUntil: Record<string, number>
   dashReadyAt: number
@@ -121,6 +122,7 @@ interface AppState {
   upsertTelegraph: (tel: { id: string; x: number; z: number; r: number; ms: number }) => void
   setProjectiles: (projectiles: ProjectileState[]) => void
   setDoors: (doors: DoorState[]) => void
+  setDuckSpeech: (speech: DuckSpeech | null) => void
   setHurtFlash: (id: string, until: number) => void
   bumpRespawn: () => void
   bumpPoseSync: () => void
@@ -188,6 +190,7 @@ export const useAppStore = create<AppState>((set) => ({
   telegraphs: [],
   projectiles: [],
   doors: [],
+  duckSpeech: null,
   hurtFlashUntil: {},
   dashUntil: {},
   dashReadyAt: 0,
@@ -225,6 +228,7 @@ export const useAppStore = create<AppState>((set) => ({
       drops: snapshot.drops ?? [],
       projectiles: snapshot.projectiles ?? [],
       doors: snapshot.doors ?? [],
+      duckSpeech: snapshot.duckSpeech ?? null,
     }),
   applySnapshot: (snapshot) =>
     set((s) => ({
@@ -248,6 +252,7 @@ export const useAppStore = create<AppState>((set) => ({
       drops: snapshot.drops ?? s.drops,
       projectiles: snapshot.projectiles ?? s.projectiles,
       doors: snapshot.doors ?? s.doors,
+      duckSpeech: snapshot.duckSpeech ?? null,
     })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
@@ -306,6 +311,7 @@ export const useAppStore = create<AppState>((set) => ({
     }),
   setProjectiles: (projectiles) => set({ projectiles }),
   setDoors: (doors) => set({ doors }),
+  setDuckSpeech: (speech) => set({ duckSpeech: speech }),
   setHurtFlash: (id, until) => set((s) => ({ hurtFlashUntil: { ...s.hurtFlashUntil, [id]: until } })),
   bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
   bumpPoseSync: () => set((s) => ({ poseSync: s.poseSync + 1 })),
@@ -374,6 +380,7 @@ export const useAppStore = create<AppState>((set) => ({
       telegraphs: [],
       projectiles: [],
       doors: [],
+      duckSpeech: null,
       hurtFlashUntil: {},
       joy: { x: 0, y: 0 },
       pointerLocked: false,

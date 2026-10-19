@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client'
 import { WEAPON_STATS } from '../../shared/barrels'
-import { ATTACK_COOLDOWN_MS, PLAYER_HURT_IFRAME_MS, type ProjectileState } from '../../shared/combat'
+import { ATTACK_COOLDOWN_MS, PLAYER_HURT_IFRAME_MS, type DuckSpeech, type ProjectileState } from '../../shared/combat'
 import { nextComboStep, type HitAnim } from '../../shared/anim'
 import type { FurnitureItem } from '../../shared/furniture'
 import { attackBlocked } from '../scene/inputLock'
@@ -303,6 +303,10 @@ function bindListeners(s: Socket) {
 
   s.on('doors:sync', (doors: DoorState[]) => {
     useAppStore.getState().setDoors(doors)
+  })
+
+  s.on('duck:speech', (speech: DuckSpeech | null) => {
+    useAppStore.getState().setDuckSpeech(speech)
   })
 
   s.on('door:result', (payload: { ok: boolean; reason?: string }) => {

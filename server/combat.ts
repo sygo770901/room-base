@@ -14,6 +14,13 @@ import {
   BOSS_SIGHT,
   duckKingHp,
   dispenserHp,
+  DUCK_CHAT_LINES,
+  DUCK_MAX_DISPENSERS,
+  DUCK_SPEECH_GAP_MS,
+  DUCK_SPEECH_HOLD_MS,
+  DUCK_SPEECH_RANGE,
+  DUCK_SUMMON_INTERVAL_MS,
+  DUCK_SUMMON_SHOUT,
   CHASE_SPEED,
   FLEE_SPEED,
   FLEE_SPEED_RAGE,
@@ -54,6 +61,7 @@ import {
   ROGUE_SPEED,
   SIGHT,
   monsterRadius,
+  type DuckSpeech,
   type MatchOver,
   type MonsterKind,
   type MonsterState,
@@ -158,6 +166,10 @@ export interface CombatRoom {
   comboStep?: Record<string, number>
   lastSwingAt?: Record<string, number>
   doors?: DoorState[]
+  nextSummonAt?: number
+  duckSpeech?: DuckSpeech | null
+  lastDuckLine?: string
+  speechNextAt?: number
 }
 
 function fromDef(d: MonsterDef): ServerMonster {
@@ -625,6 +637,167 @@ function maybeRage(room: CombatRoom, io: Server, now: number) {
   io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
 }
 
+function livingCount(room: CombatRoom) {
+  return Object.values(room.players).filter((p) => !room.awayUntil?.[p.id] && p.team !== 'spectator').length || 1
+}
+
+function aliveDispensers(room: CombatRoom) {
+  return room.monsters.filter((m) => m.kind === 'dispenser' && m.alive)
+}
+
+function nextDispenserId(room: CombatRoom) {
+  let i = 2
+  while (room.monsters.some((m) => m.id === `dispenser-${i}`)) i++
+  return `dispenser-${i}`
+}
+
+function spawnExtraDispenser(room: CombatRoom, duck: ServerMonster, now: number): ServerMonster {
+  const offsets = [1.8, 2.2, 2.6, 3.2]
+  const angles = [0, 0.85, 1.7, 2.55, 3.4, 4.25, 5.1]
+  let x = duck.x
+  let z = duck.z + 1.8
+  outer: for (const r of offsets) {
+    for (const a of angles) {
+      const cx = duck.x + Math.sin(duck.rotationY + a) * r
+      const cz = duck.z + Math.cos(duck.rotationY + a) * r
+      if (isWalkableWorld(cx, cz, 0.45)) {
+        x = cx
+        z = cz
+        break outer
+      }
+    }
+  }
+  const hp = dispenserHp(livingCount(room))
+  const m = fromDef({
+    id: nextDispenserId(room),
+    name: '飲水機',
+    model: 'mage',
+    kind: 'dispenser',
+    maxHp: hp,
+    patrol: [
+      { x, z },
+      { x: duck.x, z: duck.z },
+    ],
+  })
+  m.x = x
+  m.z = z
+  m.wander = { x: duck.x, z: duck.z }
+  m.nextSkill = now + 800 + Math.floor(Math.random() * 1600)
+  return m
+}
+
+function emitDuckSpeech(room: CombatRoom, io: Server, speech: DuckSpeech | null) {
+  const prev = room.duckSpeech
+  const same = (prev?.text ?? null) === (speech?.text ?? null) && (prev?.until ?? 0) === (speech?.until ?? 0) && !!prev?.shout === !!speech?.shout
+  room.duckSpeech = speech
+  if (same) return
+  io.to(room.roomId).emit('duck:speech', speech)
+}
+
+function playerNearDuck(room: CombatRoom, duck: ServerMonster, range: number) {
+  for (const p of Object.values(room.players)) {
+    if (room.awayUntil?.[p.id] || p.team === 'spectator' || p.hidden) continue
+    if (Math.hypot(p.position[0] - duck.x, p.position[2] - duck.z) <= range) return true
+  }
+  return false
+}
+
+function pickDuckLine(last?: string) {
+  const pool = DUCK_CHAT_LINES.filter((line) => line !== last)
+  const src = pool.length ? pool : [...DUCK_CHAT_LINES]
+  return src[Math.floor(Math.random() * src.length)]
+}
+
+function shoutSummon(room: CombatRoom, io: Server, now: number) {
+  emitDuckSpeech(room, io, { text: DUCK_SUMMON_SHOUT, until: now + DUCK_SPEECH_HOLD_MS, shout: true })
+  room.speechNextAt = now + DUCK_SPEECH_HOLD_MS + DUCK_SPEECH_GAP_MS
+}
+
+function tickDuckSpeech(room: CombatRoom, io: Server, duck: ServerMonster | undefined, now: number) {
+  const cur = room.duckSpeech
+  if (cur && now >= cur.until) {
+    emitDuckSpeech(room, io, null)
+  }
+  if (!duck?.alive) return
+  if (room.duckSpeech?.shout && now < room.duckSpeech.until) return
+  if (!playerNearDuck(room, duck, DUCK_SPEECH_RANGE)) return
+  if (now < (room.speechNextAt ?? 0)) return
+  const line = pickDuckLine(room.lastDuckLine)
+  room.lastDuckLine = line
+  emitDuckSpeech(room, io, { text: line, until: now + DUCK_SPEECH_HOLD_MS, shout: false })
+  room.speechNextAt = now + DUCK_SPEECH_HOLD_MS + DUCK_SPEECH_GAP_MS
+}
+
+function tickSummon(room: CombatRoom, io: Server, duck: ServerMonster | undefined, now: number) {
+  if (!duck?.alive) return
+  if (!room.nextSummonAt) room.nextSummonAt = (room.startAt ?? now) + DUCK_SUMMON_INTERVAL_MS
+  if (now < room.nextSummonAt) return
+  room.nextSummonAt = now + DUCK_SUMMON_INTERVAL_MS
+  if (aliveDispensers(room).length >= DUCK_MAX_DISPENSERS) return
+  room.monsters.push(spawnExtraDispenser(room, duck, now))
+  shoutSummon(room, io, now)
+  io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
+}
+
+function tickOneDispenser(
+  room: CombatRoom,
+  io: Server,
+  pet: ServerMonster,
+  duck: ServerMonster | undefined,
+  now: number,
+  dt: number,
+  extraWalls: { cx: number; cz: number; hx: number; hz: number }[],
+  extraAabbs: { minX: number; maxX: number; minZ: number; maxZ: number }[],
+  duckSeen: PlayerState | null,
+  petCd: number,
+  announce: () => void,
+) {
+  if (!pet.alive) return
+  if (duck?.alive && duckSeen && now >= Math.max(pet.nextSkill, room.startAt ?? 0)) {
+    pet.pounceUntil = now + PET_POUNCE_MS
+    pet.nextSkill = now + petCd
+    pet.pounceTargetId = duckSeen.id
+    announce()
+  } else if (!duck?.alive && now >= Math.max(pet.nextSkill, room.startAt ?? 0)) {
+    const seen = nearestVisible(room, pet.x, pet.z, extraWalls, BOSS_SIGHT)
+    if (seen.target) {
+      pet.pounceUntil = now + PET_POUNCE_MS
+      pet.nextSkill = now + petCd
+      pet.pounceTargetId = seen.target.id
+    }
+  }
+
+  const pouncing = now < pet.pounceUntil
+  let tx = duck?.alive ? duck.x - Math.sin(duck.rotationY) * 1.35 : pet.wander.x
+  let tz = duck?.alive ? duck.z - Math.cos(duck.rotationY) * 1.35 : pet.wander.z
+  let speed = PET_FOLLOW_SPEED
+  let prey: PlayerState | null = null
+  if (pouncing) {
+    prey = (pet.pounceTargetId && room.players[pet.pounceTargetId]) || nearestVisible(room, pet.x, pet.z, extraWalls, 40).target
+    if (prey) {
+      tx = prey.position[0]
+      tz = prey.position[2]
+      speed = PET_POUNCE_SPEED
+    }
+  } else if (!duck?.alive) {
+    const roam = nearestVisible(room, pet.x, pet.z, extraWalls, BOSS_SIGHT)
+    if (roam.target) {
+      tx = roam.target.position[0]
+      tz = roam.target.position[2]
+      speed = CHASE_SPEED
+      prey = roam.target
+    } else if (Math.hypot(pet.x - pet.wander.x, pet.z - pet.wander.z) < 1.2) {
+      pet.wander = pickWander(pet.x, pet.z)
+    }
+  }
+  stepMonster(room, pet, tx, tz, speed, dt, extraAabbs)
+  maybeMonsterOpenDoor(room, io, pet, tx, tz, now)
+  if (prey) {
+    const dist = Math.hypot(prey.position[0] - pet.x, prey.position[2] - pet.z)
+    tryTouch(room, io, pet, prey, now, dist, PET_DAMAGE)
+  }
+}
+
 function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
   if (room.matchOver) return
   if (!room.started) return
@@ -633,15 +806,15 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
   const extraWalls = sceneWalls(room, now)
   const extraAabbs = sceneAabbs(room, now)
   const duck = room.monsters.find((m) => m.kind === 'duck-king')
-  const pet = room.monsters.find((m) => m.kind === 'dispenser')
   maybeRage(room, io, now)
+  const raging = duck?.phase === 2
+  const petCd = raging ? PET_SKILL_CD_RAGE_MS : PET_SKILL_CD_MS
+  let duckSeen: PlayerState | null = null
 
   if (duck?.alive) {
-    const raging = duck.phase === 2
     const slamR = raging ? SLAM_RADIUS_RAGE : SLAM_RADIUS
     const slamWind = raging ? SLAM_WINDUP_RAGE_MS : SLAM_WINDUP_MS
     const slamCd = raging ? SLAM_CD_RAGE_MS : SLAM_CD_MS
-    const petCd = raging ? PET_SKILL_CD_RAGE_MS : PET_SKILL_CD_MS
     const pausing = now < duck.invulnUntil
 
     if (duck.windupUntil && !duck.slamResolved && now >= duck.windupUntil) {
@@ -691,52 +864,19 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
       }
     }
     maybeMonsterOpenDoor(room, io, duck, tx, tz, now)
-
-    if (pet?.alive && seen.target && now >= Math.max(pet.nextSkill, room.startAt ?? 0)) {
-      pet.pounceUntil = now + PET_POUNCE_MS
-      pet.nextSkill = now + petCd
-      pet.pounceTargetId = seen.target.id
-      io.to(room.roomId).emit('combat:skill', { text: '鴨大王派出了飲水機！' })
-    }
-  } else if (pet?.alive && now >= Math.max(pet.nextSkill, room.startAt ?? 0)) {
-    const seen = nearestVisible(room, pet.x, pet.z, extraWalls, BOSS_SIGHT)
-    if (seen.target) {
-      pet.pounceUntil = now + PET_POUNCE_MS
-      pet.nextSkill = now + (duck?.phase === 2 ? PET_SKILL_CD_RAGE_MS : PET_SKILL_CD_MS)
-      pet.pounceTargetId = seen.target.id
-    }
+    duckSeen = seen.target
   }
 
-  if (pet?.alive) {
-    const pouncing = now < pet.pounceUntil
-    let tx = duck?.alive ? duck.x - Math.sin(duck.rotationY) * 1.35 : pet.wander.x
-    let tz = duck?.alive ? duck.z - Math.cos(duck.rotationY) * 1.35 : pet.wander.z
-    let speed = PET_FOLLOW_SPEED
-    let prey: PlayerState | null = null
-    if (pouncing) {
-      prey = (pet.pounceTargetId && room.players[pet.pounceTargetId]) || nearestVisible(room, pet.x, pet.z, extraWalls, 40).target
-      if (prey) {
-        tx = prey.position[0]
-        tz = prey.position[2]
-        speed = PET_POUNCE_SPEED
-      }
-    } else if (!duck?.alive) {
-      const roam = nearestVisible(room, pet.x, pet.z, extraWalls, BOSS_SIGHT)
-      if (roam.target) {
-        tx = roam.target.position[0]
-        tz = roam.target.position[2]
-        speed = CHASE_SPEED
-        prey = roam.target
-      } else if (Math.hypot(pet.x - pet.wander.x, pet.z - pet.wander.z) < 1.2) {
-        pet.wander = pickWander(pet.x, pet.z)
-      }
-    }
-    stepMonster(room, pet, tx, tz, speed, dt, extraAabbs)
-    maybeMonsterOpenDoor(room, io, pet, tx, tz, now)
-    if (prey) {
-      const dist = Math.hypot(prey.position[0] - pet.x, prey.position[2] - pet.z)
-      tryTouch(room, io, pet, prey, now, dist, PET_DAMAGE)
-    }
+  tickSummon(room, io, duck, now)
+  tickDuckSpeech(room, io, duck, now)
+
+  let announced = false
+  for (const pet of aliveDispensers(room)) {
+    tickOneDispenser(room, io, pet, duck, now, dt, extraWalls, extraAabbs, duckSeen, petCd, () => {
+      if (announced) return
+      announced = true
+      io.to(room.roomId).emit('combat:skill', { text: '鴨大王派出了飲水機！' })
+    })
   }
 }
 
@@ -758,6 +898,7 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
     const duck = room.monsters.find((m) => m.kind === 'duck-king')
     if (duck?.alive) {
       room.matchOver = { teamWin: false, reason: 'timeout', ranking: rankingOf(room) }
+      emitDuckSpeech(room, io, null)
       io.to(room.roomId).emit('match:over', room.matchOver)
     }
   }
@@ -776,9 +917,10 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
 function maybeWin(room: CombatRoom, io: Server, _killerId: string) {
   if (room.mode !== 'boss' || room.matchOver) return
   const duck = room.monsters.find((m) => m.kind === 'duck-king')
-  const pet = room.monsters.find((m) => m.kind === 'dispenser')
-  if (!duck || !pet || duck.alive || pet.alive) return
+  if (!duck || duck.alive) return
+  if (room.monsters.some((m) => m.kind === 'dispenser' && m.alive)) return
   room.matchOver = { teamWin: true, reason: 'cleared', ranking: rankingOf(room) }
+  emitDuckSpeech(room, io, null)
   io.to(room.roomId).emit('match:over', room.matchOver)
 }
 

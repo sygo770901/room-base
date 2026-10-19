@@ -9,6 +9,7 @@ import { useAppStore } from '../store'
 import { VirtualJoystick } from './VirtualJoystick'
 import { Minimap } from './Minimap'
 import { nearestDoor, DOOR_RANGE } from '../../shared/doors'
+import { DUCK_MAX_DISPENSERS } from '../../shared/combat'
 
 export function Hud() {
   const players = useAppStore((s) => s.players)
@@ -30,6 +31,7 @@ export function Hud() {
   const scene = useAppStore((s) => s.scene)
   const matchOver = useAppStore((s) => s.matchOver)
   const monsters = useAppStore((s) => s.monsters)
+  const duckSpeech = useAppStore((s) => s.duckSpeech)
   const timeLeftMs = useAppStore((s) => s.timeLeftMs)
   const hostId = useAppStore((s) => s.hostId)
   const startInMs = useAppStore((s) => s.startInMs)
@@ -254,16 +256,22 @@ export function Hud() {
         <div className="boss-hint">鴨大王在東南王房</div>
       )}
 
+      {mode === 'boss' && started && !matchOver && duckSpeech && duckSpeech.until > Date.now() && (
+        <div className={duckSpeech.shout ? 'duck-speech-hud shout' : 'duck-speech-hud'} aria-live="polite">
+          {duckSpeech.text}
+        </div>
+      )}
+
       {mode === 'boss' && started && !matchOver && (
         <div className="boss-objective">
           {monsters
-            .filter((m) => m.kind === 'duck-king' || m.kind === 'dispenser')
+            .filter((m) => m.kind === 'duck-king')
             .map((m) => {
               const pct = Math.max(0, Math.min(100, Math.round((m.hp / Math.max(1, m.maxHp)) * 100)))
               return (
                 <div key={m.id}>
                   {m.name} {m.alive ? `${pct}%` : '已倒下'}
-                  {m.kind === 'duck-king' && m.alive && (
+                  {m.alive && (
                     <div className="boss-hp">
                       <span style={{ width: `${pct}%` }} />
                       <i className="phase-mark" />
@@ -272,6 +280,15 @@ export function Hud() {
                 </div>
               )
             })}
+          {(() => {
+            const pets = monsters.filter((m) => m.kind === 'dispenser')
+            const alive = pets.filter((m) => m.alive).length
+            return (
+              <div>
+                飲水機 {alive}/{DUCK_MAX_DISPENSERS} 台
+              </div>
+            )
+          })()}
         </div>
       )}
 

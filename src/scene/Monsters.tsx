@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { Billboard, Text } from '@react-three/drei'
+import { Billboard, Html, Text } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { MonsterState } from '../../shared/combat'
@@ -37,10 +37,11 @@ function MonsterView({ monster }: { monster: MonsterState }) {
       {monster.kind === 'duck-king' ? (
         <group scale={monster.phase === 2 ? 1.18 * 1.15 : 1.18}>
           <DuckKingMesh moving={moving} fleeing={moving && speed.current > 2.8} raging={monster.phase === 2} />
+          <DuckSpeechBubble />
         </group>
       ) : monster.kind === 'dispenser' ? (
         <group scale={1.55}>
-          <DispenserPetMesh pouncing={monster.pouncing} />
+          <DispenserPetMesh pouncing={monster.pouncing} lit={monster.id === 'dispenser'} />
         </group>
       ) : (
         <KayKitHero classId={classId === 'ranger' ? 'knight' : classId} moving={moving} running={speed.current > 3.2} attackAt={0} />
@@ -67,6 +68,16 @@ function MonsterView({ monster }: { monster: MonsterState }) {
         </mesh>
       </Billboard>
     </group>
+  )
+}
+
+function DuckSpeechBubble() {
+  const speech = useAppStore((s) => s.duckSpeech)
+  if (!speech || speech.until <= Date.now()) return null
+  return (
+    <Html position={[0, 2.55, 0]} center sprite distanceFactor={7} style={{ pointerEvents: 'none' }} zIndexRange={[20, 0]}>
+      <div className={speech.shout ? 'duck-bubble shout' : 'duck-bubble'}>{speech.text}</div>
+    </Html>
   )
 }
 
