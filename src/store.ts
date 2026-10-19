@@ -4,6 +4,9 @@ import { DEFAULT_FURNITURE, type FurnitureItem } from '../shared/furniture'
 import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
 import type { GameMode } from '../shared/modes'
 import type { SceneId } from '../shared/scenes'
+import { loadSession } from './net/session'
+
+const boot = typeof localStorage === 'undefined' ? null : loadSession()
 
 export type NoteAsk =
   | { kind: 'place'; position: Vec3; text: string; fontSize: number }
@@ -19,8 +22,11 @@ export type HitFx = {
   at: number
 }
 
+export type ConnectionStatus = 'online' | 'reconnecting' | 'booting'
+
 interface AppState {
   phase: 'lobby' | 'room'
+  connection: ConnectionStatus
   selfId: string | null
   roomId: string
   scene: SceneId
@@ -67,17 +73,19 @@ interface AppState {
   setMonsters: (monsters: MonsterState[]) => void
   setMatchOver: (over: MatchOver | null) => void
   bumpRespawn: () => void
+  setConnection: (status: ConnectionStatus) => void
   leaveToLobby: () => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  phase: 'lobby',
-  selfId: null,
-  roomId: 'home',
-  scene: 'kenney',
-  mode: 'hunt',
+  phase: boot ? 'room' : 'lobby',
+  connection: boot ? 'reconnecting' : 'online',
+  selfId: boot?.playerId ?? null,
+  roomId: boot?.roomId ?? 'home',
+  scene: boot?.scene ?? 'kenney',
+  mode: boot?.mode ?? 'hunt',
   matchOver: null,
-  displayName: '',
+  displayName: boot?.name ?? '',
   players: {},
   notes: [],
   seats: {},
@@ -98,6 +106,7 @@ export const useAppStore = create<AppState>((set) => ({
   enterRoom: (selfId, snapshot) =>
     set({
       phase: 'room',
+      connection: 'online',
       selfId,
       roomId: snapshot.roomId,
       scene: snapshot.scene ?? 'kenney',
@@ -162,9 +171,11 @@ export const useAppStore = create<AppState>((set) => ({
   setMonsters: (monsters) => set({ monsters }),
   setMatchOver: (over) => set({ matchOver: over }),
   bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
+  setConnection: (status) => set({ connection: status }),
   leaveToLobby: () =>
     set({
       phase: 'lobby',
+      connection: 'online',
       selfId: null,
       players: {},
       notes: [],
