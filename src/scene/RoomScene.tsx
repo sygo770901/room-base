@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { OrbitControls } from '@react-three/drei'
+import { OrbitControls, useProgress } from '@react-three/drei'
 import * as THREE from 'three'
 import { rayOcclusion, SPAWN_POINTS } from '../../shared/dungeon'
 import { KAYKIT_TORCHES } from '../../shared/kaykitScene'
@@ -18,6 +18,7 @@ import { bindPointerLockWatch, exitGameLock, requestGameLock } from './pointerLo
 import { typingInField } from './inputLock'
 import { NotePlacementPlane, StickyNotes3D } from './Furniture'
 import { Dungeon } from './Dungeon'
+import { DungeonBoundary } from './DungeonBoundary'
 import { JungleFoliage } from './JungleFoliage'
 import { SceneDecor } from './Decor'
 import { HitEffects } from './HitEffects'
@@ -46,6 +47,15 @@ const KAYKIT_CAM_Y = 3.2
 const KAYKIT_MAX_RADIUS = 10.5
 const rigOffset = new THREE.Vector3()
 const rigSpherical = new THREE.Spherical()
+
+function MapProgressBridge() {
+  const { active, progress, errors } = useProgress()
+  useEffect(() => {
+    useAppStore.getState().setMapLoadProgress(progress, active)
+    if (errors.length > 0) useAppStore.getState().setMapLoadFailed(true)
+  }, [active, progress, errors])
+  return null
+}
 
 function BlockContextMenu() {
   const gl = useThree((s) => s.gl)
@@ -345,13 +355,19 @@ function SceneContent() {
         }
       />
       <hemisphereLight
-        args={sceneId === 'jungle' ? ['#c8ddb0', '#2a3a24', 1.2] : ['#cbbba6', '#3a2c24', 1.25]}
+        args={sceneId === 'jungle' ? ['#d8ecbe', '#2a3a24', 1.7] : ['#e4d6c4', '#3a2c24', 1.75]}
       />
-      <ambientLight intensity={0.8} />
+      <ambientLight intensity={1.35} />
+      <directionalLight position={[40, 60, 20]} intensity={0.55} color="#fff2d8" />
       <FollowLight mobile={isMobileDevice()} />
 
+      <MapProgressBridge />
+      <DungeonBoundary>
+        <Suspense fallback={null}>
+          <Dungeon focusX={displaySelf?.position?.[0] ?? SPAWN.x} focusZ={displaySelf?.position?.[2] ?? SPAWN.z} />
+        </Suspense>
+      </DungeonBoundary>
       <Suspense fallback={null}>
-        <Dungeon focusX={displaySelf?.position?.[0] ?? SPAWN.x} focusZ={displaySelf?.position?.[2] ?? SPAWN.z} />
         {sceneId === 'jungle' ? <JungleFoliage /> : null}
         <SceneDecor />
         <Monsters />

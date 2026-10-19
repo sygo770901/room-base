@@ -63,6 +63,9 @@ export function Hud() {
   const [phraseOpen, setPhraseOpen] = useState(false)
   const [rescuing, setRescuing] = useState(false)
   const feed = useAppStore((s) => s.feed)
+  const mapLoadActive = useAppStore((s) => s.mapLoadActive)
+  const mapLoadProgress = useAppStore((s) => s.mapLoadProgress)
+  const mapLoadFailed = useAppStore((s) => s.mapLoadFailed)
 
   useEffect(() => {
     if (pendingNote || noteAsk) exitGameLock()
@@ -198,6 +201,17 @@ export function Hud() {
 
   return (
     <div className="hud">
+      {mapLoadActive && (
+        <div className="map-load">
+          <p>載入地圖中… {Math.round(mapLoadProgress)}%</p>
+          <div className="map-load-bar">
+            <span style={{ width: `${Math.max(4, Math.min(100, mapLoadProgress))}%` }} />
+          </div>
+        </div>
+      )}
+      {mapLoadFailed && !mapLoadActive && (
+        <div className="map-load fail">模型載入失敗，已改用簡易地圖</div>
+      )}
       <div className="hud-top">
         <div className="pill">
           房間 <strong>{roomId}</strong>

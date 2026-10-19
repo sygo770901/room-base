@@ -97,6 +97,9 @@ interface AppState {
   barrels: BarrelState[]
   drops: LootDrop[]
   feed: FeedItem[]
+  mapLoadProgress: number
+  mapLoadActive: boolean
+  mapLoadFailed: boolean
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
@@ -143,6 +146,8 @@ interface AppState {
   setBarrels: (barrels: BarrelState[]) => void
   setDrops: (drops: LootDrop[]) => void
   setFeed: (feed: FeedItem[]) => void
+  setMapLoadProgress: (progress: number, active: boolean) => void
+  setMapLoadFailed: (failed: boolean) => void
   setConnection: (status: ConnectionStatus) => void
   setJoinError: (msg: string | null) => void
   leaveToLobby: () => void
@@ -205,6 +210,9 @@ export const useAppStore = create<AppState>((set) => ({
   barrels: [],
   drops: [],
   feed: [],
+  mapLoadProgress: 0,
+  mapLoadActive: false,
+  mapLoadFailed: false,
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
     set({
@@ -220,6 +228,9 @@ export const useAppStore = create<AppState>((set) => ({
       startInMs: snapshot.startInMs ?? 0,
       started: snapshot.started ?? false,
       joinError: null,
+      mapLoadFailed: false,
+      mapLoadActive: true,
+      mapLoadProgress: 0,
       tagHud: snapshot.tagHud ?? null,
       players: snapshot.players,
       notes: snapshot.notes,
@@ -351,6 +362,8 @@ export const useAppStore = create<AppState>((set) => ({
   setBarrels: (barrels) => set({ barrels }),
   setDrops: (drops) => set({ drops }),
   setFeed: (feed) => set({ feed }),
+  setMapLoadProgress: (progress, active) => set({ mapLoadProgress: progress, mapLoadActive: active }),
+  setMapLoadFailed: (failed) => set({ mapLoadFailed: failed }),
   setConnection: (status) => set({ connection: status }),
   setJoinError: (msg) => set({ joinError: msg }),
   leaveToLobby: () =>
@@ -364,6 +377,9 @@ export const useAppStore = create<AppState>((set) => ({
       furniture: DEFAULT_FURNITURE,
       monsters: [],
       feed: [],
+      mapLoadProgress: 0,
+      mapLoadActive: false,
+      mapLoadFailed: false,
       matchOver: null,
       settings: defaultSettings(),
       timeLeftMs: null,

@@ -974,6 +974,38 @@ input {
   font-size: 0.85rem;
 }
 
+.map-load {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  z-index: 30;
+  min-width: 220px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(16, 14, 12, 0.88);
+  text-align: center;
+}
+
+.map-load.fail {
+  min-width: 0;
+  background: rgba(196, 69, 54, 0.9);
+}
+
+.map-load-bar {
+  margin-top: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.map-load-bar span {
+  display: block;
+  height: 100%;
+  background: #81b29a;
+}
+
 .reconnect-banner {
   position: absolute;
   z-index: 30;
