@@ -2,7 +2,9 @@ import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { HIDE_RANGE, HIDE_SPOTS } from '../../shared/dungeon'
+import { isMobileDevice } from '../perf/device'
 import { emitFurniturePush, emitHide, emitMove, emitSit, performAttack } from '../net/socket'
+import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
 import { resolvePlayerMove, KAYKIT_EXTRA_AABBS } from '../physics/collision'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
@@ -88,8 +90,11 @@ export function LocalController({
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (typingInField()) return
+      if (e.code === 'Escape' && pointerJustUnlocked()) {
+        e.stopPropagation()
+        return
+      }
       keys.current[e.code] = true
       if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
         e.preventDefault()
@@ -108,10 +113,11 @@ export function LocalController({
     const onPointer = (e: PointerEvent) => {
       if (e.button !== 0) return
       if (e.pointerType === 'touch') return
-      const el = e.target as HTMLElement | null
-      if (el?.closest('button, input, textarea, .hud-bottom, .hud-top, .note-panel, .joystick, .attack-btn')) return
+      if (attackBlocked()) return
+      if (hudBlocksPointer(e.target)) return
       const state = useAppStore.getState()
       if (state.pendingNote || state.noteAsk) return
+      if (!isMobileDevice() && !document.pointerLockElement) return
       performAttack()
     }
     window.addEventListener('pointerdown', onPointer)
@@ -133,6 +139,13 @@ export function LocalController({
       camera.position.y += 0.9 - target.y
       camera.position.z += z - target.z
       target.set(x, 0.9, z)
+    }
+
+    if (typingInField()) {
+      keys.current = {}
+      stickCamera(pos.current.x, pos.current.z)
+      onPose([pos.current.x, 0, pos.current.z], rotY.current)
+      return
     }
 
     if (performance.now() < useAppStore.getState().hitStopUntil) {

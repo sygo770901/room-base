@@ -5,7 +5,15 @@ import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
 import { defaultSettings, type GameMode, type RoomSettings } from '../shared/modes'
 import type { TagHud } from '../shared/tag'
 import type { SceneId } from '../shared/scenes'
+import { LOOK_SENS_DEFAULT, LOOK_SENS_MAX, LOOK_SENS_MIN } from '../shared/input'
 import { loadSession } from './net/session'
+
+function readLookSens() {
+  if (typeof localStorage === 'undefined') return LOOK_SENS_DEFAULT
+  const n = Number(localStorage.getItem('rb-look-sens'))
+  if (!Number.isFinite(n)) return LOOK_SENS_DEFAULT
+  return Math.min(LOOK_SENS_MAX, Math.max(LOOK_SENS_MIN, n))
+}
 
 const boot = typeof localStorage === 'undefined' ? null : loadSession()
 
@@ -44,6 +52,8 @@ interface AppState {
   shakeUntil: number
   shakeAmp: number
   sfxOn: boolean
+  lookSensitivity: number
+  pointerLocked: boolean
   displayName: string
   players: Record<string, PlayerState>
   notes: StickyNote[]
@@ -91,6 +101,8 @@ interface AppState {
   setTagHud: (hud: TagHud | null) => void
   triggerHitFeel: (kind: 'hit' | 'hurt' | 'slam') => void
   setSfxOn: (on: boolean) => void
+  setLookSensitivity: (n: number) => void
+  setPointerLocked: (on: boolean) => void
   setConnection: (status: ConnectionStatus) => void
   setJoinError: (msg: string | null) => void
   leaveToLobby: () => void
@@ -115,6 +127,8 @@ export const useAppStore = create<AppState>((set) => ({
   shakeUntil: 0,
   shakeAmp: 0,
   sfxOn: typeof localStorage === 'undefined' ? true : localStorage.getItem('rb-sfx') !== '0',
+  lookSensitivity: readLookSens(),
+  pointerLocked: false,
   displayName: boot?.name ?? '',
   players: {},
   notes: [],
@@ -234,6 +248,12 @@ export const useAppStore = create<AppState>((set) => ({
     if (typeof localStorage !== 'undefined') localStorage.setItem('rb-sfx', on ? '1' : '0')
     set({ sfxOn: on, shakeAmp: on ? 0.07 : 0, shakeUntil: on ? 0 : 0 })
   },
+  setLookSensitivity: (n) => {
+    const v = Math.min(LOOK_SENS_MAX, Math.max(LOOK_SENS_MIN, n))
+    if (typeof localStorage !== 'undefined') localStorage.setItem('rb-look-sens', String(v))
+    set({ lookSensitivity: v })
+  },
+  setPointerLocked: (on) => set({ pointerLocked: on }),
   setConnection: (status) => set({ connection: status }),
   setJoinError: (msg) => set({ joinError: msg }),
   leaveToLobby: () =>
@@ -265,6 +285,7 @@ export const useAppStore = create<AppState>((set) => ({
       hitSeq: 1,
       telegraph: null,
       joy: { x: 0, y: 0 },
+      pointerLocked: false,
     }),
 }))
 

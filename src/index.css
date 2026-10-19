@@ -416,6 +416,22 @@ input {
   font-weight: 600;
 }
 
+.sens-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.72rem;
+  background: rgba(20, 22, 24, 0.72);
+  color: #f4f1ec;
+  border-radius: 8px;
+  padding: 6px 8px;
+  min-width: 110px;
+}
+
+.sens-row input {
+  width: 100%;
+}
+
 .joystick {
   position: absolute;
   left: 20px;

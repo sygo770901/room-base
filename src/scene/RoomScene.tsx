@@ -11,7 +11,10 @@ import {
   TORCH_LIGHT_INTENSITY,
   TORCH_LIGHT_RANGE,
 } from '../../shared/perf'
+import { POINTER_LOOK_SCALE } from '../../shared/input'
 import { canvasDpr, isMobileDevice } from '../perf/device'
+import { bindPointerLockWatch, exitGameLock, requestGameLock } from './pointerLock'
+import { typingInField } from './inputLock'
 import { NotePlacementPlane, StickyNotes3D } from './Furniture'
 import { Dungeon } from './Dungeon'
 import { HitEffects } from './HitEffects'
@@ -135,6 +138,7 @@ function CameraRig() {
 
   useEffect(() => {
     const el = gl.domElement
+    const unwatch = bindPointerLockWatch()
     const arm = (scale: number) => {
       const next = saved.current
       const maxR = useAppStore.getState().scene === 'kaykit' ? KAYKIT_MAX_RADIUS : MAX_RADIUS
@@ -153,8 +157,20 @@ function CameraRig() {
         }
         return
       }
-      if (e.button === 2) drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, mode: 'look' }
-      else if (e.button === 1) drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, mode: 'zoom' }
+      if (e.button === 1) drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, mode: 'zoom' }
+    }
+    const lookLocked = (e: MouseEvent) => {
+      if (!document.pointerLockElement) return
+      if (typingInField()) return
+      const sens = useAppStore.getState().lookSensitivity
+      const k = POINTER_LOOK_SCALE * sens
+      const next = saved.current
+      next.theta -= e.movementX * k
+      next.phi = THREE.MathUtils.clamp(next.phi - e.movementY * k, MIN_PHI, MAX_PHI)
+    }
+    const click = (e: MouseEvent) => {
+      if (e.button !== 0) return
+      requestGameLock(el, e.target)
     }
     const move = (e: PointerEvent) => {
       if (e.pointerType === 'touch' && touches.current.has(e.pointerId)) {
@@ -195,17 +211,27 @@ function CameraRig() {
       e.preventDefault()
       arm(e.deltaY > 0 ? 1.08 : 0.92)
     }
+    const onBlur = () => exitGameLock()
     el.addEventListener('pointerdown', down)
+    el.addEventListener('click', click)
     el.addEventListener('wheel', wheel, { passive: false })
     window.addEventListener('pointermove', move)
+    window.addEventListener('mousemove', lookLocked)
     window.addEventListener('pointerup', up)
     window.addEventListener('pointercancel', up)
+    window.addEventListener('blur', onBlur)
+    document.addEventListener('visibilitychange', onBlur)
     return () => {
+      unwatch()
       el.removeEventListener('pointerdown', down)
+      el.removeEventListener('click', click)
       el.removeEventListener('wheel', wheel)
       window.removeEventListener('pointermove', move)
+      window.removeEventListener('mousemove', lookLocked)
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', up)
+      window.removeEventListener('blur', onBlur)
+      document.removeEventListener('visibilitychange', onBlur)
     }
   }, [gl])
 

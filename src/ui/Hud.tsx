@@ -1,6 +1,9 @@
 import { FormEvent, useEffect, useState } from 'react'
+import { LOOK_SENS_MAX, LOOK_SENS_MIN, LOOK_SENS_STEP } from '../../shared/input'
 import { disconnectSocket, emitAddNote, emitCheck, emitHide, emitRemoveNote, emitRestart, emitStart, emitUpdateNote, performAttack } from '../net/socket'
 import { setMicEnabled } from '../net/voice'
+import { isMobileDevice } from '../perf/device'
+import { exitGameLock } from '../scene/pointerLock'
 import { useAppStore } from '../store'
 import { VirtualJoystick } from './VirtualJoystick'
 
@@ -28,6 +31,9 @@ export function Hud() {
   const startInMs = useAppStore((s) => s.startInMs)
   const started = useAppStore((s) => s.started)
   const tagHud = useAppStore((s) => s.tagHud)
+  const lookSensitivity = useAppStore((s) => s.lookSensitivity)
+  const setLookSensitivity = useAppStore((s) => s.setLookSensitivity)
+  const pointerLocked = useAppStore((s) => s.pointerLocked)
   const [note, setNote] = useState('')
   const [clock, setClock] = useState(timeLeftMs)
   const [countMs, setCountMs] = useState(startInMs)
@@ -36,6 +42,14 @@ export function Hud() {
   const [playLeft, setPlayLeft] = useState<number | null>(null)
   const [checkLeft, setCheckLeft] = useState(0)
   const [fontSize, setFontSize] = useState(0.12)
+
+  useEffect(() => {
+    if (pendingNote || noteAsk) exitGameLock()
+  }, [pendingNote, noteAsk])
+
+  useEffect(() => {
+    if (matchOver || ((mode === 'boss' || mode === 'tag') && !started)) exitGameLock()
+  }, [matchOver, mode, started])
 
   useEffect(() => {
     setClock(timeLeftMs)
@@ -293,6 +307,20 @@ export function Hud() {
         <button type="button" className="hud-btn" onClick={() => setSfxOn(!sfxOn)}>
           {sfxOn ? '手感開' : '手感關'}
         </button>
+        {!isMobileDevice() && (
+          <label className="sens-row">
+            靈敏 {lookSensitivity.toFixed(1)}
+            <input
+              type="range"
+              min={LOOK_SENS_MIN}
+              max={LOOK_SENS_MAX}
+              step={LOOK_SENS_STEP}
+              value={lookSensitivity}
+              onPointerDown={() => exitGameLock()}
+              onChange={(e) => setLookSensitivity(Number(e.target.value))}
+            />
+          </label>
+        )}
         <button type="button" className="hud-btn" onClick={() => disconnectSocket()}>
           離開
         </button>
@@ -300,9 +328,9 @@ export function Hud() {
 
       <div className="hud-bottom">
         <div className="help">
-          WASD／搖桿移動 · 右鍵或手機單指拖曳繞角色看 · 滾輪／雙指縮放（被牆擋住會自動拉近）
+          WASD／搖桿移動 · 電腦點畫面鎖定滑鼠轉視角（Esc 解除{pointerLocked ? ' · 已鎖定' : ''}）· 手機單指拖曳 · 滾輪／雙指縮放
           <br />
-          左鍵、F 或攻擊鈕揮劍 · E 靠木箱躲藏，再走會離開
+          鎖定後左鍵、F 或攻擊鈕揮劍 · 右鍵留給技能 · E 靠木箱躲藏
           {pendingNote ? ' · 移動滑鼠看虛影，點地面後確認' : ''}
         </div>
         <form className="note-panel" onSubmit={armNote}>
@@ -322,6 +350,7 @@ export function Hud() {
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
+            onFocus={() => exitGameLock()}
             placeholder="輸入留言後按貼上，再點地板放置…"
             maxLength={80}
           />
@@ -364,7 +393,12 @@ export function Hud() {
           {editing ? (
             <>
               <p>編輯便籤</p>
-              <textarea value={editText} maxLength={80} onChange={(e) => setEditText(e.target.value)} />
+              <textarea
+                value={editText}
+                maxLength={80}
+                onChange={(e) => setEditText(e.target.value)}
+                onFocus={() => exitGameLock()}
+              />
               <div className="modal-actions">
                 <button
                   type="button"
