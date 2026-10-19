@@ -22,7 +22,12 @@ import {
 } from './tag.ts'
 import { loadPersistedRoom, savePersistedRoom } from './persist.ts'
 import { PLAYER_CLASS } from '../shared/classes.ts'
-import type { MoveGrant } from '../shared/movement.ts'
+import {
+  DASH_DURATION_MS,
+  DASH_IFRAME_MS,
+  dashCooldownMs,
+  type MoveGrant,
+} from '../shared/movement.ts'
 import { defaultSettings, isGameMode, type GameMode, type RoomSettings } from '../shared/modes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
 import type { MatchOver } from '../shared/combat.ts'
@@ -51,6 +56,7 @@ export interface RoomState {
   tag?: TagState
   lastMoveAt: Record<string, number>
   moveGrant: Record<string, MoveGrant>
+  nextDash: Record<string, number>
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -83,6 +89,7 @@ function createRoom(roomId: string): RoomState {
     started: false,
     lastMoveAt: {},
     moveGrant: {},
+    nextDash: {},
   }
 }
 
@@ -217,6 +224,7 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
   delete room.nextAttack[playerId]
   delete room.lastMoveAt[playerId]
   delete room.moveGrant[playerId]
+  delete room.nextDash[playerId]
   playerSockets.delete(playerId)
 
   if (room.hostId === playerId) {
@@ -435,6 +443,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         }
         room.lastMoveAt[id] = Date.now()
         delete room.moveGrant[id]
+        delete room.nextDash[id]
         io.to(id).emit('player:respawn', {
           position: p.position,
           hp: p.hp,
@@ -495,6 +504,42 @@ export function attachSocketServer(httpServer: HttpServer) {
         return
       }
       emitPlayerMoved(room, io, playerId)
+    })
+
+    socket.on('dash', (payload: { dirX?: number; dirZ?: number } = {}) => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
+      const now = Date.now()
+      if (player.seated || player.hidden) return
+      if (player.team === 'spectator') return
+      if ((room.mode === 'boss' || room.mode === 'tag') && !room.started) return
+      if (room.mode === 'tag' && player.team === 'ghost' && room.tag && now < room.tag.hideUntil) {
+        io.to(playerId).emit('dash:result', { ok: false, nextAt: room.tag.hideUntil, reason: 'hide' })
+        return
+      }
+      const readyAt = room.nextDash[playerId] ?? 0
+      if (now < readyAt) {
+        io.to(playerId).emit('dash:result', { ok: false, nextAt: readyAt, reason: 'cd' })
+        return
+      }
+      let dx = typeof payload.dirX === 'number' && Number.isFinite(payload.dirX) ? payload.dirX : 0
+      let dz = typeof payload.dirZ === 'number' && Number.isFinite(payload.dirZ) ? payload.dirZ : 0
+      const len = Math.hypot(dx, dz)
+      if (len < 1e-3) {
+        dx = Math.sin(player.rotationY)
+        dz = Math.cos(player.rotationY)
+      } else {
+        dx /= len
+        dz /= len
+      }
+      const until = now + DASH_DURATION_MS
+      const nextAt = now + dashCooldownMs(player.team)
+      room.nextDash[playerId] = nextAt
+      room.moveGrant[playerId] = { ...room.moveGrant[playerId], dashUntil: until }
+      room.hurtUntil[playerId] = Math.max(room.hurtUntil[playerId] ?? 0, now + DASH_IFRAME_MS)
+      io.to(room.roomId).emit('player:dash', { id: playerId, until, dirX: dx, dirZ: dz })
+      io.to(playerId).emit('dash:result', { ok: true, nextAt, until })
     })
 
     socket.on('sit', (payload: { seatId: SeatId | null }, ack?: (ok: boolean, reason?: string) => void) => {

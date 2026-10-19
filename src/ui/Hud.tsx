@@ -34,6 +34,9 @@ export function Hud() {
   const lookSensitivity = useAppStore((s) => s.lookSensitivity)
   const setLookSensitivity = useAppStore((s) => s.setLookSensitivity)
   const pointerLocked = useAppStore((s) => s.pointerLocked)
+  const dashReadyAt = useAppStore((s) => s.dashReadyAt)
+  const requestDash = useAppStore((s) => s.requestDash)
+  const [dashLeft, setDashLeft] = useState(0)
   const [note, setNote] = useState('')
   const [clock, setClock] = useState(timeLeftMs)
   const [countMs, setCountMs] = useState(startInMs)
@@ -46,6 +49,13 @@ export function Hud() {
   useEffect(() => {
     if (pendingNote || noteAsk) exitGameLock()
   }, [pendingNote, noteAsk])
+
+  useEffect(() => {
+    const tick = () => setDashLeft(Math.max(0, dashReadyAt - Date.now()))
+    tick()
+    const id = window.setInterval(tick, 100)
+    return () => window.clearInterval(id)
+  }, [dashReadyAt])
 
   useEffect(() => {
     if (matchOver || ((mode === 'boss' || mode === 'tag') && !started)) exitGameLock()
@@ -283,6 +293,16 @@ export function Hud() {
       {!matchOver && started && self?.team !== 'spectator' && (
         <button type="button" className="attack-btn" onClick={() => performAttack()}>
           攻擊
+        </button>
+      )}
+      {!matchOver && started && self?.team !== 'spectator' && (
+        <button
+          type="button"
+          className="dash-btn"
+          disabled={dashLeft > 0}
+          onClick={() => requestDash()}
+        >
+          {dashLeft > 0 ? `${Math.ceil(dashLeft / 1000)}` : '衝'}
         </button>
       )}
       {!matchOver && started && self && self.team !== 'ghost' && self.team !== 'spectator' && (

@@ -3,7 +3,8 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { HIDE_RANGE, HIDE_SPOTS } from '../../shared/dungeon'
 import { isMobileDevice } from '../perf/device'
-import { emitFurniturePush, emitHide, emitMove, emitSit, performAttack } from '../net/socket'
+import { DASH_DISTANCE, DASH_DURATION_MS, dashCooldownMs } from '../../shared/movement'
+import { emitDash, emitFurniturePush, emitHide, emitMove, emitSit, performAttack } from '../net/socket'
 import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
 import { resolvePlayerMove, KAYKIT_EXTRA_AABBS } from '../physics/collision'
 import { useAppStore } from '../store'
@@ -39,6 +40,9 @@ export function LocalController({
   const tagHud = useAppStore((s) => s.tagHud)
   const mode = useAppStore((s) => s.mode)
   const hideUntilAt = useRef(0)
+  const dash = useRef({ until: 0, dx: 0, dz: 0 })
+  const lastDir = useRef({ x: 0, z: 1 })
+  const dashRequest = useAppStore((s) => s.dashRequest)
 
   seatedRef.current = player.seated
   furnitureRef.current = furniture
@@ -88,6 +92,35 @@ export function LocalController({
     state.patchPlayer(player.id, { hidden: true })
   }
 
+  function tryDash() {
+    const state = useAppStore.getState()
+    const me = state.players[player.id]
+    if (!me || me.seated || me.hidden) return
+    if (me.team === 'spectator') return
+    if ((state.mode === 'boss' || state.mode === 'tag') && !state.started) return
+    if (state.mode === 'tag' && me.team === 'ghost' && (state.tagHud?.hideLeftMs ?? 0) > 0) {
+      state.setToast('開場 30 秒內鬼不能衝')
+      setTimeout(() => useAppStore.getState().setToast(null), 1400)
+      return
+    }
+    const now = Date.now()
+    if (now < state.dashReadyAt) return
+    let dx = lastDir.current.x
+    let dz = lastDir.current.z
+    const len = Math.hypot(dx, dz) || 1
+    dx /= len
+    dz /= len
+    dash.current = { until: performance.now() + DASH_DURATION_MS, dx, dz }
+    state.setDash(player.id, now + DASH_DURATION_MS)
+    state.setDashReadyAt(now + dashCooldownMs(me.team))
+    emitDash(dx, dz)
+  }
+
+  useEffect(() => {
+    if (dashRequest <= 0) return
+    tryDash()
+  }, [dashRequest])
+
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (typingInField()) return
@@ -100,6 +133,7 @@ export function LocalController({
         e.preventDefault()
       }
       if (e.code === 'KeyF') performAttack()
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') tryDash()
       if (e.code === 'KeyE') {
         if (seatedRef.current) void emitSit(null)
         else tryHide()
@@ -200,7 +234,10 @@ export function LocalController({
       const movedZ = result.z - pos.current.z
       pos.current.x = result.x
       pos.current.z = result.z
-      if (movedX !== 0 || movedZ !== 0) rotY.current = Math.atan2(movedX, movedZ)
+      if (movedX !== 0 || movedZ !== 0) {
+        rotY.current = Math.atan2(movedX, movedZ)
+        lastDir.current = { x: movedX, z: movedZ }
+      }
 
       if (result.pushed) {
         const y = furnitureRef.current.find((f) => f.id === result.pushed!.id)?.position[1] ?? 0
@@ -215,13 +252,31 @@ export function LocalController({
       }
     }
 
+    const dashing = performance.now() < dash.current.until
+    if (dashing) {
+      const step = (DASH_DISTANCE / (DASH_DURATION_MS / 1000)) * dt
+      const extra = useAppStore.getState().scene === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
+      const result = resolvePlayerMove(
+        pos.current.x,
+        pos.current.z,
+        dash.current.dx * step,
+        dash.current.dz * step,
+        furnitureRef.current,
+        undefined,
+        extra,
+      )
+      pos.current.x = result.x
+      pos.current.z = result.z
+      rotY.current = Math.atan2(dash.current.dx, dash.current.dz)
+    }
+
     stickCamera(pos.current.x, pos.current.z)
 
     const pose: Vec3 = [pos.current.x, 0, pos.current.z]
     onPose(pose, rotY.current)
 
     const now = performance.now()
-    const moving = fwd !== 0 || strafe !== 0
+    const moving = fwd !== 0 || strafe !== 0 || dashing
     const interval = moving ? 50 : 200
     if (now - lastSent.current > interval) {
       lastSent.current = now

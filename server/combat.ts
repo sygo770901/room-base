@@ -224,6 +224,7 @@ function stepMonster(
 }
 
 function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: number, now: number) {
+  if (now < (room.hurtUntil[player.id] ?? 0)) return
   const x = player.position[0]
   const z = player.position[2]
   player.hp = Math.max(0, (player.hp ?? PLAYER_MAX_HP) - dmg)

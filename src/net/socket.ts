@@ -297,6 +297,18 @@ function bindListeners(s: Socket) {
     useAppStore.getState().setSwing(id, performance.now())
   })
 
+  s.on('player:dash', (payload: { id: string; until: number; dirX: number; dirZ: number }) => {
+    useAppStore.getState().setDash(payload.id, payload.until)
+  })
+
+  s.on('dash:result', (payload: { ok: boolean; nextAt?: number; until?: number }) => {
+    if (payload.nextAt) useAppStore.getState().setDashReadyAt(payload.nextAt)
+    if (payload.ok && payload.until) {
+      const id = useAppStore.getState().selfId
+      if (id) useAppStore.getState().setDash(id, payload.until)
+    }
+  })
+
   s.on('player:hidden', (payload: { id: string; hidden: boolean; position?: Vec3; rotationY?: number }) => {
     useAppStore.getState().patchPlayer(payload.id, {
       hidden: payload.hidden,
@@ -600,6 +612,10 @@ export function emitRestart() {
 
 export function emitStart() {
   socket?.emit('match:start')
+}
+
+export function emitDash(dirX: number, dirZ: number) {
+  socket?.emit('dash', { dirX, dirZ })
 }
 
 export function disconnectSocket() {

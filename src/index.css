@@ -486,7 +486,8 @@ input {
 }
 
 .hide-btn,
-.check-btn {
+.check-btn,
+.dash-btn {
   position: absolute;
   z-index: 15;
   width: 56px;
@@ -512,9 +513,17 @@ input {
   background: #81b29a;
 }
 
-.check-btn:disabled {
+.check-btn:disabled,
+.dash-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.dash-btn {
+  right: 92px;
+  top: calc(50% - 152px);
+  background: #e9c46a;
+  color: #1a1c1e;
 }
 
 .ghost-blackout {
@@ -632,6 +641,14 @@ input {
     top: auto;
     right: 12px;
     bottom: calc(124px + env(safe-area-inset-bottom));
+    width: 72px;
+    height: 72px;
+  }
+
+  .dash-btn {
+    top: auto;
+    right: 124px;
+    bottom: calc(108px + env(safe-area-inset-bottom));
     width: 72px;
     height: 72px;
   }

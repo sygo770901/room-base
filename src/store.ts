@@ -74,6 +74,9 @@ interface AppState {
   hits: HitFx[]
   hitSeq: number
   telegraph: { x: number; z: number; r: number; ms: number; until: number } | null
+  dashUntil: Record<string, number>
+  dashReadyAt: number
+  dashRequest: number
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
@@ -103,6 +106,9 @@ interface AppState {
   setSfxOn: (on: boolean) => void
   setLookSensitivity: (n: number) => void
   setPointerLocked: (on: boolean) => void
+  setDash: (id: string, until: number) => void
+  setDashReadyAt: (at: number) => void
+  requestDash: () => void
   setConnection: (status: ConnectionStatus) => void
   setJoinError: (msg: string | null) => void
   leaveToLobby: () => void
@@ -147,6 +153,9 @@ export const useAppStore = create<AppState>((set) => ({
   hits: [],
   hitSeq: 1,
   telegraph: null,
+  dashUntil: {},
+  dashReadyAt: 0,
+  dashRequest: 0,
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
     set({
@@ -254,6 +263,9 @@ export const useAppStore = create<AppState>((set) => ({
     set({ lookSensitivity: v })
   },
   setPointerLocked: (on) => set({ pointerLocked: on }),
+  setDash: (id, until) => set((s) => ({ dashUntil: { ...s.dashUntil, [id]: until } })),
+  setDashReadyAt: (at) => set({ dashReadyAt: at }),
+  requestDash: () => set((s) => ({ dashRequest: s.dashRequest + 1 })),
   setConnection: (status) => set({ connection: status }),
   setJoinError: (msg) => set({ joinError: msg }),
   leaveToLobby: () =>
@@ -286,6 +298,9 @@ export const useAppStore = create<AppState>((set) => ({
       telegraph: null,
       joy: { x: 0, y: 0 },
       pointerLocked: false,
+      dashUntil: {},
+      dashReadyAt: 0,
+      dashRequest: 0,
     }),
 }))
 

@@ -145,6 +145,8 @@ export function KayKitHero({
   classId,
   moving,
   running,
+  dashing,
+  dashUntil,
   attackAt,
   seated,
   hidden,
@@ -153,6 +155,8 @@ export function KayKitHero({
   classId: ClassId
   moving: boolean
   running?: boolean
+  dashing?: boolean
+  dashUntil?: number
   attackAt: number
   seated?: boolean
   hidden?: boolean
@@ -204,19 +208,22 @@ export function KayKitHero({
     const idleClip = clipOf(generalGltf, 'Idle_A')
     const walkClip = clipOf(moveGltf, 'Walking_A')
     const runClip = clipOf(moveGltf, 'Running_A')
+    const dashClip = clipOf(moveGltf, 'Running_B')
     const attackClip = clipOf(combatGltf, 'Melee_1H_Attack_Chop')
     const idle = idleClip ? mixer.clipAction(idleClip) : null
     const walk = walkClip ? mixer.clipAction(walkClip) : null
     const run = runClip ? mixer.clipAction(runClip) : null
+    const dash = dashClip ? mixer.clipAction(dashClip) : run
     const attack = attackClip ? mixer.clipAction(attackClip) : null
     idle?.setLoop(THREE.LoopRepeat, Infinity)
     walk?.setLoop(THREE.LoopRepeat, Infinity)
     run?.setLoop(THREE.LoopRepeat, Infinity)
+    dash?.setLoop(THREE.LoopRepeat, Infinity)
     if (attack) {
       attack.setLoop(THREE.LoopOnce, 1)
       attack.clampWhenFinished = true
     }
-    return { idle, walk, run, attack }
+    return { idle, walk, run, dash, attack }
   }, [mixer, moveGltf, generalGltf, combatGltf])
   const current = useRef<THREE.AnimationAction | null>(null)
   const lastAttack = useRef(0)
@@ -224,7 +231,15 @@ export function KayKitHero({
   useLayoutEffect(() => {
     const onDone = (e: { action: THREE.AnimationAction }) => {
       if (e.action !== actions.attack) return
-      const next = seated ? actions.idle : moving ? (running ? actions.run : actions.walk) : actions.idle
+      const next = seated
+        ? actions.idle
+        : dashing
+          ? actions.dash ?? actions.run
+          : moving
+            ? running
+              ? actions.run
+              : actions.walk
+            : actions.idle
       if (!next) return
       e.action.fadeOut(0.12)
       next.reset().fadeIn(0.12).play()
@@ -235,7 +250,7 @@ export function KayKitHero({
       mixer.removeEventListener('finished', onDone)
       mixer.stopAllAction()
     }
-  }, [mixer, actions, moving, running, seated])
+  }, [mixer, actions, moving, running, seated, dashing])
 
   useFrame((_, dt) => {
     if (attackAt > lastAttack.current && actions.attack) {
@@ -244,7 +259,16 @@ export function KayKitHero({
       actions.attack.reset().fadeIn(0.05).play()
       current.current = actions.attack
     } else if (current.current !== actions.attack || !actions.attack?.isRunning()) {
-      const next = seated ? actions.idle : moving ? (running ? actions.run : actions.walk) : actions.idle
+      const dashOn = Boolean(dashing) || (dashUntil ?? 0) > Date.now()
+      const next = seated
+        ? actions.idle
+        : dashOn
+          ? actions.dash ?? actions.run
+          : moving
+            ? running
+              ? actions.run
+              : actions.walk
+            : actions.idle
       if (next && current.current !== next) {
         current.current?.fadeOut(0.16)
         next.reset().fadeIn(0.16).play()
