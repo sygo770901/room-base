@@ -58,6 +58,33 @@ input {
   background: rgba(129, 178, 154, 0.16);
 }
 
+.lobby .mode-pick button.on {
+  border-color: #c9a0ff;
+  background: rgba(183, 148, 246, 0.16);
+}
+
+.boss-objective {
+  position: absolute;
+  top: 86px;
+  left: 16px;
+  background: rgba(20, 22, 24, 0.78);
+  border: 1px solid rgba(201, 160, 255, 0.35);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.match-over {
+  top: 36%;
+  text-align: center;
+}
+
+.match-over p:first-child {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
 .scene-pick strong {
   display: block;
 }

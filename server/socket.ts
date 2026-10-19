@@ -3,15 +3,18 @@ import { Server } from 'socket.io'
 import { PLAYER_MAX_HP } from '../shared/combat.ts'
 import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
-import { createMonsters, handleAttack, publicMonsters, tickRoom } from './combat.ts'
+import { createBossMonsters, createMonsters, handleAttack, publicMonsters, tickRoom } from './combat.ts'
 import { loadPersistedRoom, savePersistedRoom } from './persist.ts'
-import { isClassId } from '../shared/classes.ts'
+import { PLAYER_CLASS } from '../shared/classes.ts'
+import { isGameMode, type GameMode } from '../shared/modes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
+import type { MatchOver } from '../shared/combat.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
 export interface RoomState {
   roomId: string
   scene: SceneId
+  mode: GameMode
   hostId: string | null
   players: Record<string, PlayerState>
   notes: StickyNote[]
@@ -20,6 +23,7 @@ export interface RoomState {
   monsters: ReturnType<typeof createMonsters>
   hurtUntil: Record<string, number>
   nextAttack: Record<string, number>
+  matchOver: MatchOver | null
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -30,6 +34,7 @@ function createRoom(roomId: string): RoomState {
   return {
     roomId,
     scene: 'kenney',
+    mode: 'hunt',
     hostId: null,
     players: {},
     notes: persisted.notes,
@@ -38,6 +43,7 @@ function createRoom(roomId: string): RoomState {
     monsters: createMonsters(),
     hurtUntil: {},
     nextAttack: {},
+    matchOver: null,
   }
 }
 
@@ -58,12 +64,14 @@ function publicRoom(room: RoomState) {
   return {
     roomId: room.roomId,
     scene: room.scene,
+    mode: room.mode,
     hostId: room.hostId,
     players: room.players,
     notes: room.notes,
     seats: room.seats,
     furniture: room.furniture,
     monsters: publicMonsters(room.monsters),
+    matchOver: room.matchOver,
   }
 }
 
@@ -94,7 +102,7 @@ export function attachSocketServer(httpServer: HttpServer) {
 
     socket.on(
       'join',
-      (payload: { roomId: string; name: string; wantHost?: boolean; scene?: string; classId?: string }, ack?: (data: unknown) => void) => {
+      (payload: { roomId: string; name: string; wantHost?: boolean; scene?: string; mode?: string }, ack?: (data: unknown) => void) => {
         const roomId = (payload.roomId || 'home').trim().slice(0, 32) || 'home'
         const name = (payload.name || '訪客').trim().slice(0, 16) || '訪客'
         const room = getOrCreateRoom(roomId)
@@ -103,6 +111,11 @@ export function attachSocketServer(httpServer: HttpServer) {
 
         const isFirst = Object.keys(room.players).length === 0
         if (isFirst && isSceneId(payload.scene)) room.scene = payload.scene
+        if (isFirst && isGameMode(payload.mode)) {
+          room.mode = payload.mode
+          room.monsters = payload.mode === 'boss' ? createBossMonsters() : createMonsters()
+          room.matchOver = null
+        }
         const role: 'host' | 'guest' =
           isFirst || (payload.wantHost && !room.hostId) ? 'host' : 'guest'
         if (role === 'host') room.hostId = socket.id
@@ -114,7 +127,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           id: socket.id,
           name,
           color,
-          classId: isClassId(payload.classId) ? payload.classId : 'knight',
+          classId: PLAYER_CLASS,
           position: [sp.x, 0, sp.z],
           rotationY: 0,
           seated: null,

@@ -1,10 +1,12 @@
 import { useRef } from 'react'
-import { Billboard } from '@react-three/drei'
+import { Billboard, Text } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { MonsterState } from '../../shared/combat'
 import { isClassId } from '../../shared/classes'
 import { useAppStore } from '../store'
+import { DispenserPetMesh } from './DispenserPet'
+import { DuckKingMesh } from './DuckKing'
 import { KayKitHero } from './KayKitHero'
 
 function MonsterView({ monster }: { monster: MonsterState }) {
@@ -27,18 +29,35 @@ function MonsterView({ monster }: { monster: MonsterState }) {
   if (!monster.alive) return null
   const ratio = Math.max(0, monster.hp / monster.maxHp)
   const classId = isClassId(monster.model) ? monster.model : 'knight'
+  const moving = speed.current > 0.35
+  const barY = monster.kind === 'dispenser' ? 2.05 : monster.kind === 'duck-king' ? 2.15 : 2.05
 
   return (
     <group ref={ref}>
-      <KayKitHero classId={classId} moving={speed.current > 0.35} running={speed.current > 3.2} attackAt={0} />
-      <Billboard position={[0, 2.05, 0]}>
+      {monster.kind === 'duck-king' ? (
+        <group scale={1.18}>
+          <DuckKingMesh moving={moving} fleeing={moving && speed.current > 2.8} />
+        </group>
+      ) : monster.kind === 'dispenser' ? (
+        <group scale={1.55}>
+          <DispenserPetMesh pouncing={monster.pouncing} />
+        </group>
+      ) : (
+        <KayKitHero classId={classId === 'ranger' ? 'knight' : classId} moving={moving} running={speed.current > 3.2} attackAt={0} />
+      )}
+      <Billboard position={[0, barY, 0]}>
+        {(monster.kind === 'duck-king' || monster.kind === 'dispenser') && (
+          <Text fontSize={0.13} color="#f4f1ec" anchorX="center" anchorY="bottom" outlineWidth={0.008} outlineColor="#000">
+            {monster.name}
+          </Text>
+        )}
         <mesh position={[0, 0.16, 0]}>
           <planeGeometry args={[1.15, 0.1]} />
           <meshBasicMaterial color="#2a1414" />
         </mesh>
         <mesh position={[(ratio - 1) * 0.55, 0.16, 0.01]} scale={[ratio, 1, 1]}>
           <planeGeometry args={[1.1, 0.07]} />
-          <meshBasicMaterial color={ratio < 0.35 ? '#ffb703' : '#d64545'} />
+          <meshBasicMaterial color={ratio < 0.35 ? '#ffb703' : monster.kind === 'duck-king' ? '#c9a0ff' : '#d64545'} />
         </mesh>
       </Billboard>
     </group>

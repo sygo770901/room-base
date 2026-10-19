@@ -3,7 +3,8 @@ import { ATTACK_COOLDOWN_MS } from '../../shared/combat'
 import type { FurnitureItem } from '../../shared/furniture'
 import { attackBlocked } from '../scene/inputLock'
 import type { MonsterState, PlayerState, RoomSnapshot, SeatId, StickyNote, Vec3 } from '../types'
-import type { ClassId } from '../../shared/classes'
+import type { MatchOver } from '../../shared/combat'
+import type { GameMode } from '../../shared/modes'
 import type { SceneId } from '../../shared/scenes'
 import { useAppStore } from '../store'
 import { startVoiceSession, stopVoiceSession } from './voice'
@@ -62,6 +63,17 @@ export function connectSocket() {
     useAppStore.getState().setMonsters(monsters)
   })
 
+  socket.on('match:over', (over: MatchOver) => {
+    useAppStore.getState().setMatchOver(over)
+    useAppStore.getState().setToast(`${over.winnerName} 打倒了鴨大王與飲水機`)
+    setTimeout(() => useAppStore.getState().setToast(null), 3200)
+  })
+
+  socket.on('combat:skill', ({ text }: { text: string }) => {
+    useAppStore.getState().setToast(text)
+    setTimeout(() => useAppStore.getState().setToast(null), 2200)
+  })
+
   socket.on(
     'combat:hit',
     (payload: { id: string; kind: 'player' | 'monster'; amount: number; x: number; z: number }) => {
@@ -107,11 +119,11 @@ export function joinRoom(
   name: string,
   wantHost = false,
   scene: SceneId = 'kenney',
-  classId: ClassId = 'knight',
+  mode: GameMode = 'hunt',
 ) {
   const s = connectSocket()
   return new Promise<RoomSnapshot>((resolve, reject) => {
-    s.emit('join', { roomId, name, wantHost, scene, classId }, (snapshot: RoomSnapshot) => {
+    s.emit('join', { roomId, name, wantHost, scene, mode }, (snapshot: RoomSnapshot) => {
       if (!snapshot) {
         reject(new Error('加入失敗'))
         return

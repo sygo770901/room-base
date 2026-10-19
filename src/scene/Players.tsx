@@ -2,14 +2,10 @@ import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
-import { CLASS_LABELS, isClassId, type ClassId } from '../../shared/classes'
+import { PLAYER_CLASS } from '../../shared/classes'
 import { useAppStore } from '../store'
 import type { PlayerState } from '../types'
 import { KayKitHero } from './KayKitHero'
-
-function heroOf(player: PlayerState): ClassId {
-  return isClassId(player.classId) ? player.classId : 'knight'
-}
 
 export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boolean }) {
   const prev = useRef(new THREE.Vector3(...player.position))
@@ -23,17 +19,18 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
   })
 
   const moving = !player.seated && speed.current > 0.28
-  const labelY = player.hidden ? 1.15 : 2.18
+  const labelY = player.hidden ? 1.15 : 1.95
 
   return (
     <group position={player.position} rotation={[0, player.rotationY, 0]}>
       <KayKitHero
-        classId={heroOf(player)}
+        classId={PLAYER_CLASS}
         moving={moving}
         running={speed.current > 3.6}
         attackAt={swingAt}
         seated={Boolean(player.seated)}
         hidden={player.hidden}
+        compact
       />
       <Billboard position={[0, labelY, 0]}>
         <Text
@@ -46,7 +43,6 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
         >
           {player.name}
           {player.role === 'host' ? ' · 房主' : ''}
-          {` · ${CLASS_LABELS[heroOf(player)]}`}
           {player.hidden ? ' · 躲藏' : ''}
         </Text>
       </Billboard>

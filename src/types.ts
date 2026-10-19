@@ -1,6 +1,7 @@
 import type { ClassId } from '../shared/classes'
-import type { MonsterState } from '../shared/combat'
+import type { MatchOver, MonsterState } from '../shared/combat'
 import type { FurnitureItem } from '../shared/furniture'
+import type { GameMode } from '../shared/modes'
 import type { SceneId } from '../shared/scenes'
 
 export type Vec3 = [number, number, number]
@@ -33,12 +34,14 @@ export interface StickyNote {
 export interface RoomSnapshot {
   roomId: string
   scene: SceneId
+  mode?: GameMode
   hostId: string | null
   players: Record<string, PlayerState>
   notes: StickyNote[]
   seats: Record<string, string | null>
   furniture: FurnitureItem[]
   monsters: MonsterState[]
+  matchOver?: MatchOver | null
 }
 
 export type { MonsterState }

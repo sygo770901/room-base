@@ -1,7 +1,8 @@
 import { create } from 'zustand'
-import { type MonsterState } from '../shared/combat'
+import { type MatchOver, type MonsterState } from '../shared/combat'
 import { DEFAULT_FURNITURE, type FurnitureItem } from '../shared/furniture'
 import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
+import type { GameMode } from '../shared/modes'
 import type { SceneId } from '../shared/scenes'
 
 export type NoteAsk =
@@ -23,6 +24,8 @@ interface AppState {
   selfId: string | null
   roomId: string
   scene: SceneId
+  mode: GameMode
+  matchOver: MatchOver | null
   displayName: string
   players: Record<string, PlayerState>
   notes: StickyNote[]
@@ -62,6 +65,7 @@ interface AppState {
   setSwing: (id: string, at: number) => void
   pushHit: (hit: Omit<HitFx, 'key' | 'at'>) => void
   setMonsters: (monsters: MonsterState[]) => void
+  setMatchOver: (over: MatchOver | null) => void
   bumpRespawn: () => void
   leaveToLobby: () => void
 }
@@ -71,6 +75,8 @@ export const useAppStore = create<AppState>((set) => ({
   selfId: null,
   roomId: 'home',
   scene: 'kenney',
+  mode: 'hunt',
+  matchOver: null,
   displayName: '',
   players: {},
   notes: [],
@@ -95,6 +101,8 @@ export const useAppStore = create<AppState>((set) => ({
       selfId,
       roomId: snapshot.roomId,
       scene: snapshot.scene ?? 'kenney',
+      mode: snapshot.mode ?? 'hunt',
+      matchOver: snapshot.matchOver ?? null,
       players: snapshot.players,
       notes: snapshot.notes,
       seats: snapshot.seats,
@@ -112,6 +120,8 @@ export const useAppStore = create<AppState>((set) => ({
       hostId: snapshot.hostId,
       roomId: snapshot.roomId,
       scene: snapshot.scene ?? s.scene,
+      mode: snapshot.mode ?? s.mode,
+      matchOver: snapshot.matchOver ?? s.matchOver,
     })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
@@ -150,6 +160,7 @@ export const useAppStore = create<AppState>((set) => ({
       return { hits: hits.slice(-20), hitSeq: s.hitSeq + 1 }
     }),
   setMonsters: (monsters) => set({ monsters }),
+  setMatchOver: (over) => set({ matchOver: over }),
   bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
   leaveToLobby: () =>
     set({
@@ -160,6 +171,7 @@ export const useAppStore = create<AppState>((set) => ({
       seats: {},
       furniture: DEFAULT_FURNITURE,
       monsters: [],
+      matchOver: null,
       hostId: null,
       micOn: false,
       pendingNote: null,

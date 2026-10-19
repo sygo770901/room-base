@@ -1,5 +1,4 @@
 import { FormEvent, useState } from 'react'
-import { CLASS_LABELS, isClassId } from '../../shared/classes'
 import { disconnectSocket, emitAddNote, emitRemoveNote, emitUpdateNote, performAttack } from '../net/socket'
 import { setMicEnabled } from '../net/voice'
 import { useAppStore } from '../store'
@@ -19,6 +18,9 @@ export function Hud() {
   const setPendingNote = useAppStore((s) => s.setPendingNote)
   const setNoteAsk = useAppStore((s) => s.setNoteAsk)
   const self = selfId ? players[selfId] : null
+  const mode = useAppStore((s) => s.mode)
+  const matchOver = useAppStore((s) => s.matchOver)
+  const monsters = useAppStore((s) => s.monsters)
   const [note, setNote] = useState('')
   const [fontSize, setFontSize] = useState(0.12)
   const [busyMic, setBusyMic] = useState(false)
@@ -58,6 +60,7 @@ export function Hud() {
         <div className="pill">
           房間 <strong>{roomId}</strong>
           {self?.role === 'host' ? ' · 房主' : ' · 訪客'}
+          {mode === 'boss' ? ' · 最終BOSS戰' : ' · 地城狩獵'}
           {pendingNote ? ' · 點地板貼便籤中' : ''}
           <div className="hp-bar" title="生命">
             <span style={{ width: `${Math.max(0, Math.min(100, self?.hp ?? 100))}%` }} />
@@ -70,7 +73,6 @@ export function Hud() {
               <span>
                 {p.name}
                 {p.id === selfId ? '（你）' : ''}
-                {isClassId(p.classId) ? ` · ${CLASS_LABELS[p.classId]}` : ''}
                 {p.hp != null && p.hp < 100 ? ` · ${p.hp}` : ''}
               </span>
             </div>
@@ -79,6 +81,25 @@ export function Hud() {
       </div>
 
       {toast && <div className="toast">{toast}</div>}
+
+      {mode === 'boss' && !matchOver && (
+        <div className="boss-objective">
+          {monsters
+            .filter((m) => m.kind === 'duck-king' || m.kind === 'dispenser')
+            .map((m) => (
+              <div key={m.id}>
+                {m.name} {m.alive ? `${Math.max(0, m.hp)} / ${m.maxHp}` : '已倒下'}
+              </div>
+            ))}
+        </div>
+      )}
+
+      {matchOver && (
+        <div className="modal match-over">
+          <p>最終BOSS戰結束</p>
+          <p className="modal-preview">{matchOver.winnerName} 打倒了鴨大王與飲水機，贏得這場遊戲。</p>
+        </div>
+      )}
 
       <VirtualJoystick />
 

@@ -37,7 +37,8 @@ export interface PatrolPoint {
 export interface MonsterDef {
   id: string
   name: string
-  model: 'knight' | 'barbarian' | 'rogue' | 'mage'
+  model: 'knight' | 'barbarian' | 'rogue' | 'mage' | 'ranger'
+  kind?: 'grunt' | 'duck-king' | 'dispenser'
   maxHp: number
   patrol: PatrolPoint[]
 }
@@ -242,6 +243,13 @@ export function isWalkableWorld(x: number, z: number, r = 0) {
 
 export function cellCenter(gx: number, gz: number): PatrolPoint {
   return { x: (gx + 0.5) * CELL, z: (gz + 0.5) * CELL }
+}
+
+export const FLOOR_CENTERS: PatrolPoint[] = []
+for (let z = 1; z < MAP_H - 1; z++) {
+  for (let x = 1; x < MAP_W - 1; x++) {
+    if (isFloorCell(x, z)) FLOOR_CENTERS.push(cellCenter(x, z))
+  }
 }
 
 const floorPlaces: Place[] = []
@@ -510,6 +518,36 @@ export const MONSTER_DEFS: MonsterDef[] = [
     model: 'rogue',
     maxHp: 80,
     patrol: roguePatrol,
+  },
+]
+
+const bossStart = patrol([
+  [19, 7],
+  [21, 8],
+  [20, 12],
+  [18, 14],
+  [28, 14],
+  [8, 14],
+  [20, 24],
+  [16, 29],
+])
+
+export const BOSS_DEFS: MonsterDef[] = [
+  {
+    id: 'duck-king',
+    name: '鴨大王',
+    model: 'ranger',
+    kind: 'duck-king',
+    maxHp: 220,
+    patrol: bossStart.length ? bossStart : FLOOR_CENTERS.slice(0, 8),
+  },
+  {
+    id: 'dispenser',
+    name: '飲水機',
+    model: 'mage',
+    kind: 'dispenser',
+    maxHp: 160,
+    patrol: bossStart.length ? bossStart.slice(0, 3) : FLOOR_CENTERS.slice(0, 3),
   },
 ]
 

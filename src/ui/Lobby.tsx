@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react'
-import { CLASS_BLURBS, CLASS_IDS, CLASS_LABELS, isClassId, type ClassId } from '../../shared/classes'
 import type { SceneId } from '../../shared/scenes'
+import { MODE_BLURBS, MODE_IDS, MODE_LABELS, isGameMode, type GameMode } from '../../shared/modes'
 import { joinRoom } from '../net/socket'
 import { useAppStore } from '../store'
 
@@ -17,9 +17,9 @@ const SCENES: { id: SceneId; title: string; text: string }[] = [
   },
 ]
 
-function savedClass(): ClassId {
-  const raw = localStorage.getItem('rb-class')
-  return isClassId(raw) ? raw : 'knight'
+function savedMode(): GameMode {
+  const raw = localStorage.getItem('rb-mode')
+  return isGameMode(raw) ? raw : 'hunt'
 }
 
 export function Lobby() {
@@ -29,7 +29,7 @@ export function Lobby() {
   const [name, setName] = useState(displayName || localStorage.getItem('rb-name') || '')
   const [room, setRoom] = useState(roomId || localStorage.getItem('rb-room') || 'home')
   const [scene, setScene] = useState<SceneId>(localStorage.getItem('rb-scene') === 'kaykit' ? 'kaykit' : 'kenney')
-  const [classId, setClassId] = useState<ClassId>(savedClass)
+  const [mode, setMode] = useState<GameMode>(savedMode)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -42,9 +42,9 @@ export function Lobby() {
       localStorage.setItem('rb-name', n)
       localStorage.setItem('rb-room', r)
       localStorage.setItem('rb-scene', scene)
-      localStorage.setItem('rb-class', classId)
+      localStorage.setItem('rb-mode', mode)
       setLobby(n, r)
-      await joinRoom(r, n, wantHost, scene, classId)
+      await joinRoom(r, n, wantHost, scene, mode)
     } catch (e) {
       setError(e instanceof Error ? e.message : '連線失敗')
     } finally {
@@ -61,7 +61,9 @@ export function Lobby() {
     <div className="lobby">
       <form className="lobby-card" onSubmit={onSubmit}>
         <h1>地城迴廊</h1>
-        <p>多人躲貓貓加打怪。進房前先選場景和職業。房間裡已經有人時，會沿用開房時的場景。</p>
+        <p>
+          玩家都是較瘦的遊俠，右手單手劍。進房前選場景和模式。房間裡已經有人時，會沿用開房時的設定。
+        </p>
         <div className="scene-pick" role="radiogroup" aria-label="場景">
           {SCENES.map((item) => (
             <button
@@ -77,18 +79,18 @@ export function Lobby() {
             </button>
           ))}
         </div>
-        <div className="class-pick" role="radiogroup" aria-label="職業">
-          {CLASS_IDS.map((id) => (
+        <div className="scene-pick mode-pick" role="radiogroup" aria-label="模式">
+          {MODE_IDS.map((id) => (
             <button
               key={id}
               type="button"
               role="radio"
-              aria-checked={classId === id}
-              className={classId === id ? 'on' : ''}
-              onClick={() => setClassId(id)}
+              aria-checked={mode === id}
+              className={mode === id ? 'on' : ''}
+              onClick={() => setMode(id)}
             >
-              <strong>{CLASS_LABELS[id]}</strong>
-              <span>{CLASS_BLURBS[id]}</span>
+              <strong>{MODE_LABELS[id]}</strong>
+              <span>{MODE_BLURBS[id]}</span>
             </button>
           ))}
         </div>
