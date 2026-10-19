@@ -23,8 +23,11 @@ export function Hud() {
   const monsters = useAppStore((s) => s.monsters)
   const timeLeftMs = useAppStore((s) => s.timeLeftMs)
   const hostId = useAppStore((s) => s.hostId)
+  const startInMs = useAppStore((s) => s.startInMs)
   const [note, setNote] = useState('')
   const [clock, setClock] = useState(timeLeftMs)
+  const [countMs, setCountMs] = useState(startInMs)
+  const [goFlash, setGoFlash] = useState(false)
   const [fontSize, setFontSize] = useState(0.12)
 
   useEffect(() => {
@@ -35,6 +38,23 @@ export function Hud() {
     const id = window.setInterval(() => setClock(Math.max(0, base - (Date.now() - origin))), 250)
     return () => window.clearInterval(id)
   }, [timeLeftMs])
+
+  useEffect(() => {
+    setCountMs(startInMs)
+    setGoFlash(false)
+    if (startInMs <= 0) return
+    const origin = Date.now()
+    const base = startInMs
+    const id = window.setInterval(() => {
+      const left = Math.max(0, base - (Date.now() - origin))
+      setCountMs(left)
+      if (left <= 0) {
+        setGoFlash(true)
+        window.setTimeout(() => setGoFlash(false), 1400)
+      }
+    }, 80)
+    return () => window.clearInterval(id)
+  }, [startInMs])
   const [busyMic, setBusyMic] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState('')
@@ -100,13 +120,25 @@ export function Hud() {
 
       {toast && <div className="toast">{toast}</div>}
 
+      {mode === 'boss' && !matchOver && countMs > 0 && (
+        <div className="countdown-banner" aria-live="polite">
+          {Math.max(1, Math.ceil(countMs / 1000))}
+        </div>
+      )}
+      {mode === 'boss' && !matchOver && goFlash && countMs <= 0 && (
+        <div className="countdown-banner go">開打！</div>
+      )}
+      {mode === 'boss' && !matchOver && countMs <= 0 && !goFlash && (
+        <div className="boss-hint">鴨大王在東南王房</div>
+      )}
+
       {mode === 'boss' && !matchOver && (
         <div className="boss-objective">
           {monsters
             .filter((m) => m.kind === 'duck-king' || m.kind === 'dispenser')
             .map((m) => (
               <div key={m.id}>
-                {m.name} {m.alive ? `${Math.max(0, m.hp)} / ${m.maxHp}` : '已倒下'}
+                {m.name} {m.alive ? `${Math.max(0, Math.round((m.hp / Math.max(1, m.maxHp)) * 100))}%` : '已倒下'}
               </div>
             ))}
         </div>

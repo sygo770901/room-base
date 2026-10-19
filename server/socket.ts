@@ -1,7 +1,7 @@
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import type { Socket } from 'socket.io'
-import { PLAYER_MAX_HP, ROOM_MAX_PLAYERS } from '../shared/combat.ts'
+import { BOSS_COUNTDOWN_MS, PLAYER_MAX_HP, ROOM_MAX_PLAYERS } from '../shared/combat.ts'
 import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
 import { createBossMonsters, createMonsters, handleAttack, publicMonsters, tickRoom } from './combat.ts'
@@ -29,6 +29,8 @@ export interface RoomState {
   damage: Record<string, { name: string; dmg: number }>
   settings: RoomSettings
   matchDeadline: number | null
+  startAt: number
+  hpScaled: boolean
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -56,6 +58,8 @@ function createRoom(roomId: string): RoomState {
     damage: {},
     settings: defaultSettings(),
     matchDeadline: null,
+    startAt: 0,
+    hpScaled: false,
   }
 }
 
@@ -86,6 +90,7 @@ function publicRoom(room: RoomState) {
     matchOver: room.matchOver,
     settings: room.settings,
     timeLeftMs: room.matchDeadline ? Math.max(0, room.matchDeadline - Date.now()) : null,
+    startInMs: room.startAt ? Math.max(0, room.startAt - Date.now()) : 0,
   }
 }
 
@@ -298,7 +303,14 @@ export function attachSocketServer(httpServer: HttpServer) {
             timed: Boolean(payload.timed) && payload.mode === 'boss',
             timeLimitSec: payload.timed && payload.mode === 'boss' ? 300 : 0,
           }
-          room.matchDeadline = room.settings.timed ? Date.now() + room.settings.timeLimitSec * 1000 : null
+          if (payload.mode === 'boss') {
+            room.startAt = Date.now() + BOSS_COUNTDOWN_MS
+            room.hpScaled = false
+            room.matchDeadline = room.settings.timed ? room.startAt + room.settings.timeLimitSec * 1000 : null
+          } else {
+            room.startAt = 0
+            room.matchDeadline = null
+          }
         }
 
         let player = existing
@@ -356,7 +368,9 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.hurtUntil = {}
       room.nextAttack = {}
       room.damage = {}
-      room.matchDeadline = room.settings.timed ? Date.now() + room.settings.timeLimitSec * 1000 : null
+      room.hpScaled = false
+      room.startAt = Date.now() + BOSS_COUNTDOWN_MS
+      room.matchDeadline = room.settings.timed ? room.startAt + room.settings.timeLimitSec * 1000 : null
       const ids = Object.keys(room.players)
       ids.forEach((id, i) => {
         const p = room.players[id]

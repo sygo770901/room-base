@@ -34,6 +34,7 @@ interface AppState {
   matchOver: MatchOver | null
   settings: RoomSettings
   timeLeftMs: number | null
+  startInMs: number
   displayName: string
   players: Record<string, PlayerState>
   notes: StickyNote[]
@@ -89,6 +90,7 @@ export const useAppStore = create<AppState>((set) => ({
   matchOver: null,
   settings: defaultSettings(),
   timeLeftMs: null,
+  startInMs: 0,
   displayName: boot?.name ?? '',
   players: {},
   notes: [],
@@ -118,6 +120,7 @@ export const useAppStore = create<AppState>((set) => ({
       matchOver: snapshot.matchOver ?? null,
       settings: snapshot.settings ?? defaultSettings(),
       timeLeftMs: snapshot.timeLeftMs ?? null,
+      startInMs: snapshot.startInMs ?? 0,
       players: snapshot.players,
       notes: snapshot.notes,
       seats: snapshot.seats,
@@ -139,6 +142,7 @@ export const useAppStore = create<AppState>((set) => ({
       matchOver: snapshot.matchOver ?? null,
       settings: snapshot.settings ?? s.settings,
       timeLeftMs: snapshot.timeLeftMs ?? s.timeLeftMs,
+      startInMs: snapshot.startInMs ?? s.startInMs,
     })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
@@ -193,6 +197,7 @@ export const useAppStore = create<AppState>((set) => ({
       matchOver: null,
       settings: defaultSettings(),
       timeLeftMs: null,
+      startInMs: 0,
       hostId: null,
       micOn: false,
       pendingNote: null,

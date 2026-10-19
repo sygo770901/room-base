@@ -6,7 +6,10 @@ import {
   ATTACK_DAMAGE,
   ATTACK_RANGE,
   type DamageRank,
+  BOSS_COUNTDOWN_MS,
   BOSS_SIGHT,
+  duckKingHp,
+  dispenserHp,
   CHASE_SPEED,
   FLEE_SPEED,
   IFRAME_MS,
@@ -76,6 +79,8 @@ export interface CombatRoom {
   damage?: Record<string, { name: string; dmg: number }>
   settings?: { timed: boolean; timeLimitSec: 0 | 300 }
   matchDeadline?: number | null
+  startAt?: number
+  hpScaled?: boolean
 }
 
 function fromDef(d: MonsterDef): ServerMonster {
@@ -269,8 +274,28 @@ function tickHunt(room: CombatRoom, io: Server, now: number, dt: number) {
   }
 }
 
+function scaleBossHealth(room: CombatRoom) {
+  if (room.hpScaled) return
+  room.hpScaled = true
+  const n = Object.values(room.players).filter((p) => !room.awayUntil?.[p.id]).length || 1
+  const duckHp = duckKingHp(n)
+  const petHp = dispenserHp(n)
+  for (const m of room.monsters) {
+    if (m.kind === 'duck-king') {
+      m.maxHp = duckHp
+      m.hp = duckHp
+    }
+    if (m.kind === 'dispenser') {
+      m.maxHp = petHp
+      m.hp = petHp
+    }
+  }
+}
+
 function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
   if (room.matchOver) return
+  if (room.startAt && now < room.startAt) return
+  if (room.startAt && now >= room.startAt) scaleBossHealth(room)
   const extraWalls = room.scene === 'kaykit' ? KAYKIT_EXTRA_WALLS : []
   const extraAabbs = room.scene === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
   const duck = room.monsters.find((m) => m.kind === 'duck-king')
@@ -281,7 +306,7 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
     let tx = duck.wander.x
     let tz = duck.wander.z
     let speed = PATROL_SPEED
-    const canFlee = now - duck.spawnedAt > 8000
+    const canFlee = now >= (room.startAt ?? duck.spawnedAt) + 0
     if (seen.target && canFlee) {
       const dx = duck.x - seen.target.position[0]
       const dz = duck.z - seen.target.position[2]
@@ -300,13 +325,13 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
       duck.wander = pickWander(duck.x, duck.z)
     }
 
-    if (pet?.alive && seen.target && now >= pet.nextSkill) {
+    if (pet?.alive && seen.target && now >= Math.max(pet.nextSkill, room.startAt ?? 0)) {
       pet.pounceUntil = now + PET_POUNCE_MS
       pet.nextSkill = now + PET_SKILL_CD_MS
       pet.pounceTargetId = seen.target.id
       io.to(room.roomId).emit('combat:skill', { text: '鴨大王派出了飲水機！' })
     }
-  } else if (pet?.alive && now >= pet.nextSkill) {
+  } else if (pet?.alive && now >= Math.max(pet.nextSkill, room.startAt ?? 0)) {
     const seen = nearestVisible(room, pet.x, pet.z, extraWalls, BOSS_SIGHT)
     if (seen.target) {
       pet.pounceUntil = now + PET_POUNCE_MS
@@ -380,6 +405,7 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
   const player = room.players[playerId]
   if (!player || player.seated || player.hidden) return
   if (room.matchOver) return
+  if (room.startAt && now < room.startAt) return
   if (room.awayUntil?.[playerId]) return
   if ((room.nextAttack[playerId] ?? 0) > now) return
   room.nextAttack[playerId] = now + ATTACK_COOLDOWN_MS

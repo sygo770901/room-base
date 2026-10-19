@@ -33,6 +33,14 @@ export interface MatchOver {
 export const PLAYER_MAX_HP = 100
 export const ROOM_MAX_PLAYERS = 10
 export const MATCH_TIME_LIMIT_SEC = 300
+export const BOSS_COUNTDOWN_MS = 5000
+export function duckKingHp(n: number) {
+  const count = Math.max(1, n)
+  return 3300 + 4500 * (count - 1)
+}
+export function dispenserHp(n: number) {
+  return 160 * Math.max(1, n)
+}
 export const ATTACK_RANGE = 2.5
 export const ATTACK_DAMAGE = 34
 export const ATTACK_COOLDOWN_MS = 460

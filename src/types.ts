@@ -44,6 +44,7 @@ export interface RoomSnapshot {
   matchOver?: MatchOver | null
   settings?: RoomSettings
   timeLeftMs?: number | null
+  startInMs?: number
   error?: string
 }
 
