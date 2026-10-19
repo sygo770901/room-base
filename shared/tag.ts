@@ -5,9 +5,7 @@ export const TAG_CHECK_CD_MS = 3000
 export const TAG_BOX_MAX_MS = 45_000
 export const TAG_BOX_REENTER_MS = 10_000
 export const TAG_UNTIMED_CAP_MS = 15 * 60 * 1000
-export const PLAYER_SPEED = 5.2
-export const MOVE_SLACK = 1.3
-export const MOVE_PAD = 0.3
+export { MOVE_PAD, MOVE_SLACK, PLAYER_SPEED } from './movement.ts'
 
 export type TagTeam = 'ghost' | 'hider' | 'spectator'
 

@@ -5,7 +5,17 @@ import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
 import { defaultSettings, type GameMode, type RoomSettings } from '../shared/modes'
 import type { TagHud } from '../shared/tag'
 import type { SceneId } from '../shared/scenes'
+import type { BarrelState, LootDrop } from '../shared/barrels'
+import type { SmokeCloud } from '../shared/smoke'
+import { LOOK_SENS_DEFAULT, LOOK_SENS_MAX, LOOK_SENS_MIN } from '../shared/input'
 import { loadSession } from './net/session'
+
+function readLookSens() {
+  if (typeof localStorage === 'undefined') return LOOK_SENS_DEFAULT
+  const n = Number(localStorage.getItem('rb-look-sens'))
+  if (!Number.isFinite(n)) return LOOK_SENS_DEFAULT
+  return Math.min(LOOK_SENS_MAX, Math.max(LOOK_SENS_MIN, n))
+}
 
 const boot = typeof localStorage === 'undefined' ? null : loadSession()
 
@@ -44,6 +54,8 @@ interface AppState {
   shakeUntil: number
   shakeAmp: number
   sfxOn: boolean
+  lookSensitivity: number
+  pointerLocked: boolean
   displayName: string
   players: Record<string, PlayerState>
   notes: StickyNote[]
@@ -64,12 +76,20 @@ interface AppState {
   hits: HitFx[]
   hitSeq: number
   telegraph: { x: number; z: number; r: number; ms: number; until: number } | null
+  dashUntil: Record<string, number>
+  dashReadyAt: number
+  dashRequest: number
+  smokes: SmokeCloud[]
+  smokeReadyAt: number
+  smokeRequest: number
+  barrels: BarrelState[]
+  drops: LootDrop[]
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
   upsertPlayer: (player: PlayerState) => void
   removePlayer: (id: string) => void
-  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp' | 'hidden' | 'team'>>) => void
+  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp' | 'hidden' | 'team' | 'weapon' | 'weaponUntil'>>) => void
   addNote: (note: StickyNote) => void
   patchNote: (note: StickyNote) => void
   removeNote: (id: string) => void
@@ -91,6 +111,16 @@ interface AppState {
   setTagHud: (hud: TagHud | null) => void
   triggerHitFeel: (kind: 'hit' | 'hurt' | 'slam') => void
   setSfxOn: (on: boolean) => void
+  setLookSensitivity: (n: number) => void
+  setPointerLocked: (on: boolean) => void
+  setDash: (id: string, until: number) => void
+  setDashReadyAt: (at: number) => void
+  requestDash: () => void
+  setSmokes: (smokes: SmokeCloud[]) => void
+  setSmokeReadyAt: (at: number) => void
+  requestSmoke: () => void
+  setBarrels: (barrels: BarrelState[]) => void
+  setDrops: (drops: LootDrop[]) => void
   setConnection: (status: ConnectionStatus) => void
   setJoinError: (msg: string | null) => void
   leaveToLobby: () => void
@@ -115,6 +145,8 @@ export const useAppStore = create<AppState>((set) => ({
   shakeUntil: 0,
   shakeAmp: 0,
   sfxOn: typeof localStorage === 'undefined' ? true : localStorage.getItem('rb-sfx') !== '0',
+  lookSensitivity: readLookSens(),
+  pointerLocked: false,
   displayName: boot?.name ?? '',
   players: {},
   notes: [],
@@ -133,6 +165,14 @@ export const useAppStore = create<AppState>((set) => ({
   hits: [],
   hitSeq: 1,
   telegraph: null,
+  dashUntil: {},
+  dashReadyAt: 0,
+  dashRequest: 0,
+  smokes: [],
+  smokeReadyAt: 0,
+  smokeRequest: 0,
+  barrels: [],
+  drops: [],
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
     set({
@@ -155,6 +195,9 @@ export const useAppStore = create<AppState>((set) => ({
       furniture: snapshot.furniture?.length ? snapshot.furniture : DEFAULT_FURNITURE,
       monsters: snapshot.monsters ?? [],
       hostId: snapshot.hostId,
+      smokes: snapshot.smokes ?? [],
+      barrels: snapshot.barrels ?? [],
+      drops: snapshot.drops ?? [],
     }),
   applySnapshot: (snapshot) =>
     set((s) => ({
@@ -173,6 +216,9 @@ export const useAppStore = create<AppState>((set) => ({
       startInMs: snapshot.startInMs ?? s.startInMs,
       started: snapshot.started ?? s.started,
       tagHud: snapshot.tagHud ?? s.tagHud,
+      smokes: snapshot.smokes ?? s.smokes,
+      barrels: snapshot.barrels ?? s.barrels,
+      drops: snapshot.drops ?? s.drops,
     })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
@@ -234,6 +280,20 @@ export const useAppStore = create<AppState>((set) => ({
     if (typeof localStorage !== 'undefined') localStorage.setItem('rb-sfx', on ? '1' : '0')
     set({ sfxOn: on, shakeAmp: on ? 0.07 : 0, shakeUntil: on ? 0 : 0 })
   },
+  setLookSensitivity: (n) => {
+    const v = Math.min(LOOK_SENS_MAX, Math.max(LOOK_SENS_MIN, n))
+    if (typeof localStorage !== 'undefined') localStorage.setItem('rb-look-sens', String(v))
+    set({ lookSensitivity: v })
+  },
+  setPointerLocked: (on) => set({ pointerLocked: on }),
+  setDash: (id, until) => set((s) => ({ dashUntil: { ...s.dashUntil, [id]: until } })),
+  setDashReadyAt: (at) => set({ dashReadyAt: at }),
+  requestDash: () => set((s) => ({ dashRequest: s.dashRequest + 1 })),
+  setSmokes: (smokes) => set({ smokes }),
+  setSmokeReadyAt: (at) => set({ smokeReadyAt: at }),
+  requestSmoke: () => set((s) => ({ smokeRequest: s.smokeRequest + 1 })),
+  setBarrels: (barrels) => set({ barrels }),
+  setDrops: (drops) => set({ drops }),
   setConnection: (status) => set({ connection: status }),
   setJoinError: (msg) => set({ joinError: msg }),
   leaveToLobby: () =>
@@ -265,6 +325,15 @@ export const useAppStore = create<AppState>((set) => ({
       hitSeq: 1,
       telegraph: null,
       joy: { x: 0, y: 0 },
+      pointerLocked: false,
+      dashUntil: {},
+      dashReadyAt: 0,
+      dashRequest: 0,
+      smokes: [],
+      smokeReadyAt: 0,
+      smokeRequest: 0,
+      barrels: [],
+      drops: [],
     }),
 }))
 

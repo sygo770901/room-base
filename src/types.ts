@@ -4,6 +4,8 @@ import type { FurnitureItem } from '../shared/furniture'
 import type { GameMode, RoomSettings } from '../shared/modes'
 import type { TagHud } from '../shared/tag'
 import type { SceneId } from '../shared/scenes'
+import type { BarrelState, LootDrop } from '../shared/barrels'
+import type { SmokeCloud } from '../shared/smoke'
 
 export type Vec3 = [number, number, number]
 export type SeatId = string
@@ -20,6 +22,8 @@ export interface PlayerState {
   hp: number
   hidden?: boolean
   team?: 'ghost' | 'hider' | 'spectator'
+  weapon?: 'sword' | 'dagger' | 'hammer'
+  weaponUntil?: number
 }
 
 export interface StickyNote {
@@ -49,6 +53,9 @@ export interface RoomSnapshot {
   startInMs?: number
   started?: boolean
   tagHud?: TagHud | null
+  smokes?: SmokeCloud[]
+  barrels?: BarrelState[]
+  drops?: LootDrop[]
   error?: string
 }
 

@@ -1,0 +1,33 @@
+# BOSS大逃殺 素材授權
+
+本專案只用 CC0 或可商用授權的素材。第 13 項新地圖若再新增，會另外列在這裡。
+
+## Kenney Mini Dungeon
+- 作者：Kenney
+- 網址：https://kenney.nl/assets/mini-dungeon
+- 授權：CC0 1.0
+- 用途：kenney 場景的牆、地板、柱子與藏身點模型
+
+## Kenney Furniture Kit
+- 作者：Kenney
+- 網址：https://kenney.nl/assets/furniture-kit
+- 授權：CC0 1.0
+- 用途：便籤／家具系統（目前預設不擺模型，程式仍保留）
+
+## KayKit Dungeon Pack 1.1
+- 作者：Kay Lousberg
+- 網址：https://kaylousberg.itch.io/kaykit-dungeon
+- 授權：CC0 1.0
+- 用途：kaykit 場景的石磚、門框、鐵柵、樓梯、天花板、火把、木桶與裝飾
+
+## KayKit Adventurers
+- 作者：Kay Lousberg
+- 網址：https://kaylousberg.itch.io/kaykit-adventurers
+- 授權：CC0 1.0
+- 用途：玩家與小怪角色、動畫、手持武器
+
+## Draco 3D Data Compression
+- 作者：Google
+- 網址：https://github.com/google/draco
+- 授權：Apache License 2.0
+- 用途：縮小 glTF／GLB，手機載入較快。解碼器放在 /draco/，不計入 public/assets 4MB 上限。

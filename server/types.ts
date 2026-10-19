@@ -15,6 +15,8 @@ export interface PlayerState {
   hp: number
   hidden?: boolean
   team?: 'ghost' | 'hider' | 'spectator'
+  weapon?: 'sword' | 'dagger' | 'hammer'
+  weaponUntil?: number
 }
 
 export interface StickyNote {

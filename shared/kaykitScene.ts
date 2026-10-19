@@ -65,6 +65,10 @@ places.push(
 
 export const KAYKIT_PLACES = places
 
+export const KAYKIT_TORCHES = places
+  .filter((p) => p.model === 'torch_mounted.gltf')
+  .map((p) => ({ x: p.x, y: p.y + 1.6, z: p.z }))
+
 export const KAYKIT_EXTRA_WALLS: WallBox[] = [
   { cx: 58, cz: 14, hx: 3.5, hz: 2 },
   { cx: 96, cz: 112, hx: 2.5, hz: 4 },

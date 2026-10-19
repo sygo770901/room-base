@@ -2,7 +2,12 @@ import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { HIDE_RANGE, HIDE_SPOTS } from '../../shared/dungeon'
-import { emitFurniturePush, emitHide, emitMove, emitSit, performAttack } from '../net/socket'
+import { isMobileDevice } from '../perf/device'
+import { WEAPON_STATS } from '../../shared/barrels'
+import { DASH_DISTANCE, DASH_DURATION_MS, dashCooldownMs } from '../../shared/movement'
+import { SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
+import { emitDash, emitFurniturePush, emitHide, emitMove, emitSit, emitSmoke, performAttack } from '../net/socket'
+import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
 import { resolvePlayerMove, KAYKIT_EXTRA_AABBS } from '../physics/collision'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
@@ -37,6 +42,10 @@ export function LocalController({
   const tagHud = useAppStore((s) => s.tagHud)
   const mode = useAppStore((s) => s.mode)
   const hideUntilAt = useRef(0)
+  const dash = useRef({ until: 0, dx: 0, dz: 0 })
+  const lastDir = useRef({ x: 0, z: 1 })
+  const dashRequest = useAppStore((s) => s.dashRequest)
+  const smokeRequest = useAppStore((s) => s.smokeRequest)
 
   seatedRef.current = player.seated
   furnitureRef.current = furniture
@@ -86,15 +95,69 @@ export function LocalController({
     state.patchPlayer(player.id, { hidden: true })
   }
 
+  function tryDash() {
+    const state = useAppStore.getState()
+    const me = state.players[player.id]
+    if (!me || me.seated || me.hidden) return
+    if (me.team === 'spectator') return
+    if ((state.mode === 'boss' || state.mode === 'tag') && !state.started) return
+    if (state.mode === 'tag' && me.team === 'ghost' && (state.tagHud?.hideLeftMs ?? 0) > 0) {
+      state.setToast('開場 30 秒內鬼不能衝')
+      setTimeout(() => useAppStore.getState().setToast(null), 1400)
+      return
+    }
+    const now = Date.now()
+    if (now < state.dashReadyAt) return
+    let dx = lastDir.current.x
+    let dz = lastDir.current.z
+    const len = Math.hypot(dx, dz) || 1
+    dx /= len
+    dz /= len
+    dash.current = { until: performance.now() + DASH_DURATION_MS, dx, dz }
+    state.setDash(player.id, now + DASH_DURATION_MS)
+    state.setDashReadyAt(now + dashCooldownMs(me.team))
+    emitDash(dx, dz)
+  }
+
+  function trySmoke() {
+    const state = useAppStore.getState()
+    const me = state.players[player.id]
+    if (!me || me.seated || me.hidden) return
+    if (me.team === 'spectator') return
+    if ((state.mode === 'boss' || state.mode === 'tag') && !state.started) return
+    const now = Date.now()
+    if (now < state.smokeReadyAt) return
+    const range = isMobileDevice() ? SMOKE_RANGE_MOBILE : SMOKE_RANGE
+    const len = Math.hypot(lastDir.current.x, lastDir.current.z) || 1
+    const x = pos.current.x + (lastDir.current.x / len) * range
+    const z = pos.current.z + (lastDir.current.z / len) * range
+    state.setSmokeReadyAt(now + smokeCooldownMs(me.team))
+    emitSmoke(x, z)
+  }
+
+  useEffect(() => {
+    if (dashRequest <= 0) return
+    tryDash()
+  }, [dashRequest])
+
+  useEffect(() => {
+    if (smokeRequest <= 0) return
+    trySmoke()
+  }, [smokeRequest])
+
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (typingInField()) return
+      if (e.code === 'Escape' && pointerJustUnlocked()) {
+        e.stopPropagation()
+        return
+      }
       keys.current[e.code] = true
       if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
         e.preventDefault()
       }
       if (e.code === 'KeyF') performAttack()
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') tryDash()
       if (e.code === 'KeyE') {
         if (seatedRef.current) void emitSit(null)
         else tryHide()
@@ -106,12 +169,18 @@ export function LocalController({
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
     const onPointer = (e: PointerEvent) => {
-      if (e.button !== 0) return
       if (e.pointerType === 'touch') return
-      const el = e.target as HTMLElement | null
-      if (el?.closest('button, input, textarea, .hud-bottom, .hud-top, .note-panel, .joystick, .attack-btn')) return
+      if (hudBlocksPointer(e.target)) return
       const state = useAppStore.getState()
       if (state.pendingNote || state.noteAsk) return
+      if (e.button === 2) {
+        e.preventDefault()
+        trySmoke()
+        return
+      }
+      if (e.button !== 0) return
+      if (attackBlocked()) return
+      if (!isMobileDevice() && !document.pointerLockElement) return
       performAttack()
     }
     window.addEventListener('pointerdown', onPointer)
@@ -133,6 +202,13 @@ export function LocalController({
       camera.position.y += 0.9 - target.y
       camera.position.z += z - target.z
       target.set(x, 0.9, z)
+    }
+
+    if (typingInField()) {
+      keys.current = {}
+      stickCamera(pos.current.x, pos.current.z)
+      onPose([pos.current.x, 0, pos.current.z], rotY.current)
+      return
     }
 
     if (performance.now() < useAppStore.getState().hitStopUntil) {
@@ -178,8 +254,11 @@ export function LocalController({
       right.crossVectors(forward, up).normalize()
 
       const len = Math.hypot(fwd, strafe) || 1
-      const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * dt
-      const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * dt
+      const held =
+        player.weapon && (player.weaponUntil ?? 0) > Date.now() ? player.weapon : 'sword'
+      const speedMul = WEAPON_STATS[held].speed
+      const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * speedMul * dt
+      const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * dt
 
       const extra = useAppStore.getState().scene === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
       const result = resolvePlayerMove(pos.current.x, pos.current.z, mx, mz, furnitureRef.current, undefined, extra)
@@ -187,7 +266,10 @@ export function LocalController({
       const movedZ = result.z - pos.current.z
       pos.current.x = result.x
       pos.current.z = result.z
-      if (movedX !== 0 || movedZ !== 0) rotY.current = Math.atan2(movedX, movedZ)
+      if (movedX !== 0 || movedZ !== 0) {
+        rotY.current = Math.atan2(movedX, movedZ)
+        lastDir.current = { x: movedX, z: movedZ }
+      }
 
       if (result.pushed) {
         const y = furnitureRef.current.find((f) => f.id === result.pushed!.id)?.position[1] ?? 0
@@ -202,16 +284,35 @@ export function LocalController({
       }
     }
 
+    const dashing = performance.now() < dash.current.until
+    if (dashing) {
+      const step = (DASH_DISTANCE / (DASH_DURATION_MS / 1000)) * dt
+      const extra = useAppStore.getState().scene === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
+      const result = resolvePlayerMove(
+        pos.current.x,
+        pos.current.z,
+        dash.current.dx * step,
+        dash.current.dz * step,
+        furnitureRef.current,
+        undefined,
+        extra,
+      )
+      pos.current.x = result.x
+      pos.current.z = result.z
+      rotY.current = Math.atan2(dash.current.dx, dash.current.dz)
+    }
+
     stickCamera(pos.current.x, pos.current.z)
 
     const pose: Vec3 = [pos.current.x, 0, pos.current.z]
     onPose(pose, rotY.current)
 
     const now = performance.now()
-    const moving = fwd !== 0 || strafe !== 0
-    if (moving && now - lastSent.current > 50) {
+    const moving = fwd !== 0 || strafe !== 0 || dashing
+    const interval = moving ? 50 : 200
+    if (now - lastSent.current > interval) {
       lastSent.current = now
-      wasMoving.current = true
+      wasMoving.current = moving
       emitMove(pose, rotY.current)
     } else if (!moving && wasMoving.current) {
       wasMoving.current = false

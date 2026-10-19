@@ -22,6 +22,21 @@ import {
 } from './tag.ts'
 import { loadPersistedRoom, savePersistedRoom } from './persist.ts'
 import { PLAYER_CLASS } from '../shared/classes.ts'
+import {
+  DASH_DURATION_MS,
+  DASH_IFRAME_MS,
+  dashCooldownMs,
+  type MoveGrant,
+} from '../shared/movement.ts'
+import {
+  SMOKE_DURATION_MS,
+  SMOKE_RADIUS,
+  SMOKE_RANGE,
+  liveSmokes,
+  smokeCooldownMs,
+  type SmokeCloud,
+} from '../shared/smoke.ts'
+import { createBarrels, type BarrelState, type LootDrop } from '../shared/barrels.ts'
 import { defaultSettings, isGameMode, type GameMode, type RoomSettings } from '../shared/modes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
 import type { MatchOver } from '../shared/combat.ts'
@@ -49,6 +64,12 @@ export interface RoomState {
   started: boolean
   tag?: TagState
   lastMoveAt: Record<string, number>
+  moveGrant: Record<string, MoveGrant>
+  nextDash: Record<string, number>
+  nextSmoke: Record<string, number>
+  smokes: SmokeCloud[]
+  barrels: BarrelState[]
+  drops: LootDrop[]
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -80,6 +101,12 @@ function createRoom(roomId: string): RoomState {
     hpScaled: false,
     started: false,
     lastMoveAt: {},
+    moveGrant: {},
+    nextDash: {},
+    nextSmoke: {},
+    smokes: [],
+    barrels: createBarrels(),
+    drops: [],
   }
 }
 
@@ -113,6 +140,9 @@ function snapshotFor(room: RoomState, viewerId: string) {
     startInMs: room.startAt ? Math.max(0, room.startAt - Date.now()) : 0,
     started: room.started,
     tagHud: tagHudFor(room, viewerId),
+    smokes: liveSmokes(room.smokes, Date.now()),
+    barrels: room.barrels,
+    drops: room.drops,
   }
 }
 
@@ -213,6 +243,9 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
   delete room.hurtUntil[playerId]
   delete room.nextAttack[playerId]
   delete room.lastMoveAt[playerId]
+  delete room.moveGrant[playerId]
+  delete room.nextDash[playerId]
+  delete room.nextSmoke[playerId]
   playerSockets.delete(playerId)
 
   if (room.hostId === playerId) {
@@ -373,11 +406,11 @@ export function attachSocketServer(httpServer: HttpServer) {
                   : undefined,
           }
           room.players[playerId] = player
-          room.lastMoveAt[playerId] = Date.now()
           resumed = false
         } else {
           applyResume(player, payload.resume)
         }
+        room.lastMoveAt[playerId] = Date.now()
 
         cancelLeave(room, playerId)
         playerSockets.set(playerId, socket.id)
@@ -410,17 +443,25 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (room.mode === 'boss') {
         room.monsters = createBossMonsters()
         room.hpScaled = false
+        for (const p of Object.values(room.players)) {
+          if (p.team === 'spectator') p.team = 'hider'
+        }
       } else {
         room.monsters = []
         resetPlayersForTagRestart(room)
         room.tag = undefined
       }
+      room.smokes = []
+      room.barrels = createBarrels()
+      room.drops = []
       const ids = Object.keys(room.players)
       ids.forEach((id, i) => {
         const p = room.players[id]
         const sp = SPAWN_POINTS[i % SPAWN_POINTS.length]
         p.hp = PLAYER_MAX_HP
         p.hidden = false
+        p.weapon = 'sword'
+        p.weaponUntil = 0
         if (p.seated) {
           room.seats[p.seated] = null
           p.seated = null
@@ -429,6 +470,10 @@ export function attachSocketServer(httpServer: HttpServer) {
           p.position = [sp.x, 0, sp.z]
           p.rotationY = 0
         }
+        room.lastMoveAt[id] = Date.now()
+        delete room.moveGrant[id]
+        delete room.nextDash[id]
+        delete room.nextSmoke[id]
         io.to(id).emit('player:respawn', {
           position: p.position,
           hp: p.hp,
@@ -452,6 +497,9 @@ export function attachSocketServer(httpServer: HttpServer) {
         for (const p of present) p.team = 'hider'
         if (!startTagRound(room, io, Date.now())) return
       } else {
+        for (const p of present) {
+          if (p.team === 'spectator') p.team = 'hider'
+        }
         room.started = true
         room.hpScaled = false
         room.startAt = Date.now() + BOSS_COUNTDOWN_MS
@@ -489,6 +537,80 @@ export function attachSocketServer(httpServer: HttpServer) {
         return
       }
       emitPlayerMoved(room, io, playerId)
+    })
+
+    socket.on('dash', (payload: { dirX?: number; dirZ?: number } = {}) => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
+      const now = Date.now()
+      if (player.seated || player.hidden) return
+      if (player.team === 'spectator') return
+      if ((room.mode === 'boss' || room.mode === 'tag') && !room.started) return
+      if (room.mode === 'tag' && player.team === 'ghost' && room.tag && now < room.tag.hideUntil) {
+        io.to(playerId).emit('dash:result', { ok: false, nextAt: room.tag.hideUntil, reason: 'hide' })
+        return
+      }
+      const readyAt = room.nextDash[playerId] ?? 0
+      if (now < readyAt) {
+        io.to(playerId).emit('dash:result', { ok: false, nextAt: readyAt, reason: 'cd' })
+        return
+      }
+      let dx = typeof payload.dirX === 'number' && Number.isFinite(payload.dirX) ? payload.dirX : 0
+      let dz = typeof payload.dirZ === 'number' && Number.isFinite(payload.dirZ) ? payload.dirZ : 0
+      const len = Math.hypot(dx, dz)
+      if (len < 1e-3) {
+        dx = Math.sin(player.rotationY)
+        dz = Math.cos(player.rotationY)
+      } else {
+        dx /= len
+        dz /= len
+      }
+      const until = now + DASH_DURATION_MS
+      const nextAt = now + dashCooldownMs(player.team)
+      room.nextDash[playerId] = nextAt
+      room.moveGrant[playerId] = { ...room.moveGrant[playerId], dashUntil: until }
+      room.hurtUntil[playerId] = Math.max(room.hurtUntil[playerId] ?? 0, now + DASH_IFRAME_MS)
+      io.to(room.roomId).emit('player:dash', { id: playerId, until, dirX: dx, dirZ: dz })
+      io.to(playerId).emit('dash:result', { ok: true, nextAt, until })
+    })
+
+    socket.on('skill:smoke', (payload: { x?: number; z?: number } = {}) => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
+      const now = Date.now()
+      if (player.seated || player.hidden) return
+      if (player.team === 'spectator') return
+      if ((room.mode === 'boss' || room.mode === 'tag') && !room.started) return
+      const readyAt = room.nextSmoke[playerId] ?? 0
+      if (now < readyAt) {
+        io.to(playerId).emit('smoke:result', { ok: false, nextAt: readyAt })
+        return
+      }
+      const ox = player.position[0]
+      const oz = player.position[2]
+      let tx = typeof payload.x === 'number' && Number.isFinite(payload.x) ? payload.x : ox + Math.sin(player.rotationY) * SMOKE_RANGE
+      let tz = typeof payload.z === 'number' && Number.isFinite(payload.z) ? payload.z : oz + Math.cos(player.rotationY) * SMOKE_RANGE
+      const dx = tx - ox
+      const dz = tz - oz
+      const dist = Math.hypot(dx, dz)
+      if (dist > SMOKE_RANGE && dist > 0) {
+        tx = ox + (dx / dist) * SMOKE_RANGE
+        tz = oz + (dz / dist) * SMOKE_RANGE
+      }
+      const cloud: SmokeCloud = {
+        id: `smoke-${now}-${playerId.slice(0, 6)}`,
+        x: tx,
+        z: tz,
+        r: SMOKE_RADIUS,
+        until: now + SMOKE_DURATION_MS,
+      }
+      room.smokes.push(cloud)
+      room.nextSmoke[playerId] = now + smokeCooldownMs(player.team)
+      io.to(room.roomId).emit('smoke:sync', liveSmokes(room.smokes, now))
+      io.to(playerId).emit('smoke:result', { ok: true, nextAt: room.nextSmoke[playerId] })
+      emitState(room, io)
     })
 
     socket.on('sit', (payload: { seatId: SeatId | null }, ack?: (ok: boolean, reason?: string) => void) => {

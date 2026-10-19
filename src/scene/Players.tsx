@@ -19,6 +19,7 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
   const speed = useRef(0)
   const ready = useRef(false)
   const swingAt = useAppStore((s) => s.swings[player.id] ?? 0)
+  const dashUntil = useAppStore((s) => s.dashUntil[player.id] ?? 0)
 
   useFrame((_, dt) => {
     const g = group.current
@@ -55,7 +56,11 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
         classId={PLAYER_CLASS}
         moving={moving}
         running={speed.current > 3.6}
+        dashUntil={dashUntil}
         attackAt={swingAt}
+        heldWeapon={
+          player.weapon && (player.weaponUntil ?? 0) > Date.now() ? player.weapon : 'sword'
+        }
         seated={Boolean(player.seated)}
         hidden={player.hidden}
         compact

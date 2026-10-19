@@ -4,6 +4,7 @@ import { useFrame } from '@react-three/fiber'
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import * as THREE from 'three'
 import { PLAYER_CLASS, type ClassId } from '../../shared/classes'
+import type { HeldWeapon } from '../../shared/barrels'
 
 const ROOT = '/assets/kaykit/adventurers'
 const CHAR: Record<ClassId, string> = {
@@ -38,37 +39,54 @@ function clipOf(gltf: { animations: THREE.AnimationClip[] }, name: string) {
   return THREE.AnimationClip.findByName(gltf.animations, name)
 }
 
-function findBone(root: THREE.Object3D, names: string[]) {
+function findBone(root: THREE.Object3D, name: string) {
   let found: THREE.Object3D | undefined
   root.traverse((o) => {
     if (found) return
+    if (o.name === name) {
+      found = o
+      return
+    }
     const skinned = o as THREE.SkinnedMesh
     if (!skinned.isSkinnedMesh || !skinned.skeleton) return
-    for (const name of names) {
-      const bone = skinned.skeleton.bones.find((b) => b.name === name)
-      if (bone) {
-        found = bone
-        return
-      }
-    }
+    const bone = skinned.skeleton.bones.find((b) => b.name === name)
+    if (bone) found = bone
   })
   return found
 }
 
-function cloneWeapon(src: THREE.Object3D) {
+function prepareHeld(src: THREE.Object3D) {
   const mesh = src.clone(true)
   mesh.traverse((o) => {
     const m = o as THREE.Mesh
     if (!m.isMesh) return
+    m.visible = true
     m.castShadow = true
     m.receiveShadow = true
     m.frustumCulled = false
-    if (m.material) m.material = (m.material as THREE.Material).clone()
+    m.renderOrder = 2
+    const srcMats = Array.isArray(m.material) ? m.material : [m.material]
+    const clonedMats = srcMats.map((mat) => {
+      if (!mat) return mat
+      const next = mat.clone()
+      next.transparent = false
+      next.opacity = 1
+      next.depthWrite = true
+      next.side = THREE.DoubleSide
+      next.needsUpdate = true
+      return next
+    })
+    m.material = clonedMats.length === 1 ? clonedMats[0] : clonedMats
   })
-  mesh.position.set(0, 0, 0)
-  mesh.rotation.set(0, 0, 0)
-  mesh.scale.setScalar(1)
   return mesh
+}
+
+function countMeshes(obj: THREE.Object3D) {
+  let n = 0
+  obj.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) n += 1
+  })
+  return n
 }
 
 function makeFallbackWeapon(kind: 'sword' | 'axe' | 'dagger' | 'staff' | 'shield') {
@@ -128,25 +146,32 @@ export function KayKitHero({
   classId,
   moving,
   running,
+  dashing,
+  dashUntil,
   attackAt,
   seated,
   hidden,
   compact,
+  heldWeapon,
 }: {
   classId: ClassId
   moving: boolean
   running?: boolean
+  dashing?: boolean
+  dashUntil?: number
   attackAt: number
   seated?: boolean
   hidden?: boolean
   compact?: boolean
+  heldWeapon?: HeldWeapon
 }) {
   const char = useGLTF(CHAR[classId])
   const moveGltf = useGLTF(MOVE_URL)
   const generalGltf = useGLTF(GENERAL_URL)
   const combatGltf = useGLTF(COMBAT_URL)
   const load = LOADOUT[classId]
-  const rightGltf = useGLTF(load.right ? `${WEAPON_ROOT}/${load.right}` : MOVE_URL)
+  const held = heldWeapon === 'dagger' ? 'dagger.gltf' : heldWeapon === 'hammer' ? 'axe_1handed.gltf' : load.right
+  const rightGltf = useGLTF(held ? `${WEAPON_ROOT}/${held}` : MOVE_URL)
   const leftGltf = useGLTF(load.left ? `${WEAPON_ROOT}/${load.left}` : MOVE_URL)
 
   const root = useMemo(() => {
@@ -163,32 +188,25 @@ export function KayKitHero({
   const rightWeapon = useMemo(() => {
     const g = new THREE.Group()
     g.name = 'held-right'
-    let meshes = 0
-    if (load.right) {
-      const cloned = cloneWeapon(rightGltf.scene)
-      cloned.traverse((o) => {
-        if ((o as THREE.Mesh).isMesh) meshes += 1
-      })
-      if (meshes) g.add(cloned)
+    if (held) {
+      const cloned = prepareHeld(rightGltf.scene)
+      if (countMeshes(cloned)) g.add(cloned)
     }
-    if (!meshes) g.add(makeFallbackWeapon(FALLBACK[classId].right))
-    g.rotation.set(Math.PI / 2, 0, 0)
+    if (!g.children.length) {
+      const kind = heldWeapon === 'dagger' ? 'dagger' : heldWeapon === 'hammer' ? 'axe' : FALLBACK[classId].right
+      g.add(makeFallbackWeapon(kind))
+    }
     return g
-  }, [classId, load.right, rightGltf.scene])
+  }, [classId, held, heldWeapon, rightGltf.scene])
 
   const leftWeapon = useMemo(() => {
     const g = new THREE.Group()
     g.name = 'held-left'
-    let meshes = 0
     if (load.left) {
-      const cloned = cloneWeapon(leftGltf.scene)
-      cloned.traverse((o) => {
-        if ((o as THREE.Mesh).isMesh) meshes += 1
-      })
-      if (meshes) g.add(cloned)
+      const cloned = prepareHeld(leftGltf.scene)
+      if (countMeshes(cloned)) g.add(cloned)
     }
-    if (!meshes && FALLBACK[classId].left) g.add(makeFallbackWeapon(FALLBACK[classId].left!))
-    g.rotation.set(Math.PI / 2, 0, 0)
+    if (!g.children.length && FALLBACK[classId].left) g.add(makeFallbackWeapon(FALLBACK[classId].left))
     return g
   }, [classId, load.left, leftGltf.scene])
 
@@ -197,19 +215,22 @@ export function KayKitHero({
     const idleClip = clipOf(generalGltf, 'Idle_A')
     const walkClip = clipOf(moveGltf, 'Walking_A')
     const runClip = clipOf(moveGltf, 'Running_A')
+    const dashClip = clipOf(moveGltf, 'Running_B')
     const attackClip = clipOf(combatGltf, 'Melee_1H_Attack_Chop')
     const idle = idleClip ? mixer.clipAction(idleClip) : null
     const walk = walkClip ? mixer.clipAction(walkClip) : null
     const run = runClip ? mixer.clipAction(runClip) : null
+    const dash = dashClip ? mixer.clipAction(dashClip) : run
     const attack = attackClip ? mixer.clipAction(attackClip) : null
     idle?.setLoop(THREE.LoopRepeat, Infinity)
     walk?.setLoop(THREE.LoopRepeat, Infinity)
     run?.setLoop(THREE.LoopRepeat, Infinity)
+    dash?.setLoop(THREE.LoopRepeat, Infinity)
     if (attack) {
       attack.setLoop(THREE.LoopOnce, 1)
       attack.clampWhenFinished = true
     }
-    return { idle, walk, run, attack }
+    return { idle, walk, run, dash, attack }
   }, [mixer, moveGltf, generalGltf, combatGltf])
   const current = useRef<THREE.AnimationAction | null>(null)
   const lastAttack = useRef(0)
@@ -217,7 +238,15 @@ export function KayKitHero({
   useLayoutEffect(() => {
     const onDone = (e: { action: THREE.AnimationAction }) => {
       if (e.action !== actions.attack) return
-      const next = seated ? actions.idle : moving ? (running ? actions.run : actions.walk) : actions.idle
+      const next = seated
+        ? actions.idle
+        : dashing
+          ? actions.dash ?? actions.run
+          : moving
+            ? running
+              ? actions.run
+              : actions.walk
+            : actions.idle
       if (!next) return
       e.action.fadeOut(0.12)
       next.reset().fadeIn(0.12).play()
@@ -228,7 +257,7 @@ export function KayKitHero({
       mixer.removeEventListener('finished', onDone)
       mixer.stopAllAction()
     }
-  }, [mixer, actions, moving, running, seated])
+  }, [mixer, actions, moving, running, seated, dashing])
 
   useFrame((_, dt) => {
     if (attackAt > lastAttack.current && actions.attack) {
@@ -237,7 +266,16 @@ export function KayKitHero({
       actions.attack.reset().fadeIn(0.05).play()
       current.current = actions.attack
     } else if (current.current !== actions.attack || !actions.attack?.isRunning()) {
-      const next = seated ? actions.idle : moving ? (running ? actions.run : actions.walk) : actions.idle
+      const dashOn = Boolean(dashing) || (dashUntil ?? 0) > Date.now()
+      const next = seated
+        ? actions.idle
+        : dashOn
+          ? actions.dash ?? actions.run
+          : moving
+            ? running
+              ? actions.run
+              : actions.walk
+            : actions.idle
       if (next && current.current !== next) {
         current.current?.fadeOut(0.16)
         next.reset().fadeIn(0.16).play()
@@ -251,18 +289,18 @@ export function KayKitHero({
   })
 
   useLayoutEffect(() => {
-    const rightBone = findBone(root, ['handslot.r', 'hand.r'])
-    const leftBone = findBone(root, ['handslot.l', 'hand.l'])
-    if (rightBone) {
-      rightBone.add(rightWeapon)
-      rightWeapon.position.set(0, 0, 0)
-      rightWeapon.scale.setScalar(1)
+    const rightBone = findBone(root, 'handslot.r')
+    const leftBone = findBone(root, 'handslot.l')
+    const mount = (bone: THREE.Object3D | undefined, held: THREE.Object3D) => {
+      if (!bone || !held.children.length) return
+      bone.add(held)
+      held.position.set(0, 0, 0)
+      held.rotation.set(0, 0, 0)
+      held.scale.setScalar(1)
+      held.updateMatrix()
     }
-    if (leftBone && leftWeapon.children.length) {
-      leftBone.add(leftWeapon)
-      leftWeapon.position.set(0, 0, 0)
-      leftWeapon.scale.setScalar(1)
-    }
+    mount(rightBone, rightWeapon)
+    mount(leftBone, leftWeapon)
     return () => {
       rightWeapon.removeFromParent()
       leftWeapon.removeFromParent()

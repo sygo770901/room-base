@@ -416,6 +416,32 @@ input {
   font-weight: 600;
 }
 
+.weapon-pill {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(242, 204, 143, 0.9);
+  color: #1a1c1e;
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+
+.sens-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.72rem;
+  background: rgba(20, 22, 24, 0.72);
+  color: #f4f1ec;
+  border-radius: 8px;
+  padding: 6px 8px;
+  min-width: 110px;
+}
+
+.sens-row input {
+  width: 100%;
+}
+
 .joystick {
   position: absolute;
   left: 20px;
@@ -470,7 +496,9 @@ input {
 }
 
 .hide-btn,
-.check-btn {
+.check-btn,
+.dash-btn,
+.skill-btn {
   position: absolute;
   z-index: 15;
   width: 56px;
@@ -496,9 +524,24 @@ input {
   background: #81b29a;
 }
 
-.check-btn:disabled {
+.check-btn:disabled,
+.dash-btn:disabled,
+.skill-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.dash-btn {
+  right: 92px;
+  top: calc(50% - 152px);
+  background: #e9c46a;
+  color: #1a1c1e;
+}
+
+.skill-btn {
+  right: 160px;
+  top: calc(50% - 84px);
+  background: #81b29a;
 }
 
 .ghost-blackout {
@@ -620,6 +663,22 @@ input {
     height: 72px;
   }
 
+  .dash-btn {
+    top: auto;
+    right: 124px;
+    bottom: calc(108px + env(safe-area-inset-bottom));
+    width: 72px;
+    height: 72px;
+  }
+
+  .skill-btn {
+    top: auto;
+    right: 204px;
+    bottom: calc(24px + env(safe-area-inset-bottom));
+    width: 72px;
+    height: 72px;
+  }
+
   .dock {
     top: 78px;
     right: auto;
@@ -633,6 +692,11 @@ input {
     max-width: 46vw;
     max-height: 28vh;
     overflow: auto;
+  }
+
+  .weapon-pill {
+    display: inline-block;
+    margin: 6px 0 0;
   }
 }
 
