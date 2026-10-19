@@ -200,11 +200,12 @@ export function Hud() {
           {mode === 'boss' && <Minimap />}
           <div className="pill player-list">
             {Object.values(players).map((p) => (
-              <div className="player-row" key={p.id}>
+              <div className={`player-row${p.away ? ' away' : ''}`} key={p.id}>
                 <span className="dot" style={{ background: p.color }} />
                 <span>
                   {p.name}
                   {p.id === selfId ? '（你）' : ''}
+                  {p.away ? ' · 斷線中' : ''}
                   {p.hp != null && p.hp < 100 ? ` · ${p.hp}` : ''}
                   {p.team === 'ghost' ? ' · 鬼' : p.team === 'spectator' ? ' · 觀戰' : ''}
                 </span>

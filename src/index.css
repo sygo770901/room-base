@@ -385,6 +385,10 @@ input {
   gap: 8px;
 }
 
+.player-row.away {
+  opacity: 0.48;
+}
+
 .dot {
   width: 10px;
   height: 10px;

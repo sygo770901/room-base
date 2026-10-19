@@ -78,15 +78,15 @@ function hidePhase(room: TagRoom, now = Date.now()) {
   return Boolean(room.tag?.roundActive && now < (room.tag.hideUntil ?? 0))
 }
 
-export function stripPlayer(p: PlayerState): PlayerState {
-  const copy = { ...p }
-  return copy
+export function stripPlayer(p: PlayerState, away = false): PlayerState {
+  return { ...p, away }
 }
 
 export function playerViewFor(room: TagRoom, viewerId: string, p: PlayerState): PlayerState {
-  if (room.mode !== 'tag') return stripPlayer(p)
-  if (p.id === viewerId) return stripPlayer(p)
-  if (!seekersOf(room, viewerId)) return stripPlayer(p)
+  const away = Boolean(room.awayUntil?.[p.id])
+  if (room.mode !== 'tag') return stripPlayer(p, away)
+  if (p.id === viewerId) return stripPlayer(p, away)
+  if (!seekersOf(room, viewerId)) return stripPlayer(p, away)
   const hidingCoords = hidePhase(room) ? p.team === 'hider' : Boolean(p.hidden && p.team === 'hider')
   const viewer = room.players[viewerId]
   const smoked =
@@ -109,9 +109,9 @@ export function playerViewFor(room: TagRoom, viewerId: string, p: PlayerState): 
       { x: p.position[0], z: p.position[2] },
       doorsOf(room.scene),
     )
-  if (!hidingCoords && !smoked && !behindDoor) return stripPlayer(p)
+  if (!hidingCoords && !smoked && !behindDoor) return stripPlayer(p, away)
   const { position: _pos, ...rest } = p
-  return rest as PlayerState
+  return { ...rest, away } as PlayerState
 }
 
 export function playersForViewer(room: TagRoom, viewerId: string) {

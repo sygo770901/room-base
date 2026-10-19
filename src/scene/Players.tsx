@@ -67,6 +67,12 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
 
   return (
     <group ref={group}>
+      {player.away && (
+        <mesh position={[0, 0.95, 0]}>
+          <capsuleGeometry args={[0.48, 1.15, 4, 8]} />
+          <meshBasicMaterial color="#8aa0c8" transparent opacity={0.32} depthWrite={false} />
+        </mesh>
+      )}
       {whiteFlash && (
         <mesh position={[0, 1.05, 0]}>
           <sphereGeometry args={[0.55, 10, 8]} />
@@ -103,9 +109,9 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
           outlineWidth={0.01}
           outlineColor="#000000"
         >
-          {player.name}
-          {player.role === 'host' ? ' · 房主' : ''}
-          {player.hidden ? ' · 躲藏' : ''}
+          {player.away ? '斷線中' : player.name}
+          {player.away ? '' : player.role === 'host' ? ' · 房主' : ''}
+          {player.hidden && !player.away ? ' · 躲藏' : ''}
         </Text>
       </Billboard>
     </group>
