@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { disconnectSocket, emitAddNote, emitRemoveNote, emitRestart, emitUpdateNote, performAttack } from '../net/socket'
+import { disconnectSocket, emitAddNote, emitCheck, emitHide, emitRemoveNote, emitRestart, emitUpdateNote, performAttack } from '../net/socket'
 import { setMicEnabled } from '../net/voice'
 import { useAppStore } from '../store'
 import { VirtualJoystick } from './VirtualJoystick'
@@ -24,10 +24,14 @@ export function Hud() {
   const timeLeftMs = useAppStore((s) => s.timeLeftMs)
   const hostId = useAppStore((s) => s.hostId)
   const startInMs = useAppStore((s) => s.startInMs)
+  const tagHud = useAppStore((s) => s.tagHud)
   const [note, setNote] = useState('')
   const [clock, setClock] = useState(timeLeftMs)
   const [countMs, setCountMs] = useState(startInMs)
   const [goFlash, setGoFlash] = useState(false)
+  const [hideLeft, setHideLeft] = useState(0)
+  const [playLeft, setPlayLeft] = useState<number | null>(null)
+  const [checkLeft, setCheckLeft] = useState(0)
   const [fontSize, setFontSize] = useState(0.12)
 
   useEffect(() => {
@@ -55,6 +59,29 @@ export function Hud() {
     }, 80)
     return () => window.clearInterval(id)
   }, [startInMs])
+
+  useEffect(() => {
+    if (!tagHud) {
+      setHideLeft(0)
+      setPlayLeft(null)
+      setCheckLeft(0)
+      return
+    }
+    const origin = Date.now()
+    const hideBase = tagHud.hideLeftMs
+    const playBase = tagHud.playLeftMs
+    const checkBase = tagHud.nextCheckMs
+    setHideLeft(hideBase)
+    setPlayLeft(playBase)
+    setCheckLeft(checkBase)
+    const id = window.setInterval(() => {
+      const elapsed = Date.now() - origin
+      setHideLeft(Math.max(0, hideBase - elapsed))
+      setPlayLeft(playBase == null ? null : Math.max(0, playBase - elapsed))
+      setCheckLeft(Math.max(0, checkBase - elapsed))
+    }, 100)
+    return () => window.clearInterval(id)
+  }, [tagHud])
   const [busyMic, setBusyMic] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState('')
@@ -92,8 +119,16 @@ export function Hud() {
         <div className="pill">
           房間 <strong>{roomId}</strong>
           {self?.role === 'host' ? ' · 房主' : ' · 訪客'}
-          {mode === 'boss' ? ' · 打鴨王' : ' · 地城狩獵'}
+          {mode === 'boss' ? ' · 打鴨王' : mode === 'tag' ? ' · 鬼抓人' : ' · 地城狩獵'}
           {pendingNote ? ' · 點地板貼便籤中' : ''}
+          {mode === 'tag' && self?.team ? ` · ${self.team === 'ghost' ? '鬼' : self.team === 'hider' ? '躲的人' : '觀戰'}` : ''}
+          {mode === 'tag' && tagHud?.roundActive ? ` · 還有 ${tagHud.hidersLeft} 人沒被抓` : ''}
+          {mode === 'tag' && playLeft != null && playLeft > 0 && !matchOver && (
+            <span className={playLeft <= 30_000 ? 'time-low' : ''}>
+              {' '}
+              · {Math.floor(playLeft / 60000)}:{String(Math.floor((playLeft % 60000) / 1000)).padStart(2, '0')}
+            </span>
+          )}
           {mode === 'boss' && clock != null && clock > 0 && !matchOver && (
             <span className={clock <= 30_000 ? 'time-low' : ''}>
               {' '}
@@ -112,6 +147,7 @@ export function Hud() {
                 {p.name}
                 {p.id === selfId ? '（你）' : ''}
                 {p.hp != null && p.hp < 100 ? ` · ${p.hp}` : ''}
+                {p.team === 'ghost' ? ' · 鬼' : p.team === 'spectator' ? ' · 觀戰' : ''}
               </span>
             </div>
           ))}
@@ -119,6 +155,12 @@ export function Hud() {
       </div>
 
       {toast && <div className="toast">{toast}</div>}
+
+      {mode === 'tag' && self?.team === 'ghost' && hideLeft > 0 && !matchOver && (
+        <div className="ghost-blackout" aria-live="polite">
+          {Math.max(1, Math.ceil(hideLeft / 1000))} 秒後出發
+        </div>
+      )}
 
       {mode === 'boss' && !matchOver && countMs > 0 && (
         <div className="countdown-banner" aria-live="polite">
@@ -155,15 +197,34 @@ export function Hud() {
 
       {matchOver && (
         <div className="modal match-over">
-          <p>{matchOver.teamWin ? '全隊勝利' : '全隊失敗'}</p>
+          <p>
+            {matchOver.winner === 'ghosts'
+              ? '鬼贏'
+              : matchOver.winner === 'hiders'
+                ? '躲的人贏'
+                : matchOver.teamWin
+                  ? '全隊勝利'
+                  : '全隊失敗'}
+          </p>
           <p className="modal-preview">
-            {matchOver.reason === 'timeout' ? '時間到，鴨大王還活著。' : '全隊打倒了鴨大王與飲水機。'}
+            {matchOver.winner
+              ? matchOver.winner === 'ghosts'
+                ? '所有人都被抓到了。'
+                : '時間到，還有人沒被抓到。'
+              : matchOver.reason === 'timeout'
+                ? '時間到，鴨大王還活著。'
+                : '全隊打倒了鴨大王與飲水機。'}
           </p>
           <ol className="rank-list">
             {(matchOver.ranking ?? []).map((row, i) => (
               <li key={row.id} className={i === 0 ? 'rank-first' : ''}>
                 {i === 0 ? '第一名 · ' : ''}
-                {row.name}　{row.dmg}
+                {row.name}
+                {matchOver.winner
+                  ? row.team === 'ghost' || (row.catches ?? 0) > 0
+                    ? `　抓到 ${row.catches ?? row.dmg} 人`
+                    : `　存活 ${row.surviveSec ?? row.dmg} 秒`
+                  : `　${row.dmg}`}
               </li>
             ))}
           </ol>
@@ -179,9 +240,23 @@ export function Hud() {
 
       <VirtualJoystick />
 
-      {!matchOver && (
+      {!matchOver && self?.team !== 'spectator' && (
         <button type="button" className="attack-btn" onClick={() => performAttack()}>
           攻擊
+        </button>
+      )}
+      {!matchOver && self && self.team !== 'ghost' && self.team !== 'spectator' && (
+        <button
+          type="button"
+          className="hide-btn"
+          onClick={() => emitHide(!self.hidden)}
+        >
+          {self.hidden ? '出來' : '躲'}
+        </button>
+      )}
+      {!matchOver && mode === 'tag' && self?.team === 'ghost' && hideLeft <= 0 && (
+        <button type="button" className="check-btn" disabled={checkLeft > 0} onClick={() => emitCheck()}>
+          {checkLeft > 0 ? `${Math.ceil(checkLeft / 1000)}` : '檢查'}
         </button>
       )}
 

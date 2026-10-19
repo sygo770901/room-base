@@ -22,6 +22,9 @@ export interface DamageRank {
   id: string
   name: string
   dmg: number
+  surviveSec?: number
+  catches?: number
+  team?: 'ghost' | 'hider' | 'spectator'
 }
 
 export interface MatchOver {

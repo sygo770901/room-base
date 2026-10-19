@@ -4,6 +4,7 @@ import type { FurnitureItem } from '../../shared/furniture'
 import { attackBlocked } from '../scene/inputLock'
 import type { MonsterState, PlayerState, RoomSnapshot, SeatId, StickyNote, Vec3 } from '../types'
 import type { MatchOver } from '../../shared/combat'
+import type { TagHud } from '../../shared/tag'
 import type { GameMode } from '../../shared/modes'
 import type { SceneId } from '../../shared/scenes'
 import { useAppStore } from '../store'
@@ -181,11 +182,16 @@ function bindListeners(s: Socket) {
     useAppStore.getState().removePlayer(id)
   })
 
-  s.on('player:moved', (payload: { id: string; position: Vec3; rotationY: number }) => {
+  s.on('player:moved', (payload: { id: string; position: Vec3; rotationY: number; snap?: boolean }) => {
     useAppStore.getState().patchPlayer(payload.id, {
       position: payload.position,
       rotationY: payload.rotationY,
     })
+    const selfId = useAppStore.getState().selfId
+    if (payload.snap && payload.id === selfId) {
+      lastPose = { position: payload.position, rotationY: payload.rotationY }
+      useAppStore.getState().bumpPoseSync()
+    }
   })
 
   s.on('player:vitals', ({ id, hp }: { id: string; hp: number }) => {
@@ -214,7 +220,15 @@ function bindListeners(s: Socket) {
 
   s.on('match:over', (over: MatchOver) => {
     useAppStore.getState().setMatchOver(over)
-    useAppStore.getState().setToast(over.teamWin ? '全隊打倒了鴨大王！' : '時間到，全隊失敗')
+    const text =
+      over.winner === 'ghosts'
+        ? '鬼贏'
+        : over.winner === 'hiders'
+          ? '躲的人贏'
+          : over.teamWin
+            ? '全隊打倒了鴨大王！'
+            : '時間到，全隊失敗'
+    useAppStore.getState().setToast(text)
     setTimeout(() => useAppStore.getState().setToast(null), 3200)
   })
 
@@ -261,8 +275,16 @@ function bindListeners(s: Socket) {
     useAppStore.getState().setSwing(id, performance.now())
   })
 
-  s.on('player:hidden', ({ id, hidden }: { id: string; hidden: boolean }) => {
-    useAppStore.getState().patchPlayer(id, { hidden })
+  s.on('player:hidden', (payload: { id: string; hidden: boolean; position?: Vec3; rotationY?: number }) => {
+    useAppStore.getState().patchPlayer(payload.id, {
+      hidden: payload.hidden,
+      position: payload.position,
+      rotationY: payload.rotationY,
+    })
+  })
+
+  s.on('tag:hud', (hud: TagHud | null) => {
+    useAppStore.getState().setTagHud(hud)
   })
 
   s.on(
@@ -469,6 +491,10 @@ export function emitHide(hidden: boolean) {
   socket?.emit('hide', { hidden })
 }
 
+export function emitCheck() {
+  socket?.emit('check')
+}
+
 let lastAttackAt = 0
 export function performAttack() {
   const now = performance.now()
@@ -476,6 +502,7 @@ export function performAttack() {
   const state = useAppStore.getState()
   if (state.pendingNote || state.noteAsk) return
   const me = state.selfId ? state.players[state.selfId] : null
+  if (state.mode === 'tag' && (me?.team === 'spectator' || ((state.tagHud?.hideLeftMs ?? 0) > 0 && me?.team === 'ghost'))) return
   if (me?.hidden) {
     state.setToast('躲藏中不能攻擊')
     setTimeout(() => useAppStore.getState().setToast(null), 1600)

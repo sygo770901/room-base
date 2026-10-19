@@ -3,6 +3,7 @@ import { type MatchOver, type MonsterState } from '../shared/combat'
 import { DEFAULT_FURNITURE, type FurnitureItem } from '../shared/furniture'
 import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
 import { defaultSettings, type GameMode, type RoomSettings } from '../shared/modes'
+import type { TagHud } from '../shared/tag'
 import type { SceneId } from '../shared/scenes'
 import { loadSession } from './net/session'
 
@@ -35,6 +36,8 @@ interface AppState {
   settings: RoomSettings
   timeLeftMs: number | null
   startInMs: number
+  tagHud: TagHud | null
+  poseSync: number
   displayName: string
   players: Record<string, PlayerState>
   notes: StickyNote[]
@@ -60,7 +63,7 @@ interface AppState {
   applySnapshot: (snapshot: RoomSnapshot) => void
   upsertPlayer: (player: PlayerState) => void
   removePlayer: (id: string) => void
-  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp' | 'hidden'>>) => void
+  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp' | 'hidden' | 'team'>>) => void
   addNote: (note: StickyNote) => void
   patchNote: (note: StickyNote) => void
   removeNote: (id: string) => void
@@ -78,6 +81,8 @@ interface AppState {
   setMatchOver: (over: MatchOver | null) => void
   setTelegraph: (tel: { x: number; z: number; r: number; ms: number } | null) => void
   bumpRespawn: () => void
+  bumpPoseSync: () => void
+  setTagHud: (hud: TagHud | null) => void
   setConnection: (status: ConnectionStatus) => void
   leaveToLobby: () => void
 }
@@ -93,6 +98,8 @@ export const useAppStore = create<AppState>((set) => ({
   settings: defaultSettings(),
   timeLeftMs: null,
   startInMs: 0,
+  tagHud: null,
+  poseSync: 0,
   displayName: boot?.name ?? '',
   players: {},
   notes: [],
@@ -124,6 +131,7 @@ export const useAppStore = create<AppState>((set) => ({
       settings: snapshot.settings ?? defaultSettings(),
       timeLeftMs: snapshot.timeLeftMs ?? null,
       startInMs: snapshot.startInMs ?? 0,
+      tagHud: snapshot.tagHud ?? null,
       players: snapshot.players,
       notes: snapshot.notes,
       seats: snapshot.seats,
@@ -146,6 +154,7 @@ export const useAppStore = create<AppState>((set) => ({
       settings: snapshot.settings ?? s.settings,
       timeLeftMs: snapshot.timeLeftMs ?? s.timeLeftMs,
       startInMs: snapshot.startInMs ?? s.startInMs,
+      tagHud: snapshot.tagHud ?? s.tagHud,
     })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
@@ -159,7 +168,9 @@ export const useAppStore = create<AppState>((set) => ({
     set((s) => {
       const prev = s.players[id]
       if (!prev) return s
-      return { players: { ...s.players, [id]: { ...prev, ...patch } } }
+      const next = { ...prev, ...patch }
+      if ('position' in patch && patch.position === undefined) delete next.position
+      return { players: { ...s.players, [id]: next } }
     }),
   addNote: (note) => set((s) => ({ notes: [...s.notes.filter((n) => n.id !== note.id), note] })),
   patchNote: (note) => set((s) => ({ notes: s.notes.map((n) => (n.id === note.id ? note : n)) })),
@@ -190,6 +201,8 @@ export const useAppStore = create<AppState>((set) => ({
       telegraph: tel ? { ...tel, until: performance.now() + tel.ms } : null,
     }),
   bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
+  bumpPoseSync: () => set((s) => ({ poseSync: s.poseSync + 1 })),
+  setTagHud: (hud) => set({ tagHud: hud }),
   setConnection: (status) => set({ connection: status }),
   leaveToLobby: () =>
     set({
@@ -205,6 +218,7 @@ export const useAppStore = create<AppState>((set) => ({
       settings: defaultSettings(),
       timeLeftMs: null,
       startInMs: 0,
+      tagHud: null,
       hostId: null,
       micOn: false,
       pendingNote: null,

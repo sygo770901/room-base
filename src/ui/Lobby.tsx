@@ -95,20 +95,16 @@ export function Lobby() {
               <span>{MODE_BLURBS[id]}</span>
             </button>
           ))}
-          <button type="button" className="off" disabled aria-disabled="true" title="即將推出">
-            <strong>{MODE_LABELS.tag}</strong>
-            <span>{MODE_BLURBS.tag}</span>
-          </button>
         </div>
-        {mode === 'boss' && (
+        {(mode === 'boss' || mode === 'tag') && (
           <div className="scene-pick mode-pick" role="radiogroup" aria-label="時間">
             <button type="button" role="radio" aria-checked={!timed} className={!timed ? 'on' : ''} onClick={() => setTimed(false)}>
               <strong>不計時</strong>
-              <span>打到鴨大王倒下為止。</span>
+              <span>{mode === 'tag' ? '抓到最後一個人為止。' : '打到鴨大王倒下為止。'}</span>
             </button>
             <button type="button" role="radio" aria-checked={timed} className={timed ? 'on' : ''} onClick={() => setTimed(true)}>
               <strong>5 分鐘</strong>
-              <span>時間到鴨王還活著，全隊失敗。</span>
+              <span>{mode === 'tag' ? '不含藏身 30 秒。時間到還有人沒被抓，躲的人贏。' : '時間到鴨王還活著，全隊失敗。'}</span>
             </button>
           </div>
         )}

@@ -14,6 +14,7 @@ export interface PlayerState {
   role: 'host' | 'guest'
   hp: number
   hidden?: boolean
+  team?: 'ghost' | 'hider' | 'spectator'
 }
 
 export interface StickyNote {

@@ -52,6 +52,8 @@ import {
   type MonsterDef,
 } from '../shared/dungeon.ts'
 import type { GameMode } from '../shared/modes.ts'
+import type { TagState } from '../shared/tag.ts'
+import { handleTagAttack, tickTag } from './tag.ts'
 import type { PlayerState } from './types.ts'
 
 export interface ServerMonster {
@@ -98,6 +100,8 @@ export interface CombatRoom {
   matchDeadline?: number | null
   startAt?: number
   hpScaled?: boolean
+  tag?: TagState
+  lastMoveAt?: Record<string, number>
 }
 
 function fromDef(d: MonsterDef): ServerMonster {
@@ -456,6 +460,10 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
     }
   }
   if (room.matchOver) return
+  if (room.mode === 'tag') {
+    tickTag(room, io, now)
+    return
+  }
   if (room.mode === 'boss') tickBoss(room, io, now, dt)
   else tickHunt(room, io, now, dt)
   io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
@@ -471,6 +479,10 @@ function maybeWin(room: CombatRoom, io: Server, _killerId: string) {
 }
 
 export function handleAttack(room: CombatRoom, playerId: string, io: Server, now: number, attackerSocketId?: string) {
+  if (room.mode === 'tag') {
+    handleTagAttack(room, io, playerId, now, attackerSocketId)
+    return
+  }
   const player = room.players[playerId]
   if (!player || player.seated || player.hidden) return
   if (room.matchOver) return

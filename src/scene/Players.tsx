@@ -8,12 +8,13 @@ import type { PlayerState } from '../types'
 import { KayKitHero } from './KayKitHero'
 
 export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boolean }) {
-  const prev = useRef(new THREE.Vector3(...player.position))
+  const pos = player.position ?? [0, 0, 0]
+  const prev = useRef(new THREE.Vector3(...pos))
   const speed = useRef(0)
   const swingAt = useAppStore((s) => s.swings[player.id] ?? 0)
 
   useFrame((_, dt) => {
-    const here = new THREE.Vector3(player.position[0], player.position[1], player.position[2])
+    const here = new THREE.Vector3(pos[0], pos[1], pos[2])
     speed.current = here.distanceTo(prev.current) / Math.max(dt, 1 / 120)
     prev.current.copy(here)
   })
@@ -22,7 +23,7 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
   const labelY = player.hidden ? 1.15 : 1.95
 
   return (
-    <group position={player.position} rotation={[0, player.rotationY, 0]}>
+    <group position={pos} rotation={[0, player.rotationY, 0]}>
       <KayKitHero
         classId={PLAYER_CLASS}
         moving={moving}
@@ -60,7 +61,7 @@ export function RemotePlayers({
   return (
     <>
       {Object.values(players)
-        .filter((p) => p.id !== selfId)
+        .filter((p) => p.id !== selfId && p.position)
         .map((p) => (
           <Avatar key={p.id} player={p} />
         ))}

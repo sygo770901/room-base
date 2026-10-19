@@ -259,7 +259,7 @@ function SceneContent() {
       <FollowLight />
 
       <Suspense fallback={null}>
-        <Dungeon focusX={displaySelf?.position[0] ?? SPAWN.x} focusZ={displaySelf?.position[2] ?? SPAWN.z} />
+        <Dungeon focusX={displaySelf?.position?.[0] ?? SPAWN.x} focusZ={displaySelf?.position?.[2] ?? SPAWN.z} />
         <Monsters />
       </Suspense>
 
@@ -270,7 +270,7 @@ function SceneContent() {
       <Telegraph />
       <Suspense fallback={null}>
         <RemotePlayers players={players} selfId={selfId} />
-        {displaySelf && <LocalAvatar player={displaySelf} />}
+        {displaySelf?.position && <LocalAvatar player={displaySelf} />}
       </Suspense>
       {self && (
         <LocalController

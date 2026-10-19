@@ -34,6 +34,12 @@ export interface PatrolPoint {
   z: number
 }
 
+export interface HideSpot {
+  id: string
+  x: number
+  z: number
+}
+
 export interface MonsterDef {
   id: string
   name: string
@@ -389,7 +395,7 @@ function isOpen(gx: number, gz: number) {
   )
 }
 
-const hideSpots: PatrolPoint[] = []
+const hideSpots: HideSpot[] = []
 const DIRS = [
   [1, 0],
   [-1, 0],
@@ -404,7 +410,7 @@ for (let z = 2; z < MAP_H - 2; z++) {
     if ((x * 5 + z * 3) % 11 !== 0) continue
     addProp('template-detail.glb', x, z, 0, 0, 0.75, 0.75, true)
     const c = cellCenter(x, z)
-    hideSpots.push({ x: c.x + 1.15, z: c.z })
+    hideSpots.push({ id: `box-${hideSpots.length}`, x: c.x + 1.15, z: c.z })
   }
 }
 
@@ -421,7 +427,7 @@ for (const [gx, gz] of deadEnds) {
   }
   addProp('template-detail.glb', gx, gz, 0, 0, 0.75, 0.75, true, false, -ox * 0.85, -oz * 0.85)
   const c = cellCenter(gx, gz)
-  hideSpots.push({ x: c.x + ox * 0.35, z: c.z + oz * 0.35 })
+  hideSpots.push({ id: `box-${hideSpots.length}`, x: c.x + ox * 0.35, z: c.z + oz * 0.35 })
 }
 
 const propBoxes: WallBox[] = props
