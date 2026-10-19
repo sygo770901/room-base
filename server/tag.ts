@@ -5,7 +5,7 @@ import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
 import { JUMP_CEILING, JUMP_MAX_DELTA, MOVE_Y_PAD, moveAllowance, type MoveGrant } from '../shared/movement.ts'
 import { HIDE_MAX_Y, JUMP_GROUND_EPS, supportY, PLAYER_FOOT_RADIUS } from '../shared/platforms.ts'
-import { platformsOf } from '../shared/mapData.ts'
+import { doorsOf, platformsOf } from '../shared/mapData.ts'
 import { smokeHidesFrom, type SmokeCloud } from '../shared/smoke.ts'
 import { doorHidesFrom, type DoorState } from '../shared/doors.ts'
 import {
@@ -107,6 +107,7 @@ export function playerViewFor(room: TagRoom, viewerId: string, p: PlayerState): 
       room.doors,
       { x: viewer!.position[0], z: viewer!.position[2] },
       { x: p.position[0], z: p.position[2] },
+      doorsOf(room.scene),
     )
   if (!hidingCoords && !smoked && !behindDoor) return stripPlayer(p)
   const { position: _pos, ...rest } = p

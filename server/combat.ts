@@ -67,7 +67,7 @@ import {
   type MonsterState,
   type ProjectileState,
 } from '../shared/combat.ts'
-import { extraAabbsOf, extraWallsOf } from '../shared/mapData.ts'
+import { doorsOf, extraAabbsOf, extraWallsOf } from '../shared/mapData.ts'
 import {
   BOSS_DEFS,
   FLOOR_CENTERS,
@@ -550,15 +550,15 @@ function tickProjectiles(room: CombatRoom, io: Server, now: number, dt: number, 
 }
 
 function sceneWalls(room: CombatRoom, now: number) {
-  return extraWallsOf(room.scene).concat(closedDoorWalls(room.doors, now))
+  return extraWallsOf(room.scene).concat(closedDoorWalls(room.doors, doorsOf(room.scene), now))
 }
 
 function sceneAabbs(room: CombatRoom, now: number) {
-  return extraAabbsOf(room.scene).concat(closedDoorAabbs(room.doors, now))
+  return extraAabbsOf(room.scene).concat(closedDoorAabbs(room.doors, doorsOf(room.scene), now))
 }
 
 function maybeMonsterOpenDoor(room: CombatRoom, io: Server, m: ServerMonster, tx: number, tz: number, now: number) {
-  const blocked = doorOnPath(room.doors, m.x, m.z, tx, tz, now)
+  const blocked = doorOnPath(room.doors, m.x, m.z, tx, tz, doorsOf(room.scene), now)
   if (!blocked) {
     m.waitingDoorId = null
     m.doorWaitUntil = 0

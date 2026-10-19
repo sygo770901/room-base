@@ -2,6 +2,41 @@ import { KAYKIT_EXTRA_WALLS, KAYKIT_OCCLUDERS } from './kaykitScene'
 import { platformsFor } from './platforms'
 import type { WallBox, OccBox } from './dungeon'
 import type { SceneId } from './scenes'
+import type { DoorDef } from './doors'
+
+/** 三張地圖共用地城通道，但門清單各自一份，加新地圖只改這裡。 */
+const KENNEY_DOORS: DoorDef[] = [
+  { id: 'door-enter', x: 78, z: 34, rotY: 0 },
+  { id: 'door-chapel', x: 78, z: 106, rotY: 0 },
+  { id: 'door-west', x: 30, z: 66, rotY: 0 },
+  { id: 'door-library', x: 134, z: 70, rotY: 0 },
+  { id: 'door-vault', x: 116, z: 28, rotY: Math.PI / 2 },
+  { id: 'door-boss', x: 134, z: 114, rotY: 0 },
+]
+
+const KAYKIT_DOORS: DoorDef[] = [
+  { id: 'door-enter', x: 78, z: 34, rotY: 0 },
+  { id: 'door-chapel', x: 78, z: 106, rotY: 0 },
+  { id: 'door-west', x: 30, z: 66, rotY: 0 },
+  { id: 'door-library', x: 134, z: 70, rotY: 0 },
+  { id: 'door-vault', x: 116, z: 28, rotY: Math.PI / 2 },
+  { id: 'door-boss', x: 134, z: 114, rotY: 0 },
+]
+
+const JUNGLE_DOORS: DoorDef[] = [
+  { id: 'door-enter', x: 78, z: 34, rotY: 0 },
+  { id: 'door-chapel', x: 78, z: 106, rotY: 0 },
+  { id: 'door-west', x: 30, z: 66, rotY: 0 },
+  { id: 'door-library', x: 134, z: 70, rotY: 0 },
+  { id: 'door-vault', x: 116, z: 28, rotY: Math.PI / 2 },
+  { id: 'door-boss', x: 134, z: 114, rotY: 0 },
+]
+
+export function doorsOf(scene?: SceneId | string | null): DoorDef[] {
+  if (scene === 'kaykit') return KAYKIT_DOORS
+  if (scene === 'jungle') return JUNGLE_DOORS
+  return KENNEY_DOORS
+}
 
 /** 叢林樹幹碰撞。加地圖時在這裡加資料即可。 */
 const JUNGLE_TRUNKS: WallBox[] = [

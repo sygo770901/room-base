@@ -9,6 +9,7 @@ import { useAppStore } from '../store'
 import { VirtualJoystick } from './VirtualJoystick'
 import { Minimap } from './Minimap'
 import { nearestDoor, DOOR_RANGE } from '../../shared/doors'
+import { doorsOf } from '../../shared/mapData'
 import { DUCK_MAX_DISPENSERS } from '../../shared/combat'
 
 export function Hud() {
@@ -376,7 +377,7 @@ export function Hud() {
           {self.hidden ? '出來' : '躲'}
         </button>
       )}
-      {!matchOver && started && self?.team !== 'spectator' && self?.position && nearestDoor(self.position[0], self.position[2], DOOR_RANGE) && (
+      {!matchOver && started && self?.team !== 'spectator' && self?.position && nearestDoor(self.position[0], self.position[2], doorsOf(scene), DOOR_RANGE) && (
         <button type="button" className="door-btn" onClick={() => emitDoorToggle()}>
           門
         </button>

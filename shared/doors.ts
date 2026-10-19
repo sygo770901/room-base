@@ -1,4 +1,4 @@
-/** 門（先定，昱豪可改） */
+/** 門規則與數值（先定，昱豪可改）。位置改放各地圖資料，不要在這裡寫死座標。 */
 export const DOOR_RANGE = 1.5
 export const DOOR_ANIM_MS = 400
 export const DOOR_MONSTER_WAIT_MS = 1000
@@ -19,21 +19,12 @@ export interface DoorState {
   busyUntil: number
 }
 
-export const DOOR_DEFS: DoorDef[] = [
-  { id: 'door-enter', x: 78, z: 34, rotY: 0 },
-  { id: 'door-chapel', x: 78, z: 106, rotY: 0 },
-  { id: 'door-west', x: 30, z: 66, rotY: 0 },
-  { id: 'door-library', x: 134, z: 70, rotY: 0 },
-  { id: 'door-vault', x: 116, z: 28, rotY: Math.PI / 2 },
-  { id: 'door-boss', x: 134, z: 114, rotY: 0 },
-]
-
-export function createDoors(): DoorState[] {
-  return DOOR_DEFS.map((d) => ({ id: d.id, open: false, busyUntil: 0 }))
+export function createDoors(defs: DoorDef[]): DoorState[] {
+  return defs.map((d) => ({ id: d.id, open: false, busyUntil: 0 }))
 }
 
-export function doorDef(id: string) {
-  return DOOR_DEFS.find((d) => d.id === id)
+export function doorDef(id: string, defs: DoorDef[]) {
+  return defs.find((d) => d.id === id)
 }
 
 export function doorBox(def: DoorDef) {
@@ -43,20 +34,20 @@ export function doorBox(def: DoorDef) {
   return { cx: def.x, cz: def.z, hx, hz }
 }
 
-export function closedDoorWalls(doors: DoorState[] | undefined, now = Date.now()) {
+export function closedDoorWalls(doors: DoorState[] | undefined, defs: DoorDef[], now = Date.now()) {
   const out: { cx: number; cz: number; hx: number; hz: number }[] = []
   if (!doors) return out
   for (const d of doors) {
     if (d.open) continue
-    const def = doorDef(d.id)
+    const def = doorDef(d.id, defs)
     if (!def) continue
     out.push(doorBox(def))
   }
   return out
 }
 
-export function closedDoorAabbs(doors: DoorState[] | undefined, now = Date.now()) {
-  return closedDoorWalls(doors, now).map((w) => ({
+export function closedDoorAabbs(doors: DoorState[] | undefined, defs: DoorDef[], now = Date.now()) {
+  return closedDoorWalls(doors, defs, now).map((w) => ({
     minX: w.cx - w.hx,
     maxX: w.cx + w.hx,
     minZ: w.cz - w.hz,
@@ -71,10 +62,10 @@ export function occupantInDoor(def: DoorDef, x: number, z: number, r = 0.3) {
   return Math.abs(x - b.cx) <= b.hx + pad + r && Math.abs(z - b.cz) <= b.hz + pad + r
 }
 
-export function nearestDoor(x: number, z: number, range = DOOR_RANGE) {
+export function nearestDoor(x: number, z: number, defs: DoorDef[], range = DOOR_RANGE) {
   let best: DoorDef | null = null
   let bestD = range
-  for (const d of DOOR_DEFS) {
+  for (const d of defs) {
     const dist = Math.hypot(d.x - x, d.z - z)
     if (dist <= bestD) {
       best = d
@@ -111,9 +102,10 @@ export function doorHidesFrom(
   doors: DoorState[] | undefined,
   from: { x: number; z: number },
   to: { x: number; z: number },
+  defs: DoorDef[],
   now = Date.now(),
 ) {
-  for (const w of closedDoorWalls(doors, now)) {
+  for (const w of closedDoorWalls(doors, defs, now)) {
     if (segHitsBox(from.x, from.z, to.x, to.z, w)) return true
   }
   return false
@@ -125,11 +117,12 @@ export function doorOnPath(
   z0: number,
   x1: number,
   z1: number,
+  defs: DoorDef[],
   now = Date.now(),
 ) {
   for (const d of doors ?? []) {
     if (d.open) continue
-    const def = doorDef(d.id)
+    const def = doorDef(d.id, defs)
     if (!def) continue
     if (segHitsBox(x0, z0, x1, z1, doorBox(def))) return d
   }

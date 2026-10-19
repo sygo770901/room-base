@@ -1,7 +1,8 @@
 import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { DOOR_ANIM_MS, DOOR_DEFS, DOOR_THICK, DOOR_WIDTH } from '../../shared/doors'
+import { DOOR_ANIM_MS, DOOR_THICK, DOOR_WIDTH } from '../../shared/doors'
+import { doorsOf } from '../../shared/mapData'
 import { useAppStore } from '../store'
 
 function DoorLeaf({
@@ -53,10 +54,12 @@ function DoorLeaf({
 
 export function Doors() {
   const doors = useAppStore((s) => s.doors)
+  const scene = useAppStore((s) => s.scene)
+  const defs = doorsOf(scene)
   const byId = useMemo(() => Object.fromEntries(doors.map((d) => [d.id, d])), [doors])
   return (
     <group>
-      {DOOR_DEFS.map((def) => {
+      {defs.map((def) => {
         const st = byId[def.id]
         return (
           <DoorLeaf

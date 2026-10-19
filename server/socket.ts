@@ -51,7 +51,7 @@ import {
 import { defaultSettings, isGameMode, type GameMode, type RoomSettings } from '../shared/modes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
 import { canStartJump } from '../shared/platforms.ts'
-import { platformsOf } from '../shared/mapData.ts'
+import { doorsOf, platformsOf } from '../shared/mapData.ts'
 import type { DuckSpeech, MatchOver } from '../shared/combat.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
@@ -127,7 +127,7 @@ function createRoom(roomId: string): RoomState {
     barrels: createBarrels(),
     drops: [],
     projectiles: [],
-    doors: createDoors(),
+    doors: createDoors(doorsOf('kenney')),
   }
 }
 
@@ -377,7 +377,10 @@ export function attachSocketServer(httpServer: HttpServer) {
         }
 
         const isFirst = Object.keys(room.players).length === 0
-        if (isFirst && isSceneId(payload.scene)) room.scene = payload.scene
+        if (isFirst && isSceneId(payload.scene)) {
+          room.scene = payload.scene
+          room.doors = createDoors(doorsOf(room.scene))
+        }
         if (isFirst && !isGameMode(payload.mode)) room.started = true
         if (isFirst && isGameMode(payload.mode)) {
           room.mode = payload.mode
@@ -386,7 +389,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           room.matchOver = null
           room.damage = {}
           room.projectiles = []
-          room.doors = createDoors()
+          room.doors = createDoors(doorsOf(room.scene))
           const allowTimed = payload.mode === 'boss' || payload.mode === 'tag'
           room.settings = {
             timed: Boolean(payload.timed) && allowTimed,
@@ -485,7 +488,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.barrels = createBarrels()
       room.drops = []
       room.projectiles = []
-      room.doors = createDoors()
+      room.doors = createDoors(doorsOf(room.scene))
       const ids = Object.keys(room.players)
       ids.forEach((id, i) => {
         const p = room.players[id]
@@ -613,10 +616,11 @@ export function attachSocketServer(httpServer: HttpServer) {
       const { room, player, playerId } = ctx
       if (player.seated || player.team === 'spectator') return
       const now = Date.now()
+      const defs = doorsOf(room.scene)
       const near =
-        (typeof payload.id === 'string' && doorDef(payload.id)
-          ? doorDef(payload.id)
-          : nearestDoor(player.position[0], player.position[2], DOOR_RANGE)) ?? null
+        (typeof payload.id === 'string' && doorDef(payload.id, defs)
+          ? doorDef(payload.id, defs)
+          : nearestDoor(player.position[0], player.position[2], defs, DOOR_RANGE)) ?? null
       if (!near) return
       if (Math.hypot(near.x - player.position[0], near.z - player.position[2]) > DOOR_RANGE) return
       const door = room.doors.find((d) => d.id === near.id)
@@ -646,6 +650,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       if ((room.mode === 'boss' || room.mode === 'tag') && room.started && !room.matchOver) return
       if (!isSceneId(payload.scene)) return
       room.scene = payload.scene
+      room.doors = createDoors(doorsOf(room.scene))
       emitState(room, io)
     })
 

@@ -12,7 +12,7 @@ import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMo
 import { DOOR_RANGE, closedDoorAabbs, nearestDoor } from '../../shared/doors'
 import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
 import { resolvePlayerMove } from '../physics/collision'
-import { extraAabbsOf } from '../../shared/mapData'
+import { doorsOf, extraAabbsOf } from '../../shared/mapData'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
@@ -202,7 +202,7 @@ export function LocalController({
       if (e.code === 'Space') tryJump()
       if (e.code === 'KeyE') {
         if (seatedRef.current) void emitSit(null)
-        else if (nearestDoor(pos.current.x, pos.current.z, DOOR_RANGE)) emitDoorToggle()
+        else if (nearestDoor(pos.current.x, pos.current.z, doorsOf(useAppStore.getState().scene), DOOR_RANGE)) emitDoorToggle()
         else tryHide()
       }
     }
@@ -305,7 +305,7 @@ export function LocalController({
       const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * dt
 
       const sceneId = useAppStore.getState().scene
-      const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors))
+      const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors, doorsOf(sceneId)))
       const plats = platformsFor(sceneId)
       const result = resolvePlayerMove(
         pos.current.x,
@@ -344,7 +344,7 @@ export function LocalController({
     if (dashing) {
       const step = (DASH_DISTANCE / (DASH_DURATION_MS / 1000)) * dt
       const sceneId = useAppStore.getState().scene
-      const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors))
+      const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors, doorsOf(sceneId)))
       const result = resolvePlayerMove(
         pos.current.x,
         pos.current.z,
