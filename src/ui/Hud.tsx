@@ -37,6 +37,7 @@ export function Hud() {
   const pointerLocked = useAppStore((s) => s.pointerLocked)
   const dashReadyAt = useAppStore((s) => s.dashReadyAt)
   const requestDash = useAppStore((s) => s.requestDash)
+  const requestJump = useAppStore((s) => s.requestJump)
   const [dashLeft, setDashLeft] = useState(0)
   const smokeReadyAt = useAppStore((s) => s.smokeReadyAt)
   const requestSmoke = useAppStore((s) => s.requestSmoke)
@@ -328,6 +329,11 @@ export function Hud() {
           onClick={() => requestDash()}
         >
           {dashLeft > 0 ? `${Math.ceil(dashLeft / 1000)}` : '衝'}
+        </button>
+      )}
+      {!matchOver && started && self?.team !== 'spectator' && (
+        <button type="button" className="jump-btn" onClick={() => requestJump()}>
+          跳
         </button>
       )}
       {!matchOver && started && self?.team !== 'spectator' && (

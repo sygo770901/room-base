@@ -21,7 +21,9 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
   const swingAt = useAppStore((s) => s.swings[player.id] ?? 0)
   const combo = useAppStore((s) => s.swingCombo[player.id] ?? 0)
   const hit = useAppStore((s) => s.hitAnim[player.id])
-  const jumpPhase = useAppStore((s) => s.jumpPhase[player.id] ?? null)
+  const storedJump = useAppStore((s) => s.jumpPhase[player.id] ?? null)
+  const y = player.position?.[1] ?? 0
+  const jumpPhase = storedJump ?? (y > 0.4 ? 'idle' : y > 0.12 ? 'start' : null)
   const dashUntil = useAppStore((s) => s.dashUntil[player.id] ?? 0)
   const hurtUntil = useAppStore((s) => s.hurtFlashUntil[player.id] ?? 0)
 
@@ -34,8 +36,9 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
     } else if (!g.visible) {
       g.visible = true
     }
+    const py = p[1] ?? 0
     if (isSelf || !ready.current) {
-      g.position.set(p[0], 0, p[2])
+      g.position.set(p[0], py, p[2])
       g.rotation.y = player.rotationY
       ready.current = true
       speed.current = 0
@@ -43,15 +46,17 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
     }
     const dist = Math.hypot(p[0] - g.position.x, p[2] - g.position.z)
     if (dist > 8) {
-      g.position.set(p[0], 0, p[2])
+      g.position.set(p[0], py, p[2])
       g.rotation.y = player.rotationY
       speed.current = 0
       return
     }
     const nx = THREE.MathUtils.damp(g.position.x, p[0], 14, dt)
+    const ny = THREE.MathUtils.damp(g.position.y, py, 18, dt)
     const nz = THREE.MathUtils.damp(g.position.z, p[2], 14, dt)
     speed.current = Math.hypot(nx - g.position.x, nz - g.position.z) / Math.max(dt, 1 / 120)
     g.position.x = nx
+    g.position.y = ny
     g.position.z = nz
     g.rotation.y = dampAngle(g.rotation.y, player.rotationY, 16, dt)
   })

@@ -3,7 +3,8 @@ import { ATTACK_COS, ATTACK_COOLDOWN_MS, ATTACK_RANGE, PLAYER_MAX_HP, type Match
 import { nextComboStep } from '../shared/anim.ts'
 import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
-import { moveAllowance, type MoveGrant } from '../shared/movement.ts'
+import { JUMP_CEILING, JUMP_MAX_DELTA, MOVE_Y_PAD, moveAllowance, type MoveGrant } from '../shared/movement.ts'
+import { HIDE_MAX_Y } from '../shared/platforms.ts'
 import { smokeHidesFrom, type SmokeCloud } from '../shared/smoke.ts'
 import {
   TAG_BOX_MAX_MS,
@@ -383,6 +384,7 @@ export function tryHide(room: TagRoom, playerId: string, want: boolean, now: num
     }
     return true
   }
+  if ((player.position[1] ?? 0) > HIDE_MAX_Y) return false
   const spot = nearestHideSpot(player.position[0], player.position[2], HIDE_RANGE)
   if (!spot) return false
   if (tag) {
@@ -514,8 +516,11 @@ export function acceptMove(
 
   const allow = moveAllowance(now - prev, room.moveGrant[player.id], now)
   const dist = Math.hypot(x - player.position[0], z - player.position[2])
-  const dy = Math.abs(y - (player.position[1] ?? 0))
-  if (dist > allow.horiz || dy > allow.vert) return false
+  const prevY = player.position[1] ?? 0
+  const rise = y - prevY
+  const drop = prevY - y
+  if (y > JUMP_CEILING + 0.2 || y < -0.08) return false
+  if (dist > allow.horiz || rise > allow.vert || drop > JUMP_MAX_DELTA + MOVE_Y_PAD) return false
 
   player.position = [x, y, z]
   player.rotationY = payload.rotationY

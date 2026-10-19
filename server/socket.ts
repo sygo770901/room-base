@@ -25,6 +25,7 @@ import { PLAYER_CLASS } from '../shared/classes.ts'
 import {
   DASH_DURATION_MS,
   DASH_IFRAME_MS,
+  JUMP_AIR_MS,
   dashCooldownMs,
   type MoveGrant,
 } from '../shared/movement.ts'
@@ -572,6 +573,15 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.hurtUntil[playerId] = Math.max(room.hurtUntil[playerId] ?? 0, now + DASH_IFRAME_MS)
       io.to(room.roomId).emit('player:dash', { id: playerId, until, dirX: dx, dirZ: dz })
       io.to(playerId).emit('dash:result', { ok: true, nextAt, until })
+    })
+
+    socket.on('jump', () => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
+      if (player.seated || player.hidden || player.team === 'spectator') return
+      const now = Date.now()
+      room.moveGrant[playerId] = { ...room.moveGrant[playerId], jumpUntil: now + JUMP_AIR_MS }
     })
 
     socket.on('skill:smoke', (payload: { x?: number; z?: number } = {}) => {

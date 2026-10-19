@@ -86,6 +86,7 @@ interface AppState {
   dashUntil: Record<string, number>
   dashReadyAt: number
   dashRequest: number
+  jumpRequest: number
   smokes: SmokeCloud[]
   smokeReadyAt: number
   smokeRequest: number
@@ -128,6 +129,7 @@ interface AppState {
   setDash: (id: string, until: number) => void
   setDashReadyAt: (at: number) => void
   requestDash: () => void
+  requestJump: () => void
   setSmokes: (smokes: SmokeCloud[]) => void
   setSmokeReadyAt: (at: number) => void
   requestSmoke: () => void
@@ -186,6 +188,7 @@ export const useAppStore = create<AppState>((set) => ({
   dashUntil: {},
   dashReadyAt: 0,
   dashRequest: 0,
+  jumpRequest: 0,
   smokes: [],
   smokeReadyAt: 0,
   smokeRequest: 0,
@@ -322,6 +325,7 @@ export const useAppStore = create<AppState>((set) => ({
   setDash: (id, until) => set((s) => ({ dashUntil: { ...s.dashUntil, [id]: until } })),
   setDashReadyAt: (at) => set({ dashReadyAt: at }),
   requestDash: () => set((s) => ({ dashRequest: s.dashRequest + 1 })),
+  requestJump: () => set((s) => ({ jumpRequest: s.jumpRequest + 1 })),
   setSmokes: (smokes) => set({ smokes }),
   setSmokeReadyAt: (at) => set({ smokeReadyAt: at }),
   requestSmoke: () => set((s) => ({ smokeRequest: s.smokeRequest + 1 })),
@@ -368,6 +372,7 @@ export const useAppStore = create<AppState>((set) => ({
       dashUntil: {},
       dashReadyAt: 0,
       dashRequest: 0,
+      jumpRequest: 0,
       smokes: [],
       smokeReadyAt: 0,
       smokeRequest: 0,

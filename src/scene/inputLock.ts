@@ -31,7 +31,7 @@ export function hudBlocksPointer(target: EventTarget | null) {
   if (!el?.closest) return false
   return Boolean(
     el.closest(
-      'button, input, textarea, label, .hud-bottom, .hud-top, .note-panel, .joystick, .attack-btn, .hide-btn, .check-btn, .dash-btn, .skill-btn, .modal, .dock, .lobby, .sens-row',
+      'button, input, textarea, label, .hud-bottom, .hud-top, .note-panel, .joystick, .attack-btn, .hide-btn, .check-btn, .dash-btn, .skill-btn, .jump-btn, .modal, .dock, .lobby, .sens-row',
     ),
   )
 }

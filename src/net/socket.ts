@@ -577,6 +577,10 @@ export function emitMove(position: Vec3, rotationY: number) {
   socket?.emit('move', { position, rotationY })
 }
 
+export function emitJump() {
+  socket?.emit('jump')
+}
+
 export function emitSit(seatId: SeatId | null) {
   return new Promise<{ ok: boolean; reason?: string }>((resolve) => {
     socket?.emit('sit', { seatId }, (ok: boolean, reason?: string) => {
