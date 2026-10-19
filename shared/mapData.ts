@@ -1,4 +1,4 @@
-import { KAYKIT_EXTRA_WALLS, KAYKIT_OCCLUDERS } from './kaykitScene'
+import { KAYKIT_DOORWAYS, KAYKIT_EXTRA_WALLS, KAYKIT_OCCLUDERS } from './kaykitScene'
 import { platformsFor } from './platforms'
 import type { WallBox, OccBox } from './dungeon'
 import type { SceneId } from './scenes'
@@ -14,23 +14,31 @@ const KENNEY_DOORS: DoorDef[] = [
   { id: 'door-boss', x: 134, z: 114, rotY: 0 },
 ]
 
-const KAYKIT_DOORS: DoorDef[] = [
-  { id: 'door-enter', x: 78, z: 34, rotY: 0 },
-  { id: 'door-chapel', x: 78, z: 106, rotY: 0 },
-  { id: 'door-west', x: 30, z: 66, rotY: 0 },
-  { id: 'door-library', x: 134, z: 70, rotY: 0 },
-  { id: 'door-vault', x: 116, z: 28, rotY: Math.PI / 2 },
-  { id: 'door-boss', x: 134, z: 114, rotY: 0 },
-]
+function snapDoors(base: DoorDef[]): DoorDef[] {
+  return base.map((d) => {
+    let best = d
+    let bestD = 10
+    for (const f of KAYKIT_DOORWAYS) {
+      const dist = Math.hypot(f.x - d.x, f.z - d.z)
+      if (dist < bestD) {
+        bestD = dist
+        best = { ...d, x: f.x, z: f.z, rotY: f.rotY }
+      }
+    }
+    return best
+  })
+}
 
-const JUNGLE_DOORS: DoorDef[] = [
+const KAYKIT_DOORS: DoorDef[] = snapDoors([
   { id: 'door-enter', x: 78, z: 34, rotY: 0 },
   { id: 'door-chapel', x: 78, z: 106, rotY: 0 },
   { id: 'door-west', x: 30, z: 66, rotY: 0 },
   { id: 'door-library', x: 134, z: 70, rotY: 0 },
   { id: 'door-vault', x: 116, z: 28, rotY: Math.PI / 2 },
   { id: 'door-boss', x: 134, z: 114, rotY: 0 },
-]
+])
+
+const JUNGLE_DOORS: DoorDef[] = snapDoors(KAYKIT_DOORS)
 
 export function doorsOf(scene?: SceneId | string | null): DoorDef[] {
   if (scene === 'kaykit') return KAYKIT_DOORS

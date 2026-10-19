@@ -68,6 +68,9 @@ export function Hud() {
   const mapLoadActive = useAppStore((s) => s.mapLoadActive)
   const mapLoadProgress = useAppStore((s) => s.mapLoadProgress)
   const mapLoadFailed = useAppStore((s) => s.mapLoadFailed)
+  const localX = useAppStore((s) => s.localX)
+  const localZ = useAppStore((s) => s.localZ)
+  const doorNear = self && nearestDoor(localX || self.position?.[0] || 0, localZ || self.position?.[2] || 0, doorsOf(scene), DOOR_RANGE)
 
   useEffect(() => {
     if (pendingNote || noteAsk) exitGameLock()
@@ -496,11 +499,14 @@ export function Hud() {
           {!isMobileDevice() && <span className="key-hint">E</span>}
         </button>
       )}
-      {!matchOver && started && self?.team !== 'spectator' && self?.position && nearestDoor(self.position[0], self.position[2], doorsOf(scene), DOOR_RANGE) && (
-        <button type="button" className="door-btn" onClick={() => emitDoorToggle()}>
-          門
-          {!isMobileDevice() && <span className="key-hint">E</span>}
-        </button>
+      {!matchOver && started && self?.team !== 'spectator' && doorNear && (
+        <>
+          <div className="door-hint">按 E 開門</div>
+          <button type="button" className="door-btn" onClick={() => emitDoorToggle(doorNear.id, localX, localZ)}>
+            門
+            {!isMobileDevice() && <span className="key-hint">E</span>}
+          </button>
+        </>
       )}
       {!matchOver && started && self?.team !== 'spectator' && (
         <div className="phrase-wrap">

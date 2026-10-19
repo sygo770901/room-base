@@ -67,6 +67,8 @@ places.push(
 
 export const KAYKIT_PLACES = places
 
+export const KAYKIT_DOORWAYS = places.filter((p) => p.model === 'wall_doorway.gltf')
+
 export const KAYKIT_TORCHES = places
   .filter((p) => p.model === 'torch_mounted.gltf')
   .map((p) => ({ x: p.x, y: p.y + 1.6, z: p.z }))

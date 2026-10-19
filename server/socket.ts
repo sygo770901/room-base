@@ -674,19 +674,29 @@ export function attachSocketServer(httpServer: HttpServer) {
       io.to(playerId).emit('dash:result', { ok: true, nextAt, until })
     })
 
-    socket.on('door:toggle', (payload: { id?: string } = {}) => {
+    socket.on('door:toggle', (payload: { id?: string; x?: number; z?: number } = {}) => {
       const ctx = inRoom(socket, currentRoomId)
       if (!ctx) return
       const { room, player, playerId } = ctx
       if (player.seated || player.team === 'spectator' || isDowned(player)) return
       const now = Date.now()
       const defs = doorsOf(room.scene)
+      let px = player.position[0]
+      let pz = player.position[2]
+      if (typeof payload.x === 'number' && typeof payload.z === 'number' && Number.isFinite(payload.x) && Number.isFinite(payload.z)) {
+        if (Math.hypot(payload.x - px, payload.z - pz) <= 4) {
+          px = payload.x
+          pz = payload.z
+          player.position[0] = px
+          player.position[2] = pz
+        }
+      }
       const near =
         (typeof payload.id === 'string' && doorDef(payload.id, defs)
           ? doorDef(payload.id, defs)
-          : nearestDoor(player.position[0], player.position[2], defs, DOOR_RANGE)) ?? null
+          : nearestDoor(px, pz, defs, DOOR_RANGE)) ?? null
       if (!near) return
-      if (Math.hypot(near.x - player.position[0], near.z - player.position[2]) > DOOR_RANGE) return
+      if (Math.hypot(near.x - px, near.z - pz) > DOOR_RANGE) return
       const door = room.doors.find((d) => d.id === near.id)
       if (!door || now < door.busyUntil) return
       if (door.open) {

@@ -206,7 +206,9 @@ export function LocalController({
         const nearDowned = nearestDowned(player.id, pos.current.x, pos.current.z, Object.values(st.players))
         if (nearDowned) return
         if (seatedRef.current) void emitSit(null)
-        else if (nearestDoor(pos.current.x, pos.current.z, doorsOf(st.scene), DOOR_RANGE)) emitDoorToggle()
+        else if (nearestDoor(pos.current.x, pos.current.z, doorsOf(st.scene), DOOR_RANGE)) {
+          emitDoorToggle(undefined, pos.current.x, pos.current.z)
+        }
         else tryHide()
       }
     }

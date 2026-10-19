@@ -613,8 +613,8 @@ export function emitRescueHold(targetId: string) {
   socket?.emit('rescue:hold', { targetId })
 }
 
-export function emitDoorToggle(id?: string) {
-  socket?.emit('door:toggle', { id })
+export function emitDoorToggle(id?: string, x?: number, z?: number) {
+  socket?.emit('door:toggle', { id, x, z })
 }
 
 export function emitScene(scene: SceneId) {

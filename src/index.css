@@ -782,6 +782,19 @@ input {
   color: #1a120c;
 }
 
+.door-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  transform: translateX(-50%);
+  z-index: 18;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(16, 14, 12, 0.82);
+  border: 1px solid rgba(255, 230, 170, 0.4);
+  font-weight: 800;
+}
+
 .phrase-wrap {
   position: absolute;
   left: 16px;
