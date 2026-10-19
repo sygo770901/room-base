@@ -7,6 +7,7 @@ import { KAYKIT_OCCLUDERS } from '../../shared/kaykitScene'
 import { NotePlacementPlane, StickyNotes3D } from './Furniture'
 import { Dungeon } from './Dungeon'
 import { HitEffects } from './HitEffects'
+import { Telegraph } from './Telegraph'
 import { Monsters } from './Monsters'
 import { LocalAvatar, RemotePlayers } from './Players'
 import { LocalController } from './LocalController'
@@ -266,6 +267,7 @@ function SceneContent() {
       <NotePlacementPlane />
 
       <HitEffects />
+      <Telegraph />
       <Suspense fallback={null}>
         <RemotePlayers players={players} selfId={selfId} />
         {displaySelf && <LocalAvatar player={displaySelf} />}

@@ -12,6 +12,11 @@ import {
   dispenserHp,
   CHASE_SPEED,
   FLEE_SPEED,
+  SLAM_CD_MS,
+  SLAM_DAMAGE,
+  SLAM_RADIUS,
+  SLAM_RANGE,
+  SLAM_WINDUP_MS,
   IFRAME_MS,
   MONSTER_DAMAGE,
   MONSTER_HIT_CD,
@@ -64,6 +69,9 @@ export interface ServerMonster {
   nextSkill: number
   pounceTargetId: string | null
   spawnedAt: number
+  windupUntil: number
+  nextSlam: number
+  slamResolved: boolean
 }
 
 export interface CombatRoom {
@@ -106,6 +114,9 @@ function fromDef(d: MonsterDef): ServerMonster {
     nextSkill: Date.now() + 4500,
     pounceTargetId: null,
     spawnedAt: Date.now(),
+    windupUntil: 0,
+    nextSlam: 0,
+    slamResolved: true,
   }
 }
 
@@ -302,11 +313,32 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
   const pet = room.monsters.find((m) => m.kind === 'dispenser')
 
   if (duck?.alive) {
+    if (duck.windupUntil && !duck.slamResolved && now >= duck.windupUntil) {
+      duck.slamResolved = true
+      for (const p of Object.values(room.players)) {
+        if (room.awayUntil?.[p.id]) continue
+        const dist = Math.hypot(p.position[0] - duck.x, p.position[2] - duck.z)
+        if (dist <= SLAM_RADIUS) hurtPlayer(room, io, p, SLAM_DAMAGE, now)
+      }
+    }
+    let nearSlam = false
+    for (const p of Object.values(room.players)) {
+      if (room.awayUntil?.[p.id]) continue
+      if (Math.hypot(p.position[0] - duck.x, p.position[2] - duck.z) <= SLAM_RANGE) nearSlam = true
+    }
+    if ((!duck.windupUntil || now >= duck.windupUntil) && nearSlam && now >= duck.nextSlam) {
+      duck.windupUntil = now + SLAM_WINDUP_MS
+      duck.slamResolved = false
+      duck.nextSlam = now + SLAM_CD_MS
+      io.to(room.roomId).emit('boss:telegraph', { x: duck.x, z: duck.z, r: SLAM_RADIUS, ms: SLAM_WINDUP_MS })
+    }
+    const winding = now < duck.windupUntil
+
     const seen = nearestVisible(room, duck.x, duck.z, extraWalls, BOSS_SIGHT)
     let tx = duck.wander.x
     let tz = duck.wander.z
     let speed = PATROL_SPEED
-    const canFlee = now >= (room.startAt ?? duck.spawnedAt) + 0
+    const canFlee = now >= (room.startAt ?? duck.spawnedAt)
     if (seen.target && canFlee) {
       const dx = duck.x - seen.target.position[0]
       const dz = duck.z - seen.target.position[2]
@@ -320,9 +352,11 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
       }
       speed = FLEE_SPEED
     }
-    const { remain, moved } = stepMonster(room, duck, tx, tz, speed, dt, extraAabbs)
-    if (!seen.target && (remain < 1.1 || moved < 0.02)) {
-      duck.wander = pickWander(duck.x, duck.z)
+    if (!winding) {
+      const { remain, moved } = stepMonster(room, duck, tx, tz, speed, dt, extraAabbs)
+      if (!seen.target && (remain < 1.1 || moved < 0.02)) {
+        duck.wander = pickWander(duck.x, duck.z)
+      }
     }
 
     if (pet?.alive && seen.target && now >= Math.max(pet.nextSkill, room.startAt ?? 0)) {

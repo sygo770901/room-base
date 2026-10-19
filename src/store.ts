@@ -54,6 +54,7 @@ interface AppState {
   swings: Record<string, number>
   hits: HitFx[]
   hitSeq: number
+  telegraph: { x: number; z: number; r: number; ms: number; until: number } | null
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
@@ -75,6 +76,7 @@ interface AppState {
   pushHit: (hit: Omit<HitFx, 'key' | 'at'>) => void
   setMonsters: (monsters: MonsterState[]) => void
   setMatchOver: (over: MatchOver | null) => void
+  setTelegraph: (tel: { x: number; z: number; r: number; ms: number } | null) => void
   bumpRespawn: () => void
   setConnection: (status: ConnectionStatus) => void
   leaveToLobby: () => void
@@ -108,6 +110,7 @@ export const useAppStore = create<AppState>((set) => ({
   swings: {},
   hits: [],
   hitSeq: 1,
+  telegraph: null,
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
     set({
@@ -182,6 +185,10 @@ export const useAppStore = create<AppState>((set) => ({
     }),
   setMonsters: (monsters) => set({ monsters }),
   setMatchOver: (over) => set({ matchOver: over }),
+  setTelegraph: (tel) =>
+    set({
+      telegraph: tel ? { ...tel, until: performance.now() + tel.ms } : null,
+    }),
   bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
   setConnection: (status) => set({ connection: status }),
   leaveToLobby: () =>
@@ -205,6 +212,7 @@ export const useAppStore = create<AppState>((set) => ({
       swings: {},
       hits: [],
       hitSeq: 1,
+      telegraph: null,
       joy: { x: 0, y: 0 },
     }),
 }))

@@ -218,6 +218,15 @@ function bindListeners(s: Socket) {
     setTimeout(() => useAppStore.getState().setToast(null), 3200)
   })
 
+  s.on('boss:telegraph', (payload: { x: number; z: number; r: number; ms: number }) => {
+    useAppStore.getState().setTelegraph(payload)
+    useAppStore.getState().setToast('鴨大王要震地了！')
+    setTimeout(() => useAppStore.getState().setToast(null), payload.ms)
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(100)
+    }
+  })
+
   s.on('combat:skill', ({ text }: { text: string }) => {
     useAppStore.getState().setToast(text)
     setTimeout(() => useAppStore.getState().setToast(null), 2200)
