@@ -2,10 +2,8 @@ import type { Server } from 'socket.io'
 import { ATTACK_COS, ATTACK_COOLDOWN_MS, ATTACK_RANGE, PLAYER_MAX_HP, type MatchOver } from '../shared/combat.ts'
 import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
+import { moveAllowance, type MoveGrant } from '../shared/movement.ts'
 import {
-  MOVE_PAD,
-  MOVE_SLACK,
-  PLAYER_SPEED,
   TAG_BOX_MAX_MS,
   TAG_BOX_REENTER_MS,
   TAG_CHECK_CD_MS,
@@ -38,6 +36,7 @@ export interface TagRoom {
   nextAttack?: Record<string, number>
   tag?: TagState
   lastMoveAt?: Record<string, number>
+  moveGrant?: Record<string, MoveGrant>
 }
 
 export function emptyTag(): TagState {
@@ -477,19 +476,27 @@ export function acceptMove(
   payload: { position: Vec3; rotationY: number },
   now: number,
 ) {
-  if (room.mode !== 'tag') {
-    player.position = payload.position
-    player.rotationY = payload.rotationY
-    return true
-  }
   if (player.team === 'ghost' && hidePhase(room, now)) return false
   if (!room.lastMoveAt) room.lastMoveAt = {}
-  const prev = room.lastMoveAt[player.id] ?? now
-  const dt = Math.max(0, (now - prev) / 1000)
-  const maxDist = PLAYER_SPEED * dt * MOVE_SLACK + MOVE_PAD
-  const dist = Math.hypot(payload.position[0] - player.position[0], payload.position[2] - player.position[2])
-  if (dist > maxDist) return false
-  player.position = payload.position
+  if (!room.moveGrant) room.moveGrant = {}
+  if (!Array.isArray(payload.position) || payload.position.length < 3) return false
+  const [x, y, z] = payload.position
+  if (![x, y, z, payload.rotationY].every((n) => typeof n === 'number' && Number.isFinite(n))) return false
+
+  const prev = room.lastMoveAt[player.id]
+  if (prev == null) {
+    player.position = [x, y, z]
+    player.rotationY = payload.rotationY
+    room.lastMoveAt[player.id] = now
+    return true
+  }
+
+  const allow = moveAllowance(now - prev, room.moveGrant[player.id], now)
+  const dist = Math.hypot(x - player.position[0], z - player.position[2])
+  const dy = Math.abs(y - (player.position[1] ?? 0))
+  if (dist > allow.horiz || dy > allow.vert) return false
+
+  player.position = [x, y, z]
   player.rotationY = payload.rotationY
   room.lastMoveAt[player.id] = now
   return true

@@ -103,6 +103,7 @@ export interface CombatRoom {
   started?: boolean
   tag?: TagState
   lastMoveAt?: Record<string, number>
+  moveGrant?: Record<string, { dashUntil?: number; jumpUntil?: number }>
 }
 
 function fromDef(d: MonsterDef): ServerMonster {
@@ -240,6 +241,8 @@ function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: numb
     player.position = [sp.x, 0, sp.z]
     player.seated = null
     room.hurtUntil[player.id] = now + IFRAME_MS
+    if (room.lastMoveAt) room.lastMoveAt[player.id] = now
+    if (room.moveGrant) delete room.moveGrant[player.id]
     io.to(player.id).emit('player:respawn', {
       position: player.position,
       hp: player.hp,

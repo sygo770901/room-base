@@ -209,9 +209,10 @@ export function LocalController({
 
     const now = performance.now()
     const moving = fwd !== 0 || strafe !== 0
-    if (moving && now - lastSent.current > 50) {
+    const interval = moving ? 50 : 200
+    if (now - lastSent.current > interval) {
       lastSent.current = now
-      wasMoving.current = true
+      wasMoving.current = moving
       emitMove(pose, rotY.current)
     } else if (!moving && wasMoving.current) {
       wasMoving.current = false

@@ -22,6 +22,7 @@ import {
 } from './tag.ts'
 import { loadPersistedRoom, savePersistedRoom } from './persist.ts'
 import { PLAYER_CLASS } from '../shared/classes.ts'
+import type { MoveGrant } from '../shared/movement.ts'
 import { defaultSettings, isGameMode, type GameMode, type RoomSettings } from '../shared/modes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
 import type { MatchOver } from '../shared/combat.ts'
@@ -49,6 +50,7 @@ export interface RoomState {
   started: boolean
   tag?: TagState
   lastMoveAt: Record<string, number>
+  moveGrant: Record<string, MoveGrant>
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -80,6 +82,7 @@ function createRoom(roomId: string): RoomState {
     hpScaled: false,
     started: false,
     lastMoveAt: {},
+    moveGrant: {},
   }
 }
 
@@ -213,6 +216,7 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
   delete room.hurtUntil[playerId]
   delete room.nextAttack[playerId]
   delete room.lastMoveAt[playerId]
+  delete room.moveGrant[playerId]
   playerSockets.delete(playerId)
 
   if (room.hostId === playerId) {
@@ -373,11 +377,11 @@ export function attachSocketServer(httpServer: HttpServer) {
                   : undefined,
           }
           room.players[playerId] = player
-          room.lastMoveAt[playerId] = Date.now()
           resumed = false
         } else {
           applyResume(player, payload.resume)
         }
+        room.lastMoveAt[playerId] = Date.now()
 
         cancelLeave(room, playerId)
         playerSockets.set(playerId, socket.id)
@@ -429,6 +433,8 @@ export function attachSocketServer(httpServer: HttpServer) {
           p.position = [sp.x, 0, sp.z]
           p.rotationY = 0
         }
+        room.lastMoveAt[id] = Date.now()
+        delete room.moveGrant[id]
         io.to(id).emit('player:respawn', {
           position: p.position,
           hp: p.hp,
