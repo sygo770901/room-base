@@ -62,6 +62,8 @@ export function Hud() {
   const [fontSize, setFontSize] = useState(0.12)
   const [phraseOpen, setPhraseOpen] = useState(false)
   const [rescuing, setRescuing] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(true)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const feed = useAppStore((s) => s.feed)
   const mapLoadActive = useAppStore((s) => s.mapLoadActive)
   const mapLoadProgress = useAppStore((s) => s.mapLoadProgress)
@@ -288,13 +290,30 @@ export function Hud() {
       </div>
 
       {(mode === 'boss' || mode === 'tag') && !started && !matchOver && (
-        <div className="modal match-over">
+        <div className="modal match-over wait-modal">
           <p>等房主開始</p>
           <p className="modal-preview">
             {mode === 'tag'
               ? `至少 2 人才能開局。現在 ${Object.values(players).filter((p) => p.team !== 'spectator').length} 人。`
               : '按下開始後會倒數 5 秒，鴨王血量依當時人數計算。'}
           </p>
+          {selfId && hostId === selfId ? (
+            <div className="map-host" role="radiogroup" aria-label="地圖">
+              {SCENE_IDS.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={scene === id ? 'hud-btn on' : 'hud-btn'}
+                  disabled={scene === id}
+                  onClick={() => emitScene(id)}
+                >
+                  {SCENE_LABELS[id]}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="modal-preview">目前地圖：{SCENE_LABELS[scene] ?? scene}</p>
+          )}
           {selfId && hostId === selfId ? (
             <button
               type="button"
@@ -513,39 +532,65 @@ export function Hud() {
       )}
 
       <div className="dock">
-        <button type="button" className="hud-btn" onClick={() => void toggleMic()} disabled={busyMic}>
-          {micOn ? '語音開' : '語音關'}
+        <button
+          type="button"
+          className={`hud-btn settings-gear${settingsOpen ? ' on' : ''}`}
+          onClick={() => {
+            exitGameLock()
+            setSettingsOpen((v) => !v)
+          }}
+        >
+          ⚙ 設定
         </button>
-        <button type="button" className="hud-btn" onClick={() => setSfxOn(!sfxOn)}>
-          {sfxOn ? '手感開' : '手感關'}
-        </button>
-        {!isMobileDevice() && (
-          <label className="sens-row">
-            靈敏 {lookSensitivity.toFixed(1)}
-            <input
-              type="range"
-              min={LOOK_SENS_MIN}
-              max={LOOK_SENS_MAX}
-              step={LOOK_SENS_STEP}
-              value={lookSensitivity}
-              onPointerDown={() => exitGameLock()}
-              onChange={(e) => setLookSensitivity(Number(e.target.value))}
-            />
-          </label>
-        )}
-        {self?.role === 'host' && (!(mode === 'boss' || mode === 'tag') || !started || Boolean(matchOver)) && (
-          <div className="map-host" role="radiogroup" aria-label="地圖">
-            {SCENE_IDS.map((id) => (
-              <button
-                key={id}
-                type="button"
-                className={scene === id ? 'hud-btn on' : 'hud-btn'}
-                disabled={scene === id}
-                onClick={() => emitScene(id)}
-              >
-                {SCENE_LABELS[id]}
-              </button>
-            ))}
+        {settingsOpen && (
+          <div className="settings-panel">
+            <button type="button" className="hud-btn" onClick={() => void toggleMic()} disabled={busyMic}>
+              {micOn ? '語音開' : '語音關'}
+            </button>
+            <button type="button" className="hud-btn" onClick={() => setSfxOn(!sfxOn)}>
+              {sfxOn ? '手感開' : '手感關'}
+            </button>
+            {!isMobileDevice() && (
+              <label className="sens-row">
+                靈敏 {lookSensitivity.toFixed(1)}
+                <input
+                  type="range"
+                  min={LOOK_SENS_MIN}
+                  max={LOOK_SENS_MAX}
+                  step={LOOK_SENS_STEP}
+                  value={lookSensitivity}
+                  onPointerDown={() => exitGameLock()}
+                  onChange={(e) => setLookSensitivity(Number(e.target.value))}
+                />
+              </label>
+            )}
+            <label className="sens-row">
+              字級 {fontSize.toFixed(2)}
+              <input
+                type="range"
+                min={0.06}
+                max={0.35}
+                step={0.01}
+                value={fontSize}
+                onPointerDown={() => exitGameLock()}
+                onChange={(e) => setFontSize(Number(e.target.value))}
+              />
+            </label>
+            {self?.role === 'host' && mode === 'hunt' && (
+              <div className="map-host" role="radiogroup" aria-label="地圖">
+                {SCENE_IDS.map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={scene === id ? 'hud-btn on' : 'hud-btn'}
+                    disabled={scene === id}
+                    onClick={() => emitScene(id)}
+                  >
+                    {SCENE_LABELS[id]}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         <button type="button" className="hud-btn" onClick={() => disconnectSocket()}>
@@ -555,25 +600,47 @@ export function Hud() {
 
       <div className="hud-bottom">
         <div className="help">
-          WASD／搖桿移動 · 按住 Alt 顯示游標點 UI（放開回到鎖定視角{pointerLocked ? ' · 已鎖定' : ''}）· 手機單指拖曳 · 滾輪／雙指縮放
-          <br />
-          鎖定後左鍵、F 或攻擊鈕揮劍 · 右鍵留給技能 · E 靠近門 1.5 內優先開關門，否則躲藏
-          {pendingNote ? ' · 移動滑鼠看虛影，點地面後確認' : ''}
+          <button type="button" className="help-toggle" onClick={() => setHelpOpen((v) => !v)}>
+            操作 {helpOpen ? '收合' : '展開'}
+          </button>
+          {helpOpen && (
+            <div className="help-keys">
+              <span>
+                <kbd>W</kbd>
+                <kbd>A</kbd>
+                <kbd>S</kbd>
+                <kbd>D</kbd>
+                移動
+              </span>
+              <span>
+                <kbd>Alt</kbd>
+                顯示游標點 UI，放開回到鎖定{pointerLocked ? ' · 已鎖定' : ''}
+              </span>
+              <span>
+                <kbd>Space</kbd>
+                跳
+              </span>
+              <span>
+                <kbd>Shift</kbd>
+                衝
+              </span>
+              <span>
+                <kbd>F</kbd>
+                ／左鍵 攻擊
+              </span>
+              <span>
+                <kbd>右鍵</kbd>
+                技能
+              </span>
+              <span>
+                <kbd>E</kbd>
+                門／躲
+              </span>
+              {pendingNote ? <span>移動滑鼠看虛影，點地面後確認</span> : null}
+            </div>
+          )}
         </div>
         <form className="note-panel" onSubmit={armNote}>
-          <div className="note-font">
-            <label>
-              字級 {fontSize.toFixed(2)}
-              <input
-                type="range"
-                min={0.06}
-                max={0.35}
-                step={0.01}
-                value={fontSize}
-                onChange={(e) => setFontSize(Number(e.target.value))}
-              />
-            </label>
-          </div>
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}

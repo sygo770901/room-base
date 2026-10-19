@@ -461,10 +461,32 @@ input {
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
-  padding: 10px 14px;
+  padding: 8px 10px;
   font-size: 0.85rem;
   opacity: 0.9;
   max-width: 420px;
+}
+
+.help-toggle {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.help-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 8px;
+}
+
+.help-keys span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .hp-bar {
@@ -593,6 +615,28 @@ input {
   gap: 6px;
   justify-content: flex-end;
   max-width: 220px;
+}
+
+.wait-modal .map-host {
+  justify-content: center;
+  max-width: none;
+  margin: 10px 0 12px;
+}
+
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+  min-width: 160px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(16, 14, 12, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.settings-gear.on {
+  outline: 1px solid #f2cc8f;
 }
 
 .map-host .hud-btn.on,
@@ -889,7 +933,15 @@ input {
   }
 
   .help {
-    display: none;
+    display: block;
+    max-width: 100%;
+  }
+
+  .settings-panel {
+    position: absolute;
+    left: 0;
+    top: 42px;
+    z-index: 42;
   }
 
   .note-panel {
