@@ -271,6 +271,22 @@ export function Hud() {
 
       {toast && <div className="toast">{toast}</div>}
 
+      <div className="objective-banner" aria-live="polite">
+        {mode === 'boss'
+          ? started
+            ? '目標：打倒鴨王'
+            : '目標：等房主開始，打倒鴨王'
+          : mode === 'tag'
+            ? started
+              ? hideLeft > 0
+                ? `目標：躲 ${Math.max(1, Math.ceil(hideLeft / 1000))} 秒`
+                : self?.team === 'ghost'
+                  ? '目標：抓到所有人'
+                  : '目標：別被抓到'
+              : '目標：等房主開始，躲 30 秒'
+            : '目標：打倒地城怪物'}
+      </div>
+
       {(mode === 'boss' || mode === 'tag') && !started && !matchOver && (
         <div className="modal match-over">
           <p>等房主開始</p>

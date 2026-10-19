@@ -60,6 +60,10 @@ export function Lobby() {
     <div className="lobby">
       <form className="lobby-card" onSubmit={onSubmit}>
         <h1>BOSS大逃殺</h1>
+        <p className="lobby-goal">
+          目前目標：
+          {mode === 'boss' ? '打倒鴨王' : mode === 'tag' ? '躲 30 秒，別被抓到' : '打倒地城怪物'}
+        </p>
         <p>
           玩家都是較瘦的遊俠，右手單手劍。進房前選場景、模式和時間。房間裡已經有人時，會沿用開房時的設定。最多 10 人。
         </p>

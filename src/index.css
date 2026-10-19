@@ -71,13 +71,14 @@ input {
 
 .boss-objective {
   position: absolute;
-  top: 86px;
+  top: 136px;
   left: 16px;
-  background: rgba(20, 22, 24, 0.78);
-  border: 1px solid rgba(201, 160, 255, 0.35);
+  background: rgba(20, 22, 24, 0.86);
+  border: 1px solid rgba(201, 160, 255, 0.45);
   border-radius: 12px;
   padding: 10px 14px;
-  font-size: 0.85rem;
+  font-size: 1rem;
+  font-weight: 600;
   line-height: 1.45;
 }
 
@@ -413,12 +414,12 @@ input {
 }
 
 .pill {
-  background: rgba(20, 22, 24, 0.72);
+  background: rgba(20, 22, 24, 0.86);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 12px;
   padding: 10px 14px;
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 .player-list {
@@ -468,8 +469,8 @@ input {
 
 .hp-bar {
   margin-top: 8px;
-  height: 8px;
-  width: 168px;
+  height: 12px;
+  width: 200px;
   border-radius: 99px;
   background: #3a2222;
   overflow: hidden;
@@ -618,6 +619,41 @@ input {
   opacity: 0.85;
   line-height: 1.1;
   margin-top: 2px;
+}
+
+.attack-btn,
+.hide-btn,
+.check-btn,
+.dash-btn,
+.skill-btn,
+.jump-btn,
+.door-btn,
+.rescue-btn,
+.hud-btn,
+.restart-btn,
+.phrase-btn,
+.note-panel button,
+.lobby button,
+.tutorial-skip {
+  transition: transform 0.08s ease, filter 0.08s ease;
+}
+
+.attack-btn:active,
+.hide-btn:active,
+.check-btn:active,
+.dash-btn:active,
+.skill-btn:active,
+.jump-btn:active,
+.door-btn:active,
+.rescue-btn:active,
+.hud-btn:active,
+.restart-btn:active,
+.phrase-btn:active,
+.note-panel button:active,
+.lobby button:active,
+.tutorial-skip:active {
+  transform: scale(0.92);
+  filter: brightness(1.18);
 }
 
 .attack-btn {
@@ -968,6 +1004,19 @@ input {
     max-width: 46vw;
     padding: 6px 8px;
   }
+
+  .objective-banner {
+    top: 72px;
+    left: 12px;
+    font-size: 0.92rem;
+    max-width: 58vw;
+  }
+
+  .boss-objective {
+    top: 118px;
+    left: 12px;
+    font-size: 0.92rem;
+  }
 }
 
 .toast {
@@ -1027,6 +1076,97 @@ input {
   display: block;
   height: 100%;
   background: #81b29a;
+}
+
+.lobby-goal {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(242, 204, 143, 0.16);
+  border: 1px solid rgba(242, 204, 143, 0.45);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #ffe7b3;
+}
+
+.objective-banner {
+  position: absolute;
+  left: 16px;
+  top: 86px;
+  z-index: 18;
+  max-width: min(420px, calc(100% - 32px));
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(16, 14, 12, 0.88);
+  border: 1px solid rgba(255, 230, 170, 0.45);
+  color: #ffe7b3;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.tutorial {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(8, 8, 10, 0.62);
+}
+
+.tutorial-card {
+  width: min(440px, 100%);
+  background: rgba(22, 18, 16, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+  padding: 18px 18px 16px;
+}
+
+.tutorial-card h2 {
+  margin: 0 0 12px;
+  font-size: 1.25rem;
+}
+
+.tutorial-card ul {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tutorial-card li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.98rem;
+}
+
+kbd,
+.help-keys kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6em;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.tutorial-skip {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 16px;
+  background: #f2cc8f;
+  color: #2b2112;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .reconnect-banner {
