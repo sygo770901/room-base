@@ -80,6 +80,14 @@ stamp(18, 12, 4, 14) // 南北主廊
 stamp(12, 26, 16, 6) // 北禮拜堂
 stamp(30, 24, 4, 5) // 通往東南王房
 stamp(32, 28, 8, 6) // 東南王房
+export const BOSS_ROOM_CELLS = { x: 32, z: 28, w: 8, h: 6 }
+export const BOSS_ROOM = {
+  minX: BOSS_ROOM_CELLS.x * CELL,
+  maxX: (BOSS_ROOM_CELLS.x + BOSS_ROOM_CELLS.w) * CELL,
+  minZ: BOSS_ROOM_CELLS.z * CELL,
+  maxZ: (BOSS_ROOM_CELLS.z + BOSS_ROOM_CELLS.h) * CELL,
+}
+export const MAP_WORLD = { minX: 0, maxX: MAP_W * CELL, minZ: 0, maxZ: MAP_H * CELL }
 stamp(2, 17, 10, 7) // 西營房
 stamp(6, 15, 4, 2)
 stamp(30, 17, 10, 8) // 東書庫

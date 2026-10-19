@@ -6,6 +6,7 @@ import { isMobileDevice } from '../perf/device'
 import { exitGameLock } from '../scene/pointerLock'
 import { useAppStore } from '../store'
 import { VirtualJoystick } from './VirtualJoystick'
+import { Minimap } from './Minimap'
 
 export function Hud() {
   const players = useAppStore((s) => s.players)
@@ -187,18 +188,21 @@ export function Hud() {
             </span>
           )}
         </div>
-        <div className="pill player-list">
-          {Object.values(players).map((p) => (
-            <div className="player-row" key={p.id}>
-              <span className="dot" style={{ background: p.color }} />
-              <span>
-                {p.name}
-                {p.id === selfId ? '（你）' : ''}
-                {p.hp != null && p.hp < 100 ? ` · ${p.hp}` : ''}
-                {p.team === 'ghost' ? ' · 鬼' : p.team === 'spectator' ? ' · 觀戰' : ''}
-              </span>
-            </div>
-          ))}
+        <div className="hud-top-right">
+          {mode === 'boss' && <Minimap />}
+          <div className="pill player-list">
+            {Object.values(players).map((p) => (
+              <div className="player-row" key={p.id}>
+                <span className="dot" style={{ background: p.color }} />
+                <span>
+                  {p.name}
+                  {p.id === selfId ? '（你）' : ''}
+                  {p.hp != null && p.hp < 100 ? ` · ${p.hp}` : ''}
+                  {p.team === 'ghost' ? ' · 鬼' : p.team === 'spectator' ? ' · 觀戰' : ''}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 

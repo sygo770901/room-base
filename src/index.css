@@ -297,6 +297,22 @@ input {
   align-items: flex-start;
 }
 
+.hud-top-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.minimap {
+  width: 140px;
+  height: 140px;
+  pointer-events: none;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
 .pill {
   background: rgba(20, 22, 24, 0.72);
   backdrop-filter: blur(10px);
@@ -692,6 +708,11 @@ input {
     max-width: 46vw;
     max-height: 28vh;
     overflow: auto;
+  }
+
+  .minimap {
+    width: 96px;
+    height: 96px;
   }
 
   .weapon-pill {
