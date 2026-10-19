@@ -37,6 +37,9 @@ export function Hud() {
   const dashReadyAt = useAppStore((s) => s.dashReadyAt)
   const requestDash = useAppStore((s) => s.requestDash)
   const [dashLeft, setDashLeft] = useState(0)
+  const smokeReadyAt = useAppStore((s) => s.smokeReadyAt)
+  const requestSmoke = useAppStore((s) => s.requestSmoke)
+  const [smokeLeft, setSmokeLeft] = useState(0)
   const [note, setNote] = useState('')
   const [clock, setClock] = useState(timeLeftMs)
   const [countMs, setCountMs] = useState(startInMs)
@@ -56,6 +59,13 @@ export function Hud() {
     const id = window.setInterval(tick, 100)
     return () => window.clearInterval(id)
   }, [dashReadyAt])
+
+  useEffect(() => {
+    const tick = () => setSmokeLeft(Math.max(0, smokeReadyAt - Date.now()))
+    tick()
+    const id = window.setInterval(tick, 100)
+    return () => window.clearInterval(id)
+  }, [smokeReadyAt])
 
   useEffect(() => {
     if (matchOver || ((mode === 'boss' || mode === 'tag') && !started)) exitGameLock()
@@ -303,6 +313,16 @@ export function Hud() {
           onClick={() => requestDash()}
         >
           {dashLeft > 0 ? `${Math.ceil(dashLeft / 1000)}` : '衝'}
+        </button>
+      )}
+      {!matchOver && started && self?.team !== 'spectator' && (
+        <button
+          type="button"
+          className="skill-btn"
+          disabled={smokeLeft > 0}
+          onClick={() => requestSmoke()}
+        >
+          {smokeLeft > 0 ? `${Math.ceil(smokeLeft / 1000)}` : '技'}
         </button>
       )}
       {!matchOver && started && self && self.team !== 'ghost' && self.team !== 'spectator' && (

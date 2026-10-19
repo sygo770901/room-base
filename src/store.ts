@@ -5,6 +5,7 @@ import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
 import { defaultSettings, type GameMode, type RoomSettings } from '../shared/modes'
 import type { TagHud } from '../shared/tag'
 import type { SceneId } from '../shared/scenes'
+import type { SmokeCloud } from '../shared/smoke'
 import { LOOK_SENS_DEFAULT, LOOK_SENS_MAX, LOOK_SENS_MIN } from '../shared/input'
 import { loadSession } from './net/session'
 
@@ -77,6 +78,9 @@ interface AppState {
   dashUntil: Record<string, number>
   dashReadyAt: number
   dashRequest: number
+  smokes: SmokeCloud[]
+  smokeReadyAt: number
+  smokeRequest: number
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
@@ -109,6 +113,9 @@ interface AppState {
   setDash: (id: string, until: number) => void
   setDashReadyAt: (at: number) => void
   requestDash: () => void
+  setSmokes: (smokes: SmokeCloud[]) => void
+  setSmokeReadyAt: (at: number) => void
+  requestSmoke: () => void
   setConnection: (status: ConnectionStatus) => void
   setJoinError: (msg: string | null) => void
   leaveToLobby: () => void
@@ -156,6 +163,9 @@ export const useAppStore = create<AppState>((set) => ({
   dashUntil: {},
   dashReadyAt: 0,
   dashRequest: 0,
+  smokes: [],
+  smokeReadyAt: 0,
+  smokeRequest: 0,
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
     set({
@@ -178,6 +188,7 @@ export const useAppStore = create<AppState>((set) => ({
       furniture: snapshot.furniture?.length ? snapshot.furniture : DEFAULT_FURNITURE,
       monsters: snapshot.monsters ?? [],
       hostId: snapshot.hostId,
+      smokes: snapshot.smokes ?? [],
     }),
   applySnapshot: (snapshot) =>
     set((s) => ({
@@ -196,6 +207,7 @@ export const useAppStore = create<AppState>((set) => ({
       startInMs: snapshot.startInMs ?? s.startInMs,
       started: snapshot.started ?? s.started,
       tagHud: snapshot.tagHud ?? s.tagHud,
+      smokes: snapshot.smokes ?? s.smokes,
     })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
@@ -266,6 +278,9 @@ export const useAppStore = create<AppState>((set) => ({
   setDash: (id, until) => set((s) => ({ dashUntil: { ...s.dashUntil, [id]: until } })),
   setDashReadyAt: (at) => set({ dashReadyAt: at }),
   requestDash: () => set((s) => ({ dashRequest: s.dashRequest + 1 })),
+  setSmokes: (smokes) => set({ smokes }),
+  setSmokeReadyAt: (at) => set({ smokeReadyAt: at }),
+  requestSmoke: () => set((s) => ({ smokeRequest: s.smokeRequest + 1 })),
   setConnection: (status) => set({ connection: status }),
   setJoinError: (msg) => set({ joinError: msg }),
   leaveToLobby: () =>
@@ -301,6 +316,9 @@ export const useAppStore = create<AppState>((set) => ({
       dashUntil: {},
       dashReadyAt: 0,
       dashRequest: 0,
+      smokes: [],
+      smokeReadyAt: 0,
+      smokeRequest: 0,
     }),
 }))
 

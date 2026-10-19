@@ -7,6 +7,7 @@ import type { MatchOver } from '../../shared/combat'
 import type { TagHud } from '../../shared/tag'
 import type { GameMode } from '../../shared/modes'
 import type { SceneId } from '../../shared/scenes'
+import type { SmokeCloud } from '../../shared/smoke'
 import { playSfx, unlockSfx } from '../audio/sfx'
 import { useAppStore } from '../store'
 import { clearSession, getPlayerId, loadSession, saveSession, type RoomSession } from './session'
@@ -307,6 +308,14 @@ function bindListeners(s: Socket) {
       const id = useAppStore.getState().selfId
       if (id) useAppStore.getState().setDash(id, payload.until)
     }
+  })
+
+  s.on('smoke:sync', (smokes: SmokeCloud[]) => {
+    useAppStore.getState().setSmokes(smokes)
+  })
+
+  s.on('smoke:result', (payload: { ok: boolean; nextAt?: number }) => {
+    if (payload.nextAt) useAppStore.getState().setSmokeReadyAt(payload.nextAt)
   })
 
   s.on('player:hidden', (payload: { id: string; hidden: boolean; position?: Vec3; rotationY?: number }) => {
@@ -616,6 +625,10 @@ export function emitStart() {
 
 export function emitDash(dirX: number, dirZ: number) {
   socket?.emit('dash', { dirX, dirZ })
+}
+
+export function emitSmoke(x: number, z: number) {
+  socket?.emit('skill:smoke', { x, z })
 }
 
 export function disconnectSocket() {

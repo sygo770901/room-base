@@ -52,6 +52,7 @@ import {
   type MonsterDef,
 } from '../shared/dungeon.ts'
 import type { GameMode } from '../shared/modes.ts'
+import { inSmoke, type SmokeCloud } from '../shared/smoke.ts'
 import type { TagState } from '../shared/tag.ts'
 import { handleTagAttack, tickTag } from './tag.ts'
 import type { PlayerState } from './types.ts'
@@ -104,6 +105,7 @@ export interface CombatRoom {
   tag?: TagState
   lastMoveAt?: Record<string, number>
   moveGrant?: Record<string, { dashUntil?: number; jumpUntil?: number }>
+  smokes?: SmokeCloud[]
 }
 
 function fromDef(d: MonsterDef): ServerMonster {
@@ -187,6 +189,7 @@ function nearestVisible(
     if (p.hidden) continue
     if (p.team === 'spectator') continue
     if (room.awayUntil?.[p.id]) continue
+    if (inSmoke(room.smokes, p.position[0], p.position[2], Date.now())) continue
     const d = Math.hypot(p.position[0] - mx, p.position[2] - mz)
     if (d > sight || d >= best) continue
     if (!hasLineOfSight(mx, mz, p.position[0], p.position[2], extraWalls)) continue
@@ -461,6 +464,13 @@ export function rankingOf(room: CombatRoom): DamageRank[] {
 }
 
 export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) {
+  if (room.smokes?.length) {
+    const next = room.smokes.filter((c) => c.until > now)
+    if (next.length !== room.smokes.length) {
+      room.smokes = next
+      io.to(room.roomId).emit('smoke:sync', next)
+    }
+  }
   if (room.mode === 'boss' && room.started && !room.matchOver && room.matchDeadline && now >= room.matchDeadline) {
     const duck = room.monsters.find((m) => m.kind === 'duck-king')
     if (duck?.alive) {

@@ -4,7 +4,8 @@ import * as THREE from 'three'
 import { HIDE_RANGE, HIDE_SPOTS } from '../../shared/dungeon'
 import { isMobileDevice } from '../perf/device'
 import { DASH_DISTANCE, DASH_DURATION_MS, dashCooldownMs } from '../../shared/movement'
-import { emitDash, emitFurniturePush, emitHide, emitMove, emitSit, performAttack } from '../net/socket'
+import { SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
+import { emitDash, emitFurniturePush, emitHide, emitMove, emitSit, emitSmoke, performAttack } from '../net/socket'
 import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
 import { resolvePlayerMove, KAYKIT_EXTRA_AABBS } from '../physics/collision'
 import { useAppStore } from '../store'
@@ -43,6 +44,7 @@ export function LocalController({
   const dash = useRef({ until: 0, dx: 0, dz: 0 })
   const lastDir = useRef({ x: 0, z: 1 })
   const dashRequest = useAppStore((s) => s.dashRequest)
+  const smokeRequest = useAppStore((s) => s.smokeRequest)
 
   seatedRef.current = player.seated
   furnitureRef.current = furniture
@@ -116,10 +118,31 @@ export function LocalController({
     emitDash(dx, dz)
   }
 
+  function trySmoke() {
+    const state = useAppStore.getState()
+    const me = state.players[player.id]
+    if (!me || me.seated || me.hidden) return
+    if (me.team === 'spectator') return
+    if ((state.mode === 'boss' || state.mode === 'tag') && !state.started) return
+    const now = Date.now()
+    if (now < state.smokeReadyAt) return
+    const range = isMobileDevice() ? SMOKE_RANGE_MOBILE : SMOKE_RANGE
+    const len = Math.hypot(lastDir.current.x, lastDir.current.z) || 1
+    const x = pos.current.x + (lastDir.current.x / len) * range
+    const z = pos.current.z + (lastDir.current.z / len) * range
+    state.setSmokeReadyAt(now + smokeCooldownMs(me.team))
+    emitSmoke(x, z)
+  }
+
   useEffect(() => {
     if (dashRequest <= 0) return
     tryDash()
   }, [dashRequest])
+
+  useEffect(() => {
+    if (smokeRequest <= 0) return
+    trySmoke()
+  }, [smokeRequest])
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -145,12 +168,17 @@ export function LocalController({
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
     const onPointer = (e: PointerEvent) => {
-      if (e.button !== 0) return
       if (e.pointerType === 'touch') return
-      if (attackBlocked()) return
       if (hudBlocksPointer(e.target)) return
       const state = useAppStore.getState()
       if (state.pendingNote || state.noteAsk) return
+      if (e.button === 2) {
+        e.preventDefault()
+        trySmoke()
+        return
+      }
+      if (e.button !== 0) return
+      if (attackBlocked()) return
       if (!isMobileDevice() && !document.pointerLockElement) return
       performAttack()
     }

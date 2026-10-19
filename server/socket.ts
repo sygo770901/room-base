@@ -28,6 +28,14 @@ import {
   dashCooldownMs,
   type MoveGrant,
 } from '../shared/movement.ts'
+import {
+  SMOKE_DURATION_MS,
+  SMOKE_RADIUS,
+  SMOKE_RANGE,
+  liveSmokes,
+  smokeCooldownMs,
+  type SmokeCloud,
+} from '../shared/smoke.ts'
 import { defaultSettings, isGameMode, type GameMode, type RoomSettings } from '../shared/modes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
 import type { MatchOver } from '../shared/combat.ts'
@@ -57,6 +65,8 @@ export interface RoomState {
   lastMoveAt: Record<string, number>
   moveGrant: Record<string, MoveGrant>
   nextDash: Record<string, number>
+  nextSmoke: Record<string, number>
+  smokes: SmokeCloud[]
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -90,6 +100,8 @@ function createRoom(roomId: string): RoomState {
     lastMoveAt: {},
     moveGrant: {},
     nextDash: {},
+    nextSmoke: {},
+    smokes: [],
   }
 }
 
@@ -123,6 +135,7 @@ function snapshotFor(room: RoomState, viewerId: string) {
     startInMs: room.startAt ? Math.max(0, room.startAt - Date.now()) : 0,
     started: room.started,
     tagHud: tagHudFor(room, viewerId),
+    smokes: liveSmokes(room.smokes, Date.now()),
   }
 }
 
@@ -225,6 +238,7 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
   delete room.lastMoveAt[playerId]
   delete room.moveGrant[playerId]
   delete room.nextDash[playerId]
+  delete room.nextSmoke[playerId]
   playerSockets.delete(playerId)
 
   if (room.hostId === playerId) {
@@ -427,6 +441,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         resetPlayersForTagRestart(room)
         room.tag = undefined
       }
+      room.smokes = []
       const ids = Object.keys(room.players)
       ids.forEach((id, i) => {
         const p = room.players[id]
@@ -444,6 +459,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         room.lastMoveAt[id] = Date.now()
         delete room.moveGrant[id]
         delete room.nextDash[id]
+        delete room.nextSmoke[id]
         io.to(id).emit('player:respawn', {
           position: p.position,
           hp: p.hp,
@@ -540,6 +556,44 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.hurtUntil[playerId] = Math.max(room.hurtUntil[playerId] ?? 0, now + DASH_IFRAME_MS)
       io.to(room.roomId).emit('player:dash', { id: playerId, until, dirX: dx, dirZ: dz })
       io.to(playerId).emit('dash:result', { ok: true, nextAt, until })
+    })
+
+    socket.on('skill:smoke', (payload: { x?: number; z?: number } = {}) => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
+      const now = Date.now()
+      if (player.seated || player.hidden) return
+      if (player.team === 'spectator') return
+      if ((room.mode === 'boss' || room.mode === 'tag') && !room.started) return
+      const readyAt = room.nextSmoke[playerId] ?? 0
+      if (now < readyAt) {
+        io.to(playerId).emit('smoke:result', { ok: false, nextAt: readyAt })
+        return
+      }
+      const ox = player.position[0]
+      const oz = player.position[2]
+      let tx = typeof payload.x === 'number' && Number.isFinite(payload.x) ? payload.x : ox + Math.sin(player.rotationY) * SMOKE_RANGE
+      let tz = typeof payload.z === 'number' && Number.isFinite(payload.z) ? payload.z : oz + Math.cos(player.rotationY) * SMOKE_RANGE
+      const dx = tx - ox
+      const dz = tz - oz
+      const dist = Math.hypot(dx, dz)
+      if (dist > SMOKE_RANGE && dist > 0) {
+        tx = ox + (dx / dist) * SMOKE_RANGE
+        tz = oz + (dz / dist) * SMOKE_RANGE
+      }
+      const cloud: SmokeCloud = {
+        id: `smoke-${now}-${playerId.slice(0, 6)}`,
+        x: tx,
+        z: tz,
+        r: SMOKE_RADIUS,
+        until: now + SMOKE_DURATION_MS,
+      }
+      room.smokes.push(cloud)
+      room.nextSmoke[playerId] = now + smokeCooldownMs(player.team)
+      io.to(room.roomId).emit('smoke:sync', liveSmokes(room.smokes, now))
+      io.to(playerId).emit('smoke:result', { ok: true, nextAt: room.nextSmoke[playerId] })
+      emitState(room, io)
     })
 
     socket.on('sit', (payload: { seatId: SeatId | null }, ack?: (ok: boolean, reason?: string) => void) => {

@@ -4,6 +4,7 @@ import type { FurnitureItem } from '../shared/furniture'
 import type { GameMode, RoomSettings } from '../shared/modes'
 import type { TagHud } from '../shared/tag'
 import type { SceneId } from '../shared/scenes'
+import type { SmokeCloud } from '../shared/smoke'
 
 export type Vec3 = [number, number, number]
 export type SeatId = string
@@ -49,6 +50,7 @@ export interface RoomSnapshot {
   startInMs?: number
   started?: boolean
   tagHud?: TagHud | null
+  smokes?: SmokeCloud[]
   error?: string
 }
 

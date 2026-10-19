@@ -3,6 +3,7 @@ import { ATTACK_COS, ATTACK_COOLDOWN_MS, ATTACK_RANGE, PLAYER_MAX_HP, type Match
 import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
 import { moveAllowance, type MoveGrant } from '../shared/movement.ts'
+import { smokeHidesFrom, type SmokeCloud } from '../shared/smoke.ts'
 import {
   TAG_BOX_MAX_MS,
   TAG_BOX_REENTER_MS,
@@ -37,6 +38,7 @@ export interface TagRoom {
   tag?: TagState
   lastMoveAt?: Record<string, number>
   moveGrant?: Record<string, MoveGrant>
+  smokes?: SmokeCloud[]
 }
 
 export function emptyTag(): TagState {
@@ -78,7 +80,18 @@ export function playerViewFor(room: TagRoom, viewerId: string, p: PlayerState): 
   if (p.id === viewerId) return stripPlayer(p)
   if (!seekersOf(room, viewerId)) return stripPlayer(p)
   const hidingCoords = hidePhase(room) ? p.team === 'hider' : Boolean(p.hidden && p.team === 'hider')
-  if (!hidingCoords) return stripPlayer(p)
+  const viewer = room.players[viewerId]
+  const smoked =
+    p.team === 'hider' &&
+    Boolean(p.position) &&
+    Boolean(viewer?.position) &&
+    smokeHidesFrom(
+      room.smokes,
+      { x: viewer!.position[0], z: viewer!.position[2] },
+      { x: p.position[0], z: p.position[2] },
+      Date.now(),
+    )
+  if (!hidingCoords && !smoked) return stripPlayer(p)
   const { position: _pos, ...rest } = p
   return rest as PlayerState
 }
