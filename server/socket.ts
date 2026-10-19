@@ -470,6 +470,9 @@ export function attachSocketServer(httpServer: HttpServer) {
         room.duckSpeech = null
         room.lastDuckLine = undefined
         room.speechNextAt = undefined
+        for (const p of Object.values(room.players)) {
+          if (p.team === 'spectator') p.team = 'hider'
+        }
       } else {
         room.monsters = []
         resetPlayersForTagRestart(room)
@@ -523,6 +526,9 @@ export function attachSocketServer(httpServer: HttpServer) {
         for (const p of present) p.team = 'hider'
         if (!startTagRound(room, io, Date.now())) return
       } else {
+        for (const p of present) {
+          if (p.team === 'spectator') p.team = 'hider'
+        }
         room.started = true
         room.hpScaled = false
         room.startAt = Date.now() + BOSS_COUNTDOWN_MS
