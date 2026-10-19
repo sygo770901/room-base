@@ -3,7 +3,15 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { rayOcclusion, SPAWN_POINTS } from '../../shared/dungeon'
-import { KAYKIT_OCCLUDERS } from '../../shared/kaykitScene'
+import { KAYKIT_OCCLUDERS, KAYKIT_TORCHES } from '../../shared/kaykitScene'
+import {
+  DESKTOP_DYNAMIC_POINT_LIGHTS,
+  DESKTOP_SHADOW_MAP,
+  TORCH_LIGHT_FADE,
+  TORCH_LIGHT_INTENSITY,
+  TORCH_LIGHT_RANGE,
+} from '../../shared/perf'
+import { canvasDpr, isMobileDevice } from '../perf/device'
 import { NotePlacementPlane, StickyNotes3D } from './Furniture'
 import { Dungeon } from './Dungeon'
 import { HitEffects } from './HitEffects'
@@ -40,12 +48,15 @@ function BlockContextMenu() {
   return null
 }
 
-function FollowLight() {
+function FollowLight({ mobile }: { mobile: boolean }) {
   const light = useRef<THREE.DirectionalLight>(null)
   const fill = useRef<THREE.PointLight>(null)
+  const torches = useRef<(THREE.PointLight | null)[]>([])
   const target = useMemo(() => new THREE.Object3D(), [])
   const selfId = useAppStore((s) => s.selfId)
   const players = useAppStore((s) => s.players)
+  const sceneId = useAppStore((s) => s.scene)
+  const ranked = useMemo(() => [] as { x: number; y: number; z: number; d: number }[], [])
 
   useFrame(() => {
     const p = selfId ? players[selfId] : null
@@ -57,18 +68,51 @@ function FollowLight() {
       target.updateMatrixWorld()
     }
     fill.current?.position.set(x, 3.4, z)
+
+    if (mobile || sceneId !== 'kaykit') return
+    ranked.length = 0
+    for (const t of KAYKIT_TORCHES) {
+      ranked.push({ ...t, d: Math.hypot(t.x - x, t.z - z) })
+    }
+    ranked.sort((a, b) => a.d - b.d)
+    for (let i = 0; i < DESKTOP_DYNAMIC_POINT_LIGHTS; i++) {
+      const lamp = torches.current[i]
+      const src = ranked[i]
+      if (!lamp || !src) continue
+      const fadeStart = TORCH_LIGHT_RANGE - TORCH_LIGHT_FADE
+      const w =
+        src.d >= TORCH_LIGHT_RANGE ? 0 : src.d <= fadeStart ? 1 : 1 - (src.d - fadeStart) / TORCH_LIGHT_FADE
+      lamp.position.set(src.x, src.y, src.z)
+      lamp.intensity = TORCH_LIGHT_INTENSITY * w
+    }
   })
 
   return (
     <>
       <primitive object={target} />
-      <pointLight ref={fill} color="#ffe2c4" intensity={36} distance={28} decay={2} />
+      {!mobile && sceneId !== 'kaykit' && (
+        <pointLight ref={fill} color="#ffe2c4" intensity={36} distance={28} decay={2} />
+      )}
+      {!mobile &&
+        sceneId === 'kaykit' &&
+        Array.from({ length: DESKTOP_DYNAMIC_POINT_LIGHTS }, (_, i) => (
+          <pointLight
+            key={i}
+            ref={(el) => {
+              torches.current[i] = el
+            }}
+            color="#ffb366"
+            intensity={0}
+            distance={14}
+            decay={2}
+          />
+        ))}
       <directionalLight
         ref={light}
-        castShadow
-        intensity={1.6}
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
+        castShadow={!mobile}
+        intensity={mobile ? 1.15 : 1.6}
+        shadow-mapSize-width={DESKTOP_SHADOW_MAP}
+        shadow-mapSize-height={DESKTOP_SHADOW_MAP}
         shadow-bias={-0.0004}
         shadow-camera-near={2}
         shadow-camera-far={36}
@@ -264,7 +308,7 @@ function SceneContent() {
       <fog attach="fog" args={sceneId === 'kaykit' ? ['#2a2428', 18, 70] : ['#3a3544', 28, 92]} />
       <hemisphereLight args={['#cbbba6', '#3a2c24', 1.25]} />
       <ambientLight intensity={0.8} />
-      <FollowLight />
+      <FollowLight mobile={isMobileDevice()} />
 
       <Suspense fallback={null}>
         <Dungeon focusX={displaySelf?.position?.[0] ?? SPAWN.x} focusZ={displaySelf?.position?.[2] ?? SPAWN.z} />
@@ -305,14 +349,19 @@ function SceneContent() {
 
 export function RoomScene() {
   const kaykit = useAppStore((s) => s.scene) === 'kaykit'
+  const mobile = isMobileDevice()
   const cameraPos: [number, number, number] = kaykit
     ? [SPAWN.x + 5.5, KAYKIT_CAM_Y, SPAWN.z + 6.8]
     : [SPAWN.x + 7, 9, SPAWN.z + 9]
   return (
     <Canvas
-      shadows
-      dpr={[1, 1.5]}
-      gl={{ toneMappingExposure: 1.35, powerPreference: 'high-performance' }}
+      shadows={!mobile}
+      dpr={canvasDpr(mobile)}
+      gl={{
+        toneMappingExposure: 1.35,
+        powerPreference: 'high-performance',
+        antialias: !mobile,
+      }}
       camera={{ position: cameraPos, fov: 48, near: 0.1, far: 180 }}
       style={{ width: '100%', height: '100%', touchAction: 'none' }}
     >

@@ -8,6 +8,7 @@ import { isWalkableWorld } from '../../shared/dungeon'
 import { INNER_WALLS, ROOM_BOUNDS, type FurnitureItem } from '../../shared/furniture'
 import { emitFurnitureMove } from '../net/socket'
 import { resolveFurniturePlace } from '../physics/collision'
+import { isMobileDevice } from '../perf/device'
 import { blockAttack } from './inputLock'
 import { useAppStore } from '../store'
 
@@ -25,11 +26,12 @@ type ModelProps = {
 }
 
 function enableShadows(root: THREE.Object3D) {
+  const mobile = isMobileDevice()
   root.traverse((child) => {
     if ((child as THREE.Mesh).isMesh) {
       const mesh = child as THREE.Mesh
-      mesh.castShadow = true
-      mesh.receiveShadow = true
+      mesh.castShadow = !mobile
+      mesh.receiveShadow = !mobile
     }
   })
 }

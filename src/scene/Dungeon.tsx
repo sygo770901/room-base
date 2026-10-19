@@ -10,6 +10,7 @@ import {
   type Place,
 } from '../../shared/dungeon'
 import { KAYKIT_PLACES } from '../../shared/kaykitScene'
+import { isMobileDevice } from '../perf/device'
 import { useAppStore } from '../store'
 
 const CHUNK = 32
@@ -36,15 +37,25 @@ type Part = {
   matrix: THREE.Matrix4
 }
 
-function partsOf(scene: THREE.Object3D): Part[] {
+function partsOf(scene: THREE.Object3D, glow = false): Part[] {
   scene.updateMatrixWorld(true)
   const parts: Part[] = []
   scene.traverse((obj) => {
     const mesh = obj as THREE.Mesh
     if (!mesh.isMesh) return
+    let material = mesh.material
+    if (glow) {
+      const src = Array.isArray(material) ? material[0] : material
+      if (src && 'emissive' in src) {
+        const lit = (src as THREE.MeshStandardMaterial).clone()
+        lit.emissive = new THREE.Color('#ff8a3a')
+        lit.emissiveIntensity = 1.15
+        material = lit
+      }
+    }
     parts.push({
       geometry: mesh.geometry,
-      material: mesh.material,
+      material,
       matrix: mesh.matrixWorld.clone(),
     })
   })
@@ -87,7 +98,7 @@ function InstanceChunk({ part, places, cast }: { part: Part; places: Place[]; ca
 
 function KitModel({ root, model, places }: { root: string; model: string; places: Place[] }) {
   const gltf = useGLTF(`${root}/${model}`)
-  const parts = useMemo(() => partsOf(gltf.scene), [gltf])
+  const parts = useMemo(() => partsOf(gltf.scene, model.startsWith('torch')), [gltf, model])
   const chunks = useMemo(() => {
     const map = new Map<string, Place[]>()
     for (const place of places) {
@@ -98,11 +109,13 @@ function KitModel({ root, model, places }: { root: string; model: string; places
     }
     return [...map.values()]
   }, [places])
+  const mobile = isMobileDevice()
   const cast =
-    model.startsWith('template-detail') ||
-    model.startsWith('pillar') ||
-    model.startsWith('crates') ||
-    model.startsWith('stairs')
+    !mobile &&
+    (model.startsWith('template-detail') ||
+      model.startsWith('pillar') ||
+      model.startsWith('crates') ||
+      model.startsWith('stairs'))
   return (
     <group>
       {chunks.map((chunk, chunkIndex) =>
