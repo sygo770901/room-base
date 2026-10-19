@@ -522,14 +522,14 @@ export const MONSTER_DEFS: MonsterDef[] = [
 ]
 
 const bossStart = patrol([
+  [17, 4],
+  [16, 4],
+  [16, 5],
   [19, 7],
-  [21, 8],
   [20, 12],
   [18, 14],
   [28, 14],
   [8, 14],
-  [20, 24],
-  [16, 29],
 ])
 
 export const BOSS_DEFS: MonsterDef[] = [

@@ -47,7 +47,7 @@ function MonsterView({ monster }: { monster: MonsterState }) {
       )}
       <Billboard position={[0, barY, 0]}>
         {(monster.kind === 'duck-king' || monster.kind === 'dispenser') && (
-          <Text fontSize={0.13} color="#f4f1ec" anchorX="center" anchorY="bottom" outlineWidth={0.008} outlineColor="#000">
+          <Text fontSize={0.2} color="#f4f1ec" anchorX="center" anchorY="bottom" outlineWidth={0.012} outlineColor="#000">
             {monster.name}
           </Text>
         )}

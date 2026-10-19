@@ -93,7 +93,7 @@ function fromDef(d: MonsterDef): ServerMonster {
     lastHitBy: null,
     wander: { x: d.patrol[0]?.x ?? 80, z: d.patrol[0]?.z ?? 22 },
     pounceUntil: 0,
-    nextSkill: 0,
+    nextSkill: Date.now() + 4500,
     pounceTargetId: null,
     spawnedAt: Date.now(),
   }
@@ -275,7 +275,7 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
     let tx = duck.wander.x
     let tz = duck.wander.z
     let speed = PATROL_SPEED
-    const canFlee = now - duck.spawnedAt > 3500
+    const canFlee = now - duck.spawnedAt > 8000
     if (seen.target && canFlee) {
       const dx = duck.x - seen.target.position[0]
       const dz = duck.z - seen.target.position[2]

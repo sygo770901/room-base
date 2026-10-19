@@ -144,13 +144,13 @@ export function KayKitHero({
 
   const rightWeapon = useMemo(() => {
     const g = new THREE.Group()
+    g.add(makeHeldSword())
     if (load.right) {
       const kaykit = cloneWeapon(rightGltf.scene)
-      kaykit.scale.setScalar(1.15)
+      kaykit.rotation.set(0, 0, 0)
+      kaykit.scale.setScalar(1.05)
       g.add(kaykit)
     }
-    const held = makeHeldSword()
-    g.add(held)
     return g
   }, [load.right, rightGltf.scene])
 
@@ -222,21 +222,20 @@ export function KayKitHero({
     if (left && leftRef.current) snapToBone(leftRef.current, left)
   })
 
-  const sx = compact ? 0.78 : 1
-  const sy = compact ? 0.84 : 1
-  const sz = compact ? 0.78 : 1
-  const hide = hidden ? 0.72 : 1
+  const s = (compact ? 0.86 : 1) * (hidden ? 0.72 : 1)
 
   return (
-    <group scale={[sx * hide, sy * hide, sz * hide]}>
+    <group scale={s}>
       <primitive object={root} />
       {load.right && (
-        <group ref={rightRef} position={[0.42, 0.78, 0.12]} rotation={[0, 0, -0.35]}>
-          <primitive object={rightWeapon} />
+        <group ref={rightRef} position={[0.46, 0.82, 0.14]}>
+          <group rotation={[Math.PI / 2, 0, 0.15]}>
+            <primitive object={rightWeapon} />
+          </group>
         </group>
       )}
       {load.left && (
-        <group ref={leftRef} position={[-0.32, 0.72, 0.1]}>
+        <group ref={leftRef} position={[-0.34, 0.74, 0.1]}>
           <primitive object={leftWeapon} />
         </group>
       )}
