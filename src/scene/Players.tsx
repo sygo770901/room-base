@@ -100,6 +100,20 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
         hidden={player.hidden}
         compact
       />
+      {player.phrase && player.phrase.until > Date.now() && (
+        <Billboard position={[0, labelY + 0.32, 0]}>
+          <Text
+            fontSize={0.2}
+            color="#fff4d6"
+            anchorX="center"
+            anchorY="middle"
+            outlineWidth={0.012}
+            outlineColor="#1a1208"
+          >
+            {player.phrase.text}
+          </Text>
+        </Billboard>
+      )}
       <Billboard position={[0, labelY, 0]}>
         <Text
           fontSize={0.16}

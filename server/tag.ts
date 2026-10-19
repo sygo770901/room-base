@@ -115,7 +115,7 @@ export function playerViewFor(room: TagRoom, viewerId: string, p: PlayerState): 
       doorsOf(room.scene),
     )
   if (!hidingCoords && !smoked && !behindDoor) return stripPlayer(p, away)
-  const { position: _pos, ...rest } = p
+  const { position: _pos, phrase: _phrase, ...rest } = p
   return { ...rest, away } as PlayerState
 }
 

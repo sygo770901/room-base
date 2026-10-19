@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { LOOK_SENS_MAX, LOOK_SENS_MIN, LOOK_SENS_STEP } from '../../shared/input'
-import { disconnectSocket, emitAddNote, emitCheck, emitDoorToggle, emitHide, emitRemoveNote, emitRestart, emitScene, emitStart, emitUpdateNote, performAttack } from '../net/socket'
+import { disconnectSocket, emitAddNote, emitCheck, emitDoorToggle, emitHide, emitPhrase, emitRemoveNote, emitRestart, emitScene, emitStart, emitUpdateNote, performAttack } from '../net/socket'
+import { QUICK_PHRASES } from '../../shared/phrases'
+import { typingInField } from '../scene/inputLock'
 import { SCENE_IDS, SCENE_LABELS } from '../../shared/scenes'
 import { setMicEnabled } from '../net/voice'
 import { isMobileDevice } from '../perf/device'
@@ -57,6 +59,7 @@ export function Hud() {
   const [playLeft, setPlayLeft] = useState<number | null>(null)
   const [checkLeft, setCheckLeft] = useState(0)
   const [fontSize, setFontSize] = useState(0.12)
+  const [phraseOpen, setPhraseOpen] = useState(false)
 
   useEffect(() => {
     if (pendingNote || noteAsk) exitGameLock()
@@ -84,6 +87,20 @@ export function Hud() {
   useEffect(() => {
     if (matchOver || ((mode === 'boss' || mode === 'tag') && !started)) exitGameLock()
   }, [matchOver, mode, started])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (typingInField() || matchOver) return
+      const n = e.code.startsWith('Digit') ? Number(e.code.slice(5)) : Number(e.key)
+      if (n >= 1 && n <= 6) {
+        e.preventDefault()
+        emitPhrase(n - 1)
+        setPhraseOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [matchOver])
 
   useEffect(() => {
     setClock(timeLeftMs)
@@ -392,6 +409,29 @@ export function Hud() {
         <button type="button" className="door-btn" onClick={() => emitDoorToggle()}>
           門
         </button>
+      )}
+      {!matchOver && started && self?.team !== 'spectator' && (
+        <div className="phrase-wrap">
+          <button type="button" className="phrase-btn" onClick={() => setPhraseOpen((v) => !v)}>
+            💬
+          </button>
+          {phraseOpen && (
+            <div className="phrase-menu">
+              {QUICK_PHRASES.map((text, i) => (
+                <button
+                  key={text}
+                  type="button"
+                  onClick={() => {
+                    emitPhrase(i)
+                    setPhraseOpen(false)
+                  }}
+                >
+                  {i + 1}. {text}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
       {!matchOver && started && mode === 'tag' && self?.team === 'ghost' && hideLeft <= 0 && (
         <button type="button" className="check-btn" disabled={checkLeft > 0} onClick={() => emitCheck()}>

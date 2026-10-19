@@ -18,6 +18,7 @@ export interface PlayerState {
   weapon?: 'sword' | 'dagger' | 'hammer'
   weaponUntil?: number
   away?: boolean
+  phrase?: { text: string; until: number } | null
 }
 
 export interface StickyNote {

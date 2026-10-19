@@ -53,6 +53,7 @@ import { isSceneId, type SceneId } from '../shared/scenes.ts'
 import { canStartJump } from '../shared/platforms.ts'
 import { doorsOf, platformsOf } from '../shared/mapData.ts'
 import { normalizeToken, resolveJoinPlayerId } from '../shared/identity.ts'
+import { PHRASE_COOLDOWN_MS, PHRASE_DURATION_MS, phraseAt } from '../shared/phrases.ts'
 import { pickLiveHost } from '../shared/host.ts'
 import type { DuckSpeech, MatchOver } from '../shared/combat.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
@@ -97,6 +98,7 @@ export interface RoomState {
   dispenserKills: Record<string, number>
   rescues: Record<string, number>
   hideMs: Record<string, number>
+  nextPhrase: Record<string, number>
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -141,6 +143,7 @@ function createRoom(roomId: string): RoomState {
     dispenserKills: {},
     rescues: {},
     hideMs: {},
+    nextPhrase: {},
   }
 }
 
@@ -298,6 +301,7 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
   delete room.moveGrant[playerId]
   delete room.nextDash[playerId]
   delete room.nextSmoke[playerId]
+  delete room.nextPhrase[playerId]
   playerSockets.delete(playerId)
 
   applyLiveHost(room)
@@ -513,6 +517,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.dispenserKills = {}
       room.rescues = {}
       room.hideMs = {}
+      room.nextPhrase = {}
       room.startAt = 0
       room.matchDeadline = null
       if (room.mode === 'boss') {
@@ -541,6 +546,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         const sp = SPAWN_POINTS[i % SPAWN_POINTS.length]
         p.hp = PLAYER_MAX_HP
         p.hidden = false
+        p.phrase = null
         p.weapon = 'sword'
         p.weaponUntil = 0
         if (p.seated) {
@@ -697,6 +703,20 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (!isSceneId(payload.scene)) return
       room.scene = payload.scene
       room.doors = createDoors(doorsOf(room.scene))
+      emitState(room, io)
+    })
+
+    socket.on('phrase', (payload: { index?: number } = {}) => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
+      if (player.team === 'spectator') return
+      const text = typeof payload.index === 'number' ? phraseAt(payload.index) : null
+      if (!text) return
+      const now = Date.now()
+      if (now < (room.nextPhrase[playerId] ?? 0)) return
+      room.nextPhrase[playerId] = now + PHRASE_COOLDOWN_MS
+      player.phrase = { text, until: now + PHRASE_DURATION_MS }
       emitState(room, io)
     })
 

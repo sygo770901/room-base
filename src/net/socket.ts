@@ -600,6 +600,10 @@ export function emitJump() {
   socket?.emit('jump')
 }
 
+export function emitPhrase(index: number) {
+  socket?.emit('phrase', { index })
+}
+
 export function emitDoorToggle(id?: string) {
   socket?.emit('door:toggle', { id })
 }

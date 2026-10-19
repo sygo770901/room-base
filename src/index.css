@@ -671,6 +671,44 @@ input {
   color: #1a120c;
 }
 
+.phrase-wrap {
+  position: absolute;
+  left: 16px;
+  bottom: 92px;
+  z-index: 16;
+}
+
+.phrase-btn {
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: 50%;
+  background: #3d405b;
+  color: #fff;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.phrase-menu {
+  position: absolute;
+  left: 0;
+  bottom: 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 132px;
+}
+
+.phrase-menu button {
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: rgba(22, 18, 16, 0.92);
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
 .ghost-blackout {
   position: absolute;
   inset: 0;
@@ -820,6 +858,11 @@ input {
     bottom: calc(192px + env(safe-area-inset-bottom));
     width: 72px;
     height: 72px;
+  }
+
+  .phrase-wrap {
+    left: 12px;
+    bottom: calc(168px + env(safe-area-inset-bottom));
   }
 
   .dock {
