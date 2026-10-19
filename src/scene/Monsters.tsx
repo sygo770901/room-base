@@ -35,8 +35,8 @@ function MonsterView({ monster }: { monster: MonsterState }) {
   return (
     <group ref={ref}>
       {monster.kind === 'duck-king' ? (
-        <group scale={1.18}>
-          <DuckKingMesh moving={moving} fleeing={moving && speed.current > 2.8} />
+        <group scale={monster.phase === 2 ? 1.18 * 1.15 : 1.18}>
+          <DuckKingMesh moving={moving} fleeing={moving && speed.current > 2.8} raging={monster.phase === 2} />
         </group>
       ) : monster.kind === 'dispenser' ? (
         <group scale={1.55}>

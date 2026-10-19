@@ -218,6 +218,12 @@ function bindListeners(s: Socket) {
     setTimeout(() => useAppStore.getState().setToast(null), 3200)
   })
 
+  s.on('boss:phase', ({ phase }: { phase: 1 | 2 }) => {
+    if (phase !== 2) return
+    useAppStore.getState().setToast('鴨大王生氣了！')
+    setTimeout(() => useAppStore.getState().setToast(null), 2200)
+  })
+
   s.on('boss:telegraph', (payload: { x: number; z: number; r: number; ms: number }) => {
     useAppStore.getState().setTelegraph(payload)
     useAppStore.getState().setToast('鴨大王要震地了！')

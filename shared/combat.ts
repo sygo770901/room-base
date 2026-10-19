@@ -15,6 +15,7 @@ export interface MonsterState {
   alive: boolean
   /** 飲水機正在衝撞玩家 */
   pouncing?: boolean
+  phase?: 1 | 2
 }
 
 export interface DamageRank {
@@ -59,11 +60,16 @@ export const SLAM_RADIUS = 3
 export const SLAM_WINDUP_MS = 1000
 export const SLAM_DAMAGE = 25
 export const SLAM_CD_MS = 6000
+export const SLAM_RADIUS_RAGE = 3.5
+export const SLAM_WINDUP_RAGE_MS = 800
+export const SLAM_CD_RAGE_MS = 4000
 export const PET_FOLLOW_SPEED = 3.7
 export const PET_POUNCE_SPEED = 6.4
 export const PET_DAMAGE = 18
 export const PET_SKILL_CD_MS = 7800
+export const PET_SKILL_CD_RAGE_MS = 5000
 export const PET_POUNCE_MS = 4200
+export const RAGE_PAUSE_MS = 1000
 export const RESPAWN_MS = 9000
 export const IFRAME_MS = 2000
 export const MONSTER_RADIUS = 0.42

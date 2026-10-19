@@ -81,6 +81,31 @@ input {
   line-height: 1.45;
 }
 
+.boss-hp {
+  position: relative;
+  height: 8px;
+  margin-top: 4px;
+  background: #2a1414;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.boss-hp > span {
+  display: block;
+  height: 100%;
+  background: #c9a0ff;
+}
+
+.boss-hp > i.phase-mark {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #fff6e8;
+  opacity: 0.9;
+}
+
 .match-over {
   top: 22%;
   text-align: center;

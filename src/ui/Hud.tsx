@@ -136,11 +136,20 @@ export function Hud() {
         <div className="boss-objective">
           {monsters
             .filter((m) => m.kind === 'duck-king' || m.kind === 'dispenser')
-            .map((m) => (
-              <div key={m.id}>
-                {m.name} {m.alive ? `${Math.max(0, Math.round((m.hp / Math.max(1, m.maxHp)) * 100))}%` : '已倒下'}
-              </div>
-            ))}
+            .map((m) => {
+              const pct = Math.max(0, Math.min(100, Math.round((m.hp / Math.max(1, m.maxHp)) * 100)))
+              return (
+                <div key={m.id}>
+                  {m.name} {m.alive ? `${pct}%` : '已倒下'}
+                  {m.kind === 'duck-king' && m.alive && (
+                    <div className="boss-hp">
+                      <span style={{ width: `${pct}%` }} />
+                      <i className="phase-mark" />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
         </div>
       )}
 
