@@ -31,6 +31,10 @@ export function Barrels() {
   const barrels = useAppStore((s) => s.barrels)
   const drops = useAppStore((s) => s.drops)
   const gltf = useGLTF(BARREL_URL)
+  const lift = useMemo(() => {
+    const box = new THREE.Box3().setFromObject(gltf.scene)
+    return -box.min.y
+  }, [gltf])
   const [, bump] = useState(0)
   const glow = useMemo(
     () => new THREE.MeshBasicMaterial({ color: '#ffe566', transparent: true, opacity: 0.9 }),
@@ -61,7 +65,7 @@ export function Barrels() {
       {barrels
         .filter((b) => b.alive)
         .map((b) => (
-          <primitive key={b.id} object={gltf.scene.clone()} position={[b.x, 0, b.z]} scale={1.15} />
+          <primitive key={b.id} object={gltf.scene.clone()} position={[b.x, lift * 1.15, b.z]} scale={1.15} />
         ))}
       {drops.map((d) => {
         const t = (Date.now() % 1600) / 1600

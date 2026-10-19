@@ -139,7 +139,7 @@ function createRoom(roomId: string): RoomState {
     nextDash: {},
     nextSmoke: {},
     smokes: [],
-    barrels: createBarrels(),
+    barrels: createBarrels('kenney'),
     drops: [],
     projectiles: [],
     doors: createDoors(doorsOf('kenney')),
@@ -432,6 +432,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         if (isFirst && isSceneId(payload.scene)) {
           room.scene = payload.scene
           room.doors = createDoors(doorsOf(room.scene))
+          room.barrels = createBarrels(room.scene)
         }
         if (isFirst && !isGameMode(payload.mode)) room.started = true
         if (isFirst && isGameMode(payload.mode)) {
@@ -546,7 +547,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         room.tag = undefined
       }
       room.smokes = []
-      room.barrels = createBarrels()
+      room.barrels = createBarrels(room.scene)
       room.drops = []
       room.projectiles = []
       room.doors = createDoors(doorsOf(room.scene))
@@ -714,6 +715,8 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (!isSceneId(payload.scene)) return
       room.scene = payload.scene
       room.doors = createDoors(doorsOf(room.scene))
+      room.barrels = createBarrels(room.scene)
+      room.drops = []
       emitState(room, io)
     })
 
