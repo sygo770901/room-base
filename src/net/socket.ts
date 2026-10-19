@@ -11,6 +11,7 @@ import type { GameMode } from '../../shared/modes'
 import type { SceneId } from '../../shared/scenes'
 import type { BarrelState, LootDrop } from '../../shared/barrels'
 import type { SmokeCloud } from '../../shared/smoke'
+import type { DoorState } from '../../shared/doors'
 import { spawnBarrelShards } from '../scene/Barrels'
 import { playSfx, unlockSfx } from '../audio/sfx'
 import { useAppStore } from '../store'
@@ -300,6 +301,16 @@ function bindListeners(s: Socket) {
     useAppStore.getState().setProjectiles(projectiles)
   })
 
+  s.on('doors:sync', (doors: DoorState[]) => {
+    useAppStore.getState().setDoors(doors)
+  })
+
+  s.on('door:result', (payload: { ok: boolean; reason?: string }) => {
+    if (payload.ok) return
+    useAppStore.getState().setToast(payload.reason === 'blocked' ? '有人站在門口，關不起來' : '現在不能開關這扇門')
+    setTimeout(() => useAppStore.getState().setToast(null), 1600)
+  })
+
   s.on('note:added', (note: StickyNote) => {
     useAppStore.getState().addNote(note)
   })
@@ -579,6 +590,10 @@ export function emitMove(position: Vec3, rotationY: number) {
 
 export function emitJump() {
   socket?.emit('jump')
+}
+
+export function emitDoorToggle(id?: string) {
+  socket?.emit('door:toggle', { id })
 }
 
 export function emitSit(seatId: SeatId | null) {

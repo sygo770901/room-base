@@ -85,6 +85,13 @@ import {
 } from '../shared/barrels.ts'
 import { inSmoke, type SmokeCloud } from '../shared/smoke.ts'
 import { nextComboStep, type HitAnim } from '../shared/anim.ts'
+import {
+  DOOR_MONSTER_WAIT_MS,
+  closedDoorAabbs,
+  closedDoorWalls,
+  doorOnPath,
+  type DoorState,
+} from '../shared/doors.ts'
 import type { TagState } from '../shared/tag.ts'
 import { handleTagAttack, tickTag } from './tag.ts'
 import type { PlayerState } from './types.ts'
@@ -121,6 +128,8 @@ export interface ServerMonster {
   nextCast: number
   windupX: number
   windupZ: number
+  doorWaitUntil: number
+  waitingDoorId: string | null
 }
 
 export interface CombatRoom {
@@ -148,6 +157,7 @@ export interface CombatRoom {
   projectiles?: ProjectileState[]
   comboStep?: Record<string, number>
   lastSwingAt?: Record<string, number>
+  doors?: DoorState[]
 }
 
 function fromDef(d: MonsterDef): ServerMonster {
@@ -184,6 +194,8 @@ function fromDef(d: MonsterDef): ServerMonster {
     nextCast: 0,
     windupX: 0,
     windupZ: 0,
+    doorWaitUntil: 0,
+    waitingDoorId: null,
   }
 }
 
@@ -525,9 +537,38 @@ function tickProjectiles(room: CombatRoom, io: Server, now: number, dt: number, 
   room.projectiles = keep
 }
 
+function sceneWalls(room: CombatRoom, now: number) {
+  const base = room.scene === 'kaykit' ? KAYKIT_EXTRA_WALLS : []
+  return base.concat(closedDoorWalls(room.doors, now))
+}
+
+function sceneAabbs(room: CombatRoom, now: number) {
+  const base = room.scene === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
+  return base.concat(closedDoorAabbs(room.doors, now))
+}
+
+function maybeMonsterOpenDoor(room: CombatRoom, io: Server, m: ServerMonster, tx: number, tz: number, now: number) {
+  const blocked = doorOnPath(room.doors, m.x, m.z, tx, tz, now)
+  if (!blocked) {
+    m.waitingDoorId = null
+    m.doorWaitUntil = 0
+    return
+  }
+  if (m.waitingDoorId !== blocked.id) {
+    m.waitingDoorId = blocked.id
+    m.doorWaitUntil = now + DOOR_MONSTER_WAIT_MS
+    return
+  }
+  if (now < m.doorWaitUntil) return
+  blocked.open = true
+  blocked.busyUntil = now
+  m.waitingDoorId = null
+  io.to(room.roomId).emit('doors:sync', room.doors)
+}
+
 function tickHunt(room: CombatRoom, io: Server, now: number, dt: number) {
-  const extraWalls = room.scene === 'kaykit' ? KAYKIT_EXTRA_WALLS : []
-  const extraAabbs = room.scene === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
+  const extraWalls = sceneWalls(room, now)
+  const extraAabbs = sceneAabbs(room, now)
   for (const m of room.monsters) {
     if (!m.alive) {
       if (now >= m.respawnAt) {
@@ -548,6 +589,8 @@ function tickHunt(room: CombatRoom, io: Server, now: number, dt: number) {
     else if (m.model === 'rogue') tickRogue(room, io, m, now, dt, extraWalls, extraAabbs)
     else if (m.model === 'barbarian') tickBarbarian(room, io, m, now, dt, extraWalls, extraAabbs)
     else tickKnight(room, io, m, now, dt, extraWalls, extraAabbs)
+    const seen = nearestVisible(room, m.x, m.z, extraWalls, SIGHT)
+    if (seen.target) maybeMonsterOpenDoor(room, io, m, seen.target.position[0], seen.target.position[2], now)
   }
   tickProjectiles(room, io, now, dt, extraAabbs)
 }
@@ -589,8 +632,8 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
   if (!room.started) return
   if (room.startAt && now < room.startAt) return
   if (room.startAt && now >= room.startAt) scaleBossHealth(room)
-  const extraWalls = room.scene === 'kaykit' ? KAYKIT_EXTRA_WALLS : []
-  const extraAabbs = room.scene === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
+  const extraWalls = sceneWalls(room, now)
+  const extraAabbs = sceneAabbs(room, now)
   const duck = room.monsters.find((m) => m.kind === 'duck-king')
   const pet = room.monsters.find((m) => m.kind === 'dispenser')
   maybeRage(room, io, now)
@@ -649,6 +692,7 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
         duck.wander = pickWander(duck.x, duck.z)
       }
     }
+    maybeMonsterOpenDoor(room, io, duck, tx, tz, now)
 
     if (pet?.alive && seen.target && now >= Math.max(pet.nextSkill, room.startAt ?? 0)) {
       pet.pounceUntil = now + PET_POUNCE_MS
@@ -690,6 +734,7 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
       }
     }
     stepMonster(room, pet, tx, tz, speed, dt, extraAabbs)
+    maybeMonsterOpenDoor(room, io, pet, tx, tz, now)
     if (prey) {
       const dist = Math.hypot(prey.position[0] - pet.x, prey.position[2] - pet.z)
       tryTouch(room, io, pet, prey, now, dist, PET_DAMAGE)
@@ -840,6 +885,9 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
     }
     best = m
     bestD = dist
+  }
+  if (best && !hasLineOfSight(player.position[0], player.position[2], best.x, best.z, sceneWalls(room, now))) {
+    best = null
   }
   if (!best) {
     hitBarrel(room, io, player, now, stats)

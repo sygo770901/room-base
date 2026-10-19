@@ -8,7 +8,8 @@ import { DASH_DISTANCE, DASH_DURATION_MS, JUMP_CEILING, dashCooldownMs } from '.
 import { GRAVITY, HIDE_MAX_Y, JUMP_SPEED, platformsFor, supportY } from '../../shared/platforms'
 import { PLAYER_RADIUS } from '../../shared/furniture'
 import { SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
-import { emitDash, emitFurniturePush, emitHide, emitJump, emitMove, emitSit, emitSmoke, performAttack } from '../net/socket'
+import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitSit, emitSmoke, performAttack } from '../net/socket'
+import { DOOR_RANGE, closedDoorAabbs, nearestDoor } from '../../shared/doors'
 import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
 import { resolvePlayerMove, KAYKIT_EXTRA_AABBS } from '../physics/collision'
 import { useAppStore } from '../store'
@@ -200,6 +201,7 @@ export function LocalController({
       if (e.code === 'Space') tryJump()
       if (e.code === 'KeyE') {
         if (seatedRef.current) void emitSit(null)
+        else if (nearestDoor(pos.current.x, pos.current.z, DOOR_RANGE)) emitDoorToggle()
         else tryHide()
       }
     }
@@ -302,7 +304,9 @@ export function LocalController({
       const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * dt
 
       const sceneId = useAppStore.getState().scene
-      const extra = sceneId === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
+      const extra = (sceneId === 'kaykit' ? KAYKIT_EXTRA_AABBS : []).concat(
+        closedDoorAabbs(useAppStore.getState().doors),
+      )
       const plats = platformsFor(sceneId)
       const result = resolvePlayerMove(
         pos.current.x,
@@ -341,7 +345,9 @@ export function LocalController({
     if (dashing) {
       const step = (DASH_DISTANCE / (DASH_DURATION_MS / 1000)) * dt
       const sceneId = useAppStore.getState().scene
-      const extra = sceneId === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
+      const extra = (sceneId === 'kaykit' ? KAYKIT_EXTRA_AABBS : []).concat(
+        closedDoorAabbs(useAppStore.getState().doors),
+      )
       const result = resolvePlayerMove(
         pos.current.x,
         pos.current.z,

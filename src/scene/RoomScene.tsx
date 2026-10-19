@@ -25,6 +25,7 @@ import { LocalAvatar, RemotePlayers } from './Players'
 import { LocalController } from './LocalController'
 import { SmokeClouds } from './SmokeClouds'
 import { Barrels } from './Barrels'
+import { Doors } from './Doors'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
@@ -350,6 +351,7 @@ function SceneContent() {
       <HitEffects />
       <Telegraph />
       <Projectiles />
+      <Doors />
       <SmokeClouds />
       <Suspense fallback={null}>
         <Barrels />

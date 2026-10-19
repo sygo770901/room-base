@@ -8,6 +8,7 @@ import type { TagHud } from '../shared/tag'
 import type { SceneId } from '../shared/scenes'
 import type { BarrelState, LootDrop } from '../shared/barrels'
 import type { SmokeCloud } from '../shared/smoke'
+import type { DoorState } from '../shared/doors'
 import { LOOK_SENS_DEFAULT, LOOK_SENS_MAX, LOOK_SENS_MIN } from '../shared/input'
 import { loadSession } from './net/session'
 
@@ -82,6 +83,7 @@ interface AppState {
   telegraph: { x: number; z: number; r: number; ms: number; until: number } | null
   telegraphs: { id: string; x: number; z: number; r: number; ms: number; until: number }[]
   projectiles: ProjectileState[]
+  doors: DoorState[]
   hurtFlashUntil: Record<string, number>
   dashUntil: Record<string, number>
   dashReadyAt: number
@@ -118,6 +120,7 @@ interface AppState {
   setTelegraph: (tel: { x: number; z: number; r: number; ms: number } | null) => void
   upsertTelegraph: (tel: { id: string; x: number; z: number; r: number; ms: number }) => void
   setProjectiles: (projectiles: ProjectileState[]) => void
+  setDoors: (doors: DoorState[]) => void
   setHurtFlash: (id: string, until: number) => void
   bumpRespawn: () => void
   bumpPoseSync: () => void
@@ -184,6 +187,7 @@ export const useAppStore = create<AppState>((set) => ({
   telegraph: null,
   telegraphs: [],
   projectiles: [],
+  doors: [],
   hurtFlashUntil: {},
   dashUntil: {},
   dashReadyAt: 0,
@@ -220,6 +224,7 @@ export const useAppStore = create<AppState>((set) => ({
       barrels: snapshot.barrels ?? [],
       drops: snapshot.drops ?? [],
       projectiles: snapshot.projectiles ?? [],
+      doors: snapshot.doors ?? [],
     }),
   applySnapshot: (snapshot) =>
     set((s) => ({
@@ -242,6 +247,7 @@ export const useAppStore = create<AppState>((set) => ({
       barrels: snapshot.barrels ?? s.barrels,
       drops: snapshot.drops ?? s.drops,
       projectiles: snapshot.projectiles ?? s.projectiles,
+      doors: snapshot.doors ?? s.doors,
     })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
@@ -299,6 +305,7 @@ export const useAppStore = create<AppState>((set) => ({
       return { telegraphs: next }
     }),
   setProjectiles: (projectiles) => set({ projectiles }),
+  setDoors: (doors) => set({ doors }),
   setHurtFlash: (id, until) => set((s) => ({ hurtFlashUntil: { ...s.hurtFlashUntil, [id]: until } })),
   bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
   bumpPoseSync: () => set((s) => ({ poseSync: s.poseSync + 1 })),
@@ -366,6 +373,7 @@ export const useAppStore = create<AppState>((set) => ({
       telegraph: null,
       telegraphs: [],
       projectiles: [],
+      doors: [],
       hurtFlashUntil: {},
       joy: { x: 0, y: 0 },
       pointerLocked: false,

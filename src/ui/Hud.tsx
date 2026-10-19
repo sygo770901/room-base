@@ -1,12 +1,13 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { LOOK_SENS_MAX, LOOK_SENS_MIN, LOOK_SENS_STEP } from '../../shared/input'
-import { disconnectSocket, emitAddNote, emitCheck, emitHide, emitRemoveNote, emitRestart, emitStart, emitUpdateNote, performAttack } from '../net/socket'
+import { disconnectSocket, emitAddNote, emitCheck, emitDoorToggle, emitHide, emitRemoveNote, emitRestart, emitStart, emitUpdateNote, performAttack } from '../net/socket'
 import { setMicEnabled } from '../net/voice'
 import { isMobileDevice } from '../perf/device'
 import { exitGameLock } from '../scene/pointerLock'
 import { useAppStore } from '../store'
 import { VirtualJoystick } from './VirtualJoystick'
 import { Minimap } from './Minimap'
+import { nearestDoor, DOOR_RANGE } from '../../shared/doors'
 
 export function Hud() {
   const players = useAppStore((s) => s.players)
@@ -353,6 +354,11 @@ export function Hud() {
           onClick={() => emitHide(!self.hidden)}
         >
           {self.hidden ? '出來' : '躲'}
+        </button>
+      )}
+      {!matchOver && started && self?.team !== 'spectator' && self?.position && nearestDoor(self.position[0], self.position[2], DOOR_RANGE) && (
+        <button type="button" className="door-btn" onClick={() => emitDoorToggle()}>
+          門
         </button>
       )}
       {!matchOver && started && mode === 'tag' && self?.team === 'ghost' && hideLeft <= 0 && (

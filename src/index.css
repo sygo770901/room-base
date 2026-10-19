@@ -515,7 +515,8 @@ input {
 .check-btn,
 .dash-btn,
 .skill-btn,
-.jump-btn {
+.jump-btn,
+.door-btn {
   position: absolute;
   z-index: 15;
   width: 56px;
@@ -566,6 +567,13 @@ input {
   top: calc(50% - 152px);
   background: #8ab4f8;
   color: #102033;
+}
+
+.door-btn {
+  right: 16px;
+  top: calc(50% + 4px);
+  background: #c4a574;
+  color: #1a120c;
 }
 
 .ghost-blackout {
@@ -707,6 +715,14 @@ input {
     top: auto;
     right: 204px;
     bottom: calc(108px + env(safe-area-inset-bottom));
+    width: 72px;
+    height: 72px;
+  }
+
+  .door-btn {
+    top: auto;
+    right: 124px;
+    bottom: calc(192px + env(safe-area-inset-bottom));
     width: 72px;
     height: 72px;
   }

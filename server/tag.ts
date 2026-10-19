@@ -6,6 +6,7 @@ import type { GameMode, RoomSettings } from '../shared/modes.ts'
 import { JUMP_CEILING, JUMP_MAX_DELTA, MOVE_Y_PAD, moveAllowance, type MoveGrant } from '../shared/movement.ts'
 import { HIDE_MAX_Y } from '../shared/platforms.ts'
 import { smokeHidesFrom, type SmokeCloud } from '../shared/smoke.ts'
+import { doorHidesFrom, type DoorState } from '../shared/doors.ts'
 import {
   TAG_BOX_MAX_MS,
   TAG_BOX_REENTER_MS,
@@ -43,6 +44,7 @@ export interface TagRoom {
   lastMoveAt?: Record<string, number>
   moveGrant?: Record<string, MoveGrant>
   smokes?: SmokeCloud[]
+  doors?: DoorState[]
 }
 
 export function emptyTag(): TagState {
@@ -95,7 +97,16 @@ export function playerViewFor(room: TagRoom, viewerId: string, p: PlayerState): 
       { x: p.position[0], z: p.position[2] },
       Date.now(),
     )
-  if (!hidingCoords && !smoked) return stripPlayer(p)
+  const behindDoor =
+    p.team === 'hider' &&
+    Boolean(p.position) &&
+    Boolean(viewer?.position) &&
+    doorHidesFrom(
+      room.doors,
+      { x: viewer!.position[0], z: viewer!.position[2] },
+      { x: p.position[0], z: p.position[2] },
+    )
+  if (!hidingCoords && !smoked && !behindDoor) return stripPlayer(p)
   const { position: _pos, ...rest } = p
   return rest as PlayerState
 }

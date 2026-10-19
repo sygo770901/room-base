@@ -6,6 +6,7 @@ import type { TagHud } from '../shared/tag'
 import type { SceneId } from '../shared/scenes'
 import type { BarrelState, LootDrop } from '../shared/barrels'
 import type { SmokeCloud } from '../shared/smoke'
+import type { DoorState } from '../shared/doors'
 
 export type Vec3 = [number, number, number]
 export type SeatId = string
@@ -57,6 +58,7 @@ export interface RoomSnapshot {
   barrels?: BarrelState[]
   drops?: LootDrop[]
   projectiles?: ProjectileState[]
+  doors?: DoorState[]
   error?: string
 }
 
