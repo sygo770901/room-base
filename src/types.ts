@@ -7,6 +7,7 @@ import type { SceneId } from '../shared/scenes'
 import type { BarrelState, LootDrop } from '../shared/barrels'
 import type { SmokeCloud } from '../shared/smoke'
 import type { DoorState } from '../shared/doors'
+import type { FeedItem } from '../shared/events'
 
 export type Vec3 = [number, number, number]
 export type SeatId = string
@@ -63,6 +64,7 @@ export interface RoomSnapshot {
   projectiles?: ProjectileState[]
   doors?: DoorState[]
   duckSpeech?: DuckSpeech | null
+  feed?: FeedItem[]
   selfId?: string
   error?: string
 }

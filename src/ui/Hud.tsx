@@ -62,6 +62,7 @@ export function Hud() {
   const [fontSize, setFontSize] = useState(0.12)
   const [phraseOpen, setPhraseOpen] = useState(false)
   const [rescuing, setRescuing] = useState(false)
+  const feed = useAppStore((s) => s.feed)
 
   useEffect(() => {
     if (pendingNote || noteAsk) exitGameLock()
@@ -229,6 +230,13 @@ export function Hud() {
         </div>
         <div className="hud-top-right">
           {mode === 'boss' && <Minimap />}
+          {feed.length > 0 && (
+            <div className="event-feed">
+              {feed.map((item) => (
+                <div key={item.id}>{item.text}</div>
+              ))}
+            </div>
+          )}
           <div className="pill player-list">
             {Object.values(players).map((p) => (
               <div className={`player-row${p.away ? ' away' : ''}`} key={p.id}>

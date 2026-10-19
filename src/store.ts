@@ -9,6 +9,7 @@ import type { SceneId } from '../shared/scenes'
 import type { BarrelState, LootDrop } from '../shared/barrels'
 import type { SmokeCloud } from '../shared/smoke'
 import type { DoorState } from '../shared/doors'
+import type { FeedItem } from '../shared/events'
 import { LOOK_SENS_DEFAULT, LOOK_SENS_MAX, LOOK_SENS_MIN } from '../shared/input'
 import { loadSession } from './net/session'
 
@@ -95,6 +96,7 @@ interface AppState {
   smokeRequest: number
   barrels: BarrelState[]
   drops: LootDrop[]
+  feed: FeedItem[]
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
@@ -140,6 +142,7 @@ interface AppState {
   requestSmoke: () => void
   setBarrels: (barrels: BarrelState[]) => void
   setDrops: (drops: LootDrop[]) => void
+  setFeed: (feed: FeedItem[]) => void
   setConnection: (status: ConnectionStatus) => void
   setJoinError: (msg: string | null) => void
   leaveToLobby: () => void
@@ -201,6 +204,7 @@ export const useAppStore = create<AppState>((set) => ({
   smokeRequest: 0,
   barrels: [],
   drops: [],
+  feed: [],
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
     set({
@@ -229,6 +233,7 @@ export const useAppStore = create<AppState>((set) => ({
       projectiles: snapshot.projectiles ?? [],
       doors: snapshot.doors ?? [],
       duckSpeech: snapshot.duckSpeech ?? null,
+      feed: snapshot.feed ?? [],
     }),
   applySnapshot: (snapshot) =>
     set((s) => ({
@@ -253,6 +258,7 @@ export const useAppStore = create<AppState>((set) => ({
       projectiles: snapshot.projectiles ?? s.projectiles,
       doors: snapshot.doors ?? s.doors,
       duckSpeech: snapshot.duckSpeech ?? null,
+      feed: snapshot.feed ?? s.feed,
     })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
@@ -344,6 +350,7 @@ export const useAppStore = create<AppState>((set) => ({
   requestSmoke: () => set((s) => ({ smokeRequest: s.smokeRequest + 1 })),
   setBarrels: (barrels) => set({ barrels }),
   setDrops: (drops) => set({ drops }),
+  setFeed: (feed) => set({ feed }),
   setConnection: (status) => set({ connection: status }),
   setJoinError: (msg) => set({ joinError: msg }),
   leaveToLobby: () =>
@@ -356,6 +363,7 @@ export const useAppStore = create<AppState>((set) => ({
       seats: {},
       furniture: DEFAULT_FURNITURE,
       monsters: [],
+      feed: [],
       matchOver: null,
       settings: defaultSettings(),
       timeLeftMs: null,

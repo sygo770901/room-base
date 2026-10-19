@@ -229,6 +229,10 @@ function bindListeners(s: Socket) {
     useAppStore.getState().setMonsters(monsters)
   })
 
+  s.on('feed:sync', (feed: import('../types').RoomSnapshot['feed']) => {
+    useAppStore.getState().setFeed(feed ?? [])
+  })
+
   s.on('match:over', (over: MatchOver) => {
     useAppStore.getState().setMatchOver(over)
     const text =

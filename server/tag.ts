@@ -21,6 +21,7 @@ import {
 } from '../shared/tag.ts'
 import { computeAwards } from '../shared/awards.ts'
 import { isDowned } from '../shared/downed.ts'
+import { announce } from './feed.ts'
 import type { PlayerState, Vec3 } from './types.ts'
 
 export type { TagState }
@@ -53,6 +54,7 @@ export interface TagRoom {
   taken?: Record<string, number>
   dispenserKills?: Record<string, number>
   rescues?: Record<string, number>
+  feed?: import('../shared/events.ts').FeedItem[]
 }
 
 export function emptyTag(): TagState {
@@ -346,6 +348,9 @@ export function catchHider(room: TagRoom, io: Server, ghostId: string, victimId:
   emitPlayerMoved(room, io, victimId)
   for (const id of Object.keys(room.players)) io.to(id).emit('tag:hud', tagHudFor(room, id, now))
   io.to(room.roomId).emit('combat:skill', { text: `${victim.name} 被抓到了，變成鬼` })
+  announce(room, io, `${victim.name} 被抓到了，變成鬼`)
+  const hidersLeft = presentPlayers(room).filter((p) => p.team === 'hider').length
+  if (hidersLeft === 1) announce(room, io, '剩最後 1 人！')
   settleTag(room, io, now)
 }
 

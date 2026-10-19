@@ -104,6 +104,7 @@ import type { TagState } from '../shared/tag.ts'
 import { handleTagAttack, tickTag } from './tag.ts'
 import { computeAwards } from '../shared/awards.ts'
 import { DOWNED_MS, RESCUE_HP, isDowned } from '../shared/downed.ts'
+import { announce } from './feed.ts'
 import type { PlayerState } from './types.ts'
 
 export interface ServerMonster {
@@ -176,6 +177,7 @@ export interface CombatRoom {
   dispenserKills?: Record<string, number>
   rescues?: Record<string, number>
   hideMs?: Record<string, number>
+  feed?: import('../shared/events.ts').FeedItem[]
 }
 
 function fromDef(d: MonsterDef): ServerMonster {
@@ -692,6 +694,7 @@ function maybeRage(room: CombatRoom, io: Server, now: number) {
   duck.windupUntil = 0
   io.to(room.roomId).emit('boss:phase', { phase: 2 })
   io.to(room.roomId).emit('combat:skill', { text: '鴨大王生氣了！' })
+  announce(room, io, '鴨大王生氣了！')
   io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
 }
 
@@ -1119,6 +1122,7 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
     if (best.kind === 'dispenser') {
       if (!room.dispenserKills) room.dispenserKills = {}
       room.dispenserKills[playerId] = (room.dispenserKills[playerId] ?? 0) + 1
+      announce(room, io, `${player.name} 打倒了 飲水機`)
     }
     maybeWin(room, io, playerId)
   }

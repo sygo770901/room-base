@@ -56,6 +56,8 @@ import { normalizeToken, resolveJoinPlayerId } from '../shared/identity.ts'
 import { PHRASE_COOLDOWN_MS, PHRASE_DURATION_MS, phraseAt } from '../shared/phrases.ts'
 import { pickLiveHost } from '../shared/host.ts'
 import { RESCUE_HOLD_MS, RESCUE_RANGE, isDowned } from '../shared/downed.ts'
+import { liveFeed } from '../shared/events.ts'
+import { announce } from './feed.ts'
 import type { DuckSpeech, MatchOver } from '../shared/combat.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
@@ -101,6 +103,7 @@ export interface RoomState {
   hideMs: Record<string, number>
   nextPhrase: Record<string, number>
   rescueHold: Record<string, { targetId: string; since: number }>
+  feed: import('../shared/events.ts').FeedItem[]
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -147,6 +150,7 @@ function createRoom(roomId: string): RoomState {
     hideMs: {},
     nextPhrase: {},
     rescueHold: {},
+    feed: [],
   }
 }
 
@@ -186,6 +190,7 @@ function snapshotFor(room: RoomState, viewerId: string) {
     projectiles: room.projectiles,
     doors: room.doors,
     duckSpeech: room.duckSpeech && room.duckSpeech.until > Date.now() ? room.duckSpeech : null,
+    feed: liveFeed(room.feed),
   }
 }
 
@@ -522,6 +527,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.hideMs = {}
       room.nextPhrase = {}
       room.rescueHold = {}
+      room.feed = []
       room.startAt = 0
       room.matchDeadline = null
       if (room.mode === 'boss') {
@@ -753,6 +759,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (!room.rescues) room.rescues = {}
       room.rescues[playerId] = (room.rescues[playerId] ?? 0) + 1
       delete room.rescueHold[playerId]
+      announce(room, io, `${player.name} 扶起了 ${target.name}`)
       emitState(room, io)
     })
 
