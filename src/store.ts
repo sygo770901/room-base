@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { type MatchOver, type MonsterState } from '../shared/combat'
+import { type DuckSpeech, type MatchOver, type MonsterState, type ProjectileState } from '../shared/combat'
+import type { HitAnim, JumpPhase } from '../shared/anim'
 import { DEFAULT_FURNITURE, type FurnitureItem } from '../shared/furniture'
 import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
 import { defaultSettings, type GameMode, type RoomSettings } from '../shared/modes'
@@ -7,6 +8,7 @@ import type { TagHud } from '../shared/tag'
 import type { SceneId } from '../shared/scenes'
 import type { BarrelState, LootDrop } from '../shared/barrels'
 import type { SmokeCloud } from '../shared/smoke'
+import type { DoorState } from '../shared/doors'
 import { LOOK_SENS_DEFAULT, LOOK_SENS_MAX, LOOK_SENS_MIN } from '../shared/input'
 import { loadSession } from './net/session'
 
@@ -73,12 +75,21 @@ interface AppState {
   pendingNote: { text: string; fontSize: number } | null
   noteAsk: NoteAsk | null
   swings: Record<string, number>
+  swingCombo: Record<string, number>
+  hitAnim: Record<string, { at: number; kind: HitAnim }>
+  jumpPhase: Record<string, JumpPhase | null>
   hits: HitFx[]
   hitSeq: number
   telegraph: { x: number; z: number; r: number; ms: number; until: number } | null
+  telegraphs: { id: string; x: number; z: number; r: number; ms: number; until: number }[]
+  projectiles: ProjectileState[]
+  doors: DoorState[]
+  duckSpeech: DuckSpeech | null
+  hurtFlashUntil: Record<string, number>
   dashUntil: Record<string, number>
   dashReadyAt: number
   dashRequest: number
+  jumpRequest: number
   smokes: SmokeCloud[]
   smokeReadyAt: number
   smokeRequest: number
@@ -101,11 +112,18 @@ interface AppState {
   setJoy: (x: number, y: number) => void
   setPendingNote: (note: { text: string; fontSize: number } | null) => void
   setNoteAsk: (ask: NoteAsk | null) => void
-  setSwing: (id: string, at: number) => void
+  setSwing: (id: string, at: number, combo?: number) => void
+  setHitAnim: (id: string, kind: HitAnim) => void
+  setJumpPhase: (id: string, phase: JumpPhase | null) => void
   pushHit: (hit: Omit<HitFx, 'key' | 'at'>) => void
   setMonsters: (monsters: MonsterState[]) => void
   setMatchOver: (over: MatchOver | null) => void
   setTelegraph: (tel: { x: number; z: number; r: number; ms: number } | null) => void
+  upsertTelegraph: (tel: { id: string; x: number; z: number; r: number; ms: number }) => void
+  setProjectiles: (projectiles: ProjectileState[]) => void
+  setDoors: (doors: DoorState[]) => void
+  setDuckSpeech: (speech: DuckSpeech | null) => void
+  setHurtFlash: (id: string, until: number) => void
   bumpRespawn: () => void
   bumpPoseSync: () => void
   setTagHud: (hud: TagHud | null) => void
@@ -116,6 +134,7 @@ interface AppState {
   setDash: (id: string, until: number) => void
   setDashReadyAt: (at: number) => void
   requestDash: () => void
+  requestJump: () => void
   setSmokes: (smokes: SmokeCloud[]) => void
   setSmokeReadyAt: (at: number) => void
   requestSmoke: () => void
@@ -162,12 +181,21 @@ export const useAppStore = create<AppState>((set) => ({
   pendingNote: null,
   noteAsk: null,
   swings: {},
+  swingCombo: {},
+  hitAnim: {},
+  jumpPhase: {},
   hits: [],
   hitSeq: 1,
   telegraph: null,
+  telegraphs: [],
+  projectiles: [],
+  doors: [],
+  duckSpeech: null,
+  hurtFlashUntil: {},
   dashUntil: {},
   dashReadyAt: 0,
   dashRequest: 0,
+  jumpRequest: 0,
   smokes: [],
   smokeReadyAt: 0,
   smokeRequest: 0,
@@ -198,6 +226,9 @@ export const useAppStore = create<AppState>((set) => ({
       smokes: snapshot.smokes ?? [],
       barrels: snapshot.barrels ?? [],
       drops: snapshot.drops ?? [],
+      projectiles: snapshot.projectiles ?? [],
+      doors: snapshot.doors ?? [],
+      duckSpeech: snapshot.duckSpeech ?? null,
     }),
   applySnapshot: (snapshot) =>
     set((s) => ({
@@ -219,6 +250,9 @@ export const useAppStore = create<AppState>((set) => ({
       smokes: snapshot.smokes ?? s.smokes,
       barrels: snapshot.barrels ?? s.barrels,
       drops: snapshot.drops ?? s.drops,
+      projectiles: snapshot.projectiles ?? s.projectiles,
+      doors: snapshot.doors ?? s.doors,
+      duckSpeech: snapshot.duckSpeech ?? null,
     })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
@@ -250,7 +284,11 @@ export const useAppStore = create<AppState>((set) => ({
   setJoy: (x, y) => set({ joy: { x, y } }),
   setPendingNote: (note) => set({ pendingNote: note, noteAsk: null }),
   setNoteAsk: (ask) => set({ noteAsk: ask }),
-  setSwing: (id, at) => set((s) => ({ swings: { ...s.swings, [id]: at } })),
+  setSwing: (id, at, combo = 0) =>
+    set((s) => ({ swings: { ...s.swings, [id]: at }, swingCombo: { ...s.swingCombo, [id]: combo } })),
+  setHitAnim: (id, kind) =>
+    set((s) => ({ hitAnim: { ...s.hitAnim, [id]: { at: performance.now(), kind } } })),
+  setJumpPhase: (id, phase) => set((s) => ({ jumpPhase: { ...s.jumpPhase, [id]: phase } })),
   pushHit: (hit) =>
     set((s) => {
       const now = performance.now()
@@ -264,6 +302,17 @@ export const useAppStore = create<AppState>((set) => ({
     set({
       telegraph: tel ? { ...tel, until: performance.now() + tel.ms } : null,
     }),
+  upsertTelegraph: (tel) =>
+    set((s) => {
+      const until = performance.now() + tel.ms
+      const next = s.telegraphs.filter((t) => t.id !== tel.id && performance.now() < t.until)
+      next.push({ ...tel, until })
+      return { telegraphs: next }
+    }),
+  setProjectiles: (projectiles) => set({ projectiles }),
+  setDoors: (doors) => set({ doors }),
+  setDuckSpeech: (speech) => set({ duckSpeech: speech }),
+  setHurtFlash: (id, until) => set((s) => ({ hurtFlashUntil: { ...s.hurtFlashUntil, [id]: until } })),
   bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
   bumpPoseSync: () => set((s) => ({ poseSync: s.poseSync + 1 })),
   setTagHud: (hud) => set({ tagHud: hud }),
@@ -289,6 +338,7 @@ export const useAppStore = create<AppState>((set) => ({
   setDash: (id, until) => set((s) => ({ dashUntil: { ...s.dashUntil, [id]: until } })),
   setDashReadyAt: (at) => set({ dashReadyAt: at }),
   requestDash: () => set((s) => ({ dashRequest: s.dashRequest + 1 })),
+  requestJump: () => set((s) => ({ jumpRequest: s.jumpRequest + 1 })),
   setSmokes: (smokes) => set({ smokes }),
   setSmokeReadyAt: (at) => set({ smokeReadyAt: at }),
   requestSmoke: () => set((s) => ({ smokeRequest: s.smokeRequest + 1 })),
@@ -321,14 +371,23 @@ export const useAppStore = create<AppState>((set) => ({
       pendingNote: null,
       noteAsk: null,
       swings: {},
+      swingCombo: {},
+      hitAnim: {},
+      jumpPhase: {},
       hits: [],
       hitSeq: 1,
       telegraph: null,
+      telegraphs: [],
+      projectiles: [],
+      doors: [],
+      duckSpeech: null,
+      hurtFlashUntil: {},
       joy: { x: 0, y: 0 },
       pointerLocked: false,
       dashUntil: {},
       dashReadyAt: 0,
       dashRequest: 0,
+      jumpRequest: 0,
       smokes: [],
       smokeReadyAt: 0,
       smokeRequest: 0,

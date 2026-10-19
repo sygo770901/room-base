@@ -1,9 +1,12 @@
 import type { Server } from 'socket.io'
 import { ATTACK_COS, ATTACK_COOLDOWN_MS, ATTACK_RANGE, PLAYER_MAX_HP, type MatchOver } from '../shared/combat.ts'
+import { nextComboStep } from '../shared/anim.ts'
 import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
-import { moveAllowance, type MoveGrant } from '../shared/movement.ts'
+import { JUMP_CEILING, JUMP_MAX_DELTA, MOVE_Y_PAD, moveAllowance, type MoveGrant } from '../shared/movement.ts'
+import { HIDE_MAX_Y } from '../shared/platforms.ts'
 import { smokeHidesFrom, type SmokeCloud } from '../shared/smoke.ts'
+import { doorHidesFrom, type DoorState } from '../shared/doors.ts'
 import {
   TAG_BOX_MAX_MS,
   TAG_BOX_REENTER_MS,
@@ -35,10 +38,13 @@ export interface TagRoom {
   startAt?: number
   awayUntil?: Record<string, number>
   nextAttack?: Record<string, number>
+  comboStep?: Record<string, number>
+  lastSwingAt?: Record<string, number>
   tag?: TagState
   lastMoveAt?: Record<string, number>
   moveGrant?: Record<string, MoveGrant>
   smokes?: SmokeCloud[]
+  doors?: DoorState[]
 }
 
 export function emptyTag(): TagState {
@@ -91,7 +97,16 @@ export function playerViewFor(room: TagRoom, viewerId: string, p: PlayerState): 
       { x: p.position[0], z: p.position[2] },
       Date.now(),
     )
-  if (!hidingCoords && !smoked) return stripPlayer(p)
+  const behindDoor =
+    p.team === 'hider' &&
+    Boolean(p.position) &&
+    Boolean(viewer?.position) &&
+    doorHidesFrom(
+      room.doors,
+      { x: viewer!.position[0], z: viewer!.position[2] },
+      { x: p.position[0], z: p.position[2] },
+    )
+  if (!hidingCoords && !smoked && !behindDoor) return stripPlayer(p)
   const { position: _pos, ...rest } = p
   return rest as PlayerState
 }
@@ -380,6 +395,7 @@ export function tryHide(room: TagRoom, playerId: string, want: boolean, now: num
     }
     return true
   }
+  if ((player.position[1] ?? 0) > HIDE_MAX_Y) return false
   const spot = nearestHideSpot(player.position[0], player.position[2], HIDE_RANGE)
   if (!spot) return false
   if (tag) {
@@ -422,8 +438,13 @@ export function handleTagAttack(room: TagRoom, io: Server, playerId: string, now
   if ((room.nextAttack?.[playerId] ?? 0) > now) return
   if (!room.nextAttack) room.nextAttack = {}
   room.nextAttack[playerId] = now + ATTACK_COOLDOWN_MS
+  if (!room.comboStep) room.comboStep = {}
+  if (!room.lastSwingAt) room.lastSwingAt = {}
+  const combo = nextComboStep(room.comboStep[playerId] ?? 0, room.lastSwingAt[playerId] ?? 0, now)
+  room.comboStep[playerId] = combo
+  room.lastSwingAt[playerId] = now
   const swing = attackerSocketId ? io.to(room.roomId).except(attackerSocketId) : io.to(room.roomId).except(playerId)
-  swing.emit('player:swing', { id: playerId })
+  swing.emit('player:swing', { id: playerId, combo })
   if (room.mode !== 'tag' || player.team !== 'ghost' || !room.tag?.roundActive) return
   if (now < room.tag.hideUntil) return
   const fx = Math.sin(player.rotationY)
@@ -506,8 +527,11 @@ export function acceptMove(
 
   const allow = moveAllowance(now - prev, room.moveGrant[player.id], now)
   const dist = Math.hypot(x - player.position[0], z - player.position[2])
-  const dy = Math.abs(y - (player.position[1] ?? 0))
-  if (dist > allow.horiz || dy > allow.vert) return false
+  const prevY = player.position[1] ?? 0
+  const rise = y - prevY
+  const drop = prevY - y
+  if (y > JUMP_CEILING + 0.2 || y < -0.08) return false
+  if (dist > allow.horiz || rise > allow.vert || drop > JUMP_MAX_DELTA + MOVE_Y_PAD) return false
 
   player.position = [x, y, z]
   player.rotationY = payload.rotationY

@@ -1,11 +1,15 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { LOOK_SENS_MAX, LOOK_SENS_MIN, LOOK_SENS_STEP } from '../../shared/input'
-import { disconnectSocket, emitAddNote, emitCheck, emitHide, emitRemoveNote, emitRestart, emitStart, emitUpdateNote, performAttack } from '../net/socket'
+import { disconnectSocket, emitAddNote, emitCheck, emitDoorToggle, emitHide, emitRemoveNote, emitRestart, emitScene, emitStart, emitUpdateNote, performAttack } from '../net/socket'
+import { SCENE_IDS, SCENE_LABELS } from '../../shared/scenes'
 import { setMicEnabled } from '../net/voice'
 import { isMobileDevice } from '../perf/device'
 import { exitGameLock } from '../scene/pointerLock'
 import { useAppStore } from '../store'
 import { VirtualJoystick } from './VirtualJoystick'
+import { Minimap } from './Minimap'
+import { nearestDoor, DOOR_RANGE } from '../../shared/doors'
+import { DUCK_MAX_DISPENSERS } from '../../shared/combat'
 
 export function Hud() {
   const players = useAppStore((s) => s.players)
@@ -24,8 +28,10 @@ export function Hud() {
   const setNoteAsk = useAppStore((s) => s.setNoteAsk)
   const self = selfId ? players[selfId] : null
   const mode = useAppStore((s) => s.mode)
+  const scene = useAppStore((s) => s.scene)
   const matchOver = useAppStore((s) => s.matchOver)
   const monsters = useAppStore((s) => s.monsters)
+  const duckSpeech = useAppStore((s) => s.duckSpeech)
   const timeLeftMs = useAppStore((s) => s.timeLeftMs)
   const hostId = useAppStore((s) => s.hostId)
   const startInMs = useAppStore((s) => s.startInMs)
@@ -36,6 +42,7 @@ export function Hud() {
   const pointerLocked = useAppStore((s) => s.pointerLocked)
   const dashReadyAt = useAppStore((s) => s.dashReadyAt)
   const requestDash = useAppStore((s) => s.requestDash)
+  const requestJump = useAppStore((s) => s.requestJump)
   const [dashLeft, setDashLeft] = useState(0)
   const smokeReadyAt = useAppStore((s) => s.smokeReadyAt)
   const requestSmoke = useAppStore((s) => s.requestSmoke)
@@ -163,6 +170,7 @@ export function Hud() {
           房間 <strong>{roomId}</strong>
           {self?.role === 'host' ? ' · 房主' : ' · 訪客'}
           {mode === 'boss' ? ' · 打鴨王' : mode === 'tag' ? ' · 鬼抓人' : ' · 地城狩獵'}
+          {` · ${SCENE_LABELS[scene] ?? scene}`}
           {pendingNote ? ' · 點地板貼便籤中' : ''}
           {mode === 'tag' && self?.team ? ` · ${self.team === 'ghost' ? '鬼' : self.team === 'hider' ? '躲的人' : '觀戰'}` : ''}
           {mode === 'tag' && tagHud?.roundActive ? ` · 還有 ${tagHud.hidersLeft} 人沒被抓` : ''}
@@ -187,18 +195,21 @@ export function Hud() {
             </span>
           )}
         </div>
-        <div className="pill player-list">
-          {Object.values(players).map((p) => (
-            <div className="player-row" key={p.id}>
-              <span className="dot" style={{ background: p.color }} />
-              <span>
-                {p.name}
-                {p.id === selfId ? '（你）' : ''}
-                {p.hp != null && p.hp < 100 ? ` · ${p.hp}` : ''}
-                {p.team === 'ghost' ? ' · 鬼' : p.team === 'spectator' ? ' · 觀戰' : ''}
-              </span>
-            </div>
-          ))}
+        <div className="hud-top-right">
+          {mode === 'boss' && <Minimap />}
+          <div className="pill player-list">
+            {Object.values(players).map((p) => (
+              <div className="player-row" key={p.id}>
+                <span className="dot" style={{ background: p.color }} />
+                <span>
+                  {p.name}
+                  {p.id === selfId ? '（你）' : ''}
+                  {p.hp != null && p.hp < 100 ? ` · ${p.hp}` : ''}
+                  {p.team === 'ghost' ? ' · 鬼' : p.team === 'spectator' ? ' · 觀戰' : ''}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -245,16 +256,22 @@ export function Hud() {
         <div className="boss-hint">鴨大王在東南王房</div>
       )}
 
+      {mode === 'boss' && started && !matchOver && duckSpeech && duckSpeech.until > Date.now() && (
+        <div className={duckSpeech.shout ? 'duck-speech-hud shout' : 'duck-speech-hud'} aria-live="polite">
+          {duckSpeech.text}
+        </div>
+      )}
+
       {mode === 'boss' && started && !matchOver && (
         <div className="boss-objective">
           {monsters
-            .filter((m) => m.kind === 'duck-king' || m.kind === 'dispenser')
+            .filter((m) => m.kind === 'duck-king')
             .map((m) => {
               const pct = Math.max(0, Math.min(100, Math.round((m.hp / Math.max(1, m.maxHp)) * 100)))
               return (
                 <div key={m.id}>
                   {m.name} {m.alive ? `${pct}%` : '已倒下'}
-                  {m.kind === 'duck-king' && m.alive && (
+                  {m.alive && (
                     <div className="boss-hp">
                       <span style={{ width: `${pct}%` }} />
                       <i className="phase-mark" />
@@ -263,6 +280,15 @@ export function Hud() {
                 </div>
               )
             })}
+          {(() => {
+            const pets = monsters.filter((m) => m.kind === 'dispenser')
+            const alive = pets.filter((m) => m.alive).length
+            return (
+              <div>
+                飲水機 {alive}/{DUCK_MAX_DISPENSERS} 台
+              </div>
+            )
+          })()}
         </div>
       )}
 
@@ -327,6 +353,11 @@ export function Hud() {
         </button>
       )}
       {!matchOver && started && self?.team !== 'spectator' && (
+        <button type="button" className="jump-btn" onClick={() => requestJump()}>
+          跳
+        </button>
+      )}
+      {!matchOver && started && self?.team !== 'spectator' && (
         <button
           type="button"
           className="skill-btn"
@@ -343,6 +374,11 @@ export function Hud() {
           onClick={() => emitHide(!self.hidden)}
         >
           {self.hidden ? '出來' : '躲'}
+        </button>
+      )}
+      {!matchOver && started && self?.team !== 'spectator' && self?.position && nearestDoor(self.position[0], self.position[2], DOOR_RANGE) && (
+        <button type="button" className="door-btn" onClick={() => emitDoorToggle()}>
+          門
         </button>
       )}
       {!matchOver && started && mode === 'tag' && self?.team === 'ghost' && hideLeft <= 0 && (
@@ -372,6 +408,21 @@ export function Hud() {
             />
           </label>
         )}
+        {self?.role === 'host' && (!(mode === 'boss' || mode === 'tag') || !started || Boolean(matchOver)) && (
+          <div className="map-host" role="radiogroup" aria-label="地圖">
+            {SCENE_IDS.map((id) => (
+              <button
+                key={id}
+                type="button"
+                className={scene === id ? 'hud-btn on' : 'hud-btn'}
+                disabled={scene === id}
+                onClick={() => emitScene(id)}
+              >
+                {SCENE_LABELS[id]}
+              </button>
+            ))}
+          </div>
+        )}
         <button type="button" className="hud-btn" onClick={() => disconnectSocket()}>
           離開
         </button>
@@ -381,7 +432,7 @@ export function Hud() {
         <div className="help">
           WASD／搖桿移動 · 電腦點畫面鎖定滑鼠轉視角（Esc 解除{pointerLocked ? ' · 已鎖定' : ''}）· 手機單指拖曳 · 滾輪／雙指縮放
           <br />
-          鎖定後左鍵、F 或攻擊鈕揮劍 · 右鍵留給技能 · E 靠木箱躲藏
+          鎖定後左鍵、F 或攻擊鈕揮劍 · 右鍵留給技能 · E 靠近門 1.5 內優先開關門，否則躲藏
           {pendingNote ? ' · 移動滑鼠看虛影，點地面後確認' : ''}
         </div>
         <form className="note-panel" onSubmit={armNote}>

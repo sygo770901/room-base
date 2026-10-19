@@ -1,11 +1,12 @@
 import type { ClassId } from '../shared/classes'
-import type { MatchOver, MonsterState } from '../shared/combat'
+import type { DuckSpeech, MatchOver, MonsterState, ProjectileState } from '../shared/combat'
 import type { FurnitureItem } from '../shared/furniture'
 import type { GameMode, RoomSettings } from '../shared/modes'
 import type { TagHud } from '../shared/tag'
 import type { SceneId } from '../shared/scenes'
 import type { BarrelState, LootDrop } from '../shared/barrels'
 import type { SmokeCloud } from '../shared/smoke'
+import type { DoorState } from '../shared/doors'
 
 export type Vec3 = [number, number, number]
 export type SeatId = string
@@ -56,6 +57,9 @@ export interface RoomSnapshot {
   smokes?: SmokeCloud[]
   barrels?: BarrelState[]
   drops?: LootDrop[]
+  projectiles?: ProjectileState[]
+  doors?: DoorState[]
+  duckSpeech?: DuckSpeech | null
   error?: string
 }
 

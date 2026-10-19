@@ -22,6 +22,8 @@ export function dashCooldownMs(team?: string | null) {
 }
 /** 第 11 項跳躍預留的單次高度預算。 */
 export const JUMP_MAX_DELTA = 2.4
+export const JUMP_AIR_MS = 1100
+export const JUMP_CEILING = 2.6
 
 export type MoveGrant = {
   dashUntil?: number

@@ -181,6 +181,56 @@ input {
   font-size: 0.9rem;
 }
 
+.duck-speech-hud {
+  position: absolute;
+  left: 50%;
+  top: 26%;
+  transform: translateX(-50%);
+  z-index: 22;
+  pointer-events: none;
+  max-width: min(86vw, 420px);
+  padding: 8px 14px;
+  border-radius: 14px;
+  background: rgba(18, 14, 12, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  text-align: center;
+  font-size: clamp(0.92rem, 3.4vw, 1.12rem);
+  line-height: 1.4;
+}
+
+.duck-speech-hud.shout {
+  top: 24%;
+  font-size: clamp(1.05rem, 4.2vw, 1.4rem);
+  font-weight: 800;
+  color: #fff4c8;
+  background: rgba(120, 32, 12, 0.92);
+  border-color: #ffcc66;
+}
+
+.duck-bubble {
+  pointer-events: none;
+  max-width: min(72vw, 280px);
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(18, 14, 12, 0.9);
+  color: #f4f1ec;
+  font-size: 14px;
+  line-height: 1.35;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font-family: 'Noto Sans TC', 'Outfit', sans-serif;
+}
+
+.duck-bubble.shout {
+  max-width: min(86vw, 340px);
+  padding: 12px 16px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #fff4c8;
+  background: rgba(120, 32, 12, 0.94);
+  border-color: #ffcc66;
+}
+
 .match-over p:first-child {
   font-size: 1.25rem;
   font-weight: 700;
@@ -295,6 +345,22 @@ input {
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
+}
+
+.hud-top-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.minimap {
+  width: 140px;
+  height: 140px;
+  pointer-events: none;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .pill {
@@ -467,6 +533,20 @@ input {
   pointer-events: none;
 }
 
+.map-host {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  max-width: 220px;
+}
+
+.map-host .hud-btn.on,
+.map-host .hud-btn:disabled {
+  opacity: 1;
+  outline: 1px solid #f2cc8f;
+}
+
 .dock {
   position: absolute;
   right: 16px;
@@ -498,7 +578,9 @@ input {
 .hide-btn,
 .check-btn,
 .dash-btn,
-.skill-btn {
+.skill-btn,
+.jump-btn,
+.door-btn {
   position: absolute;
   z-index: 15;
   width: 56px;
@@ -542,6 +624,20 @@ input {
   right: 160px;
   top: calc(50% - 84px);
   background: #81b29a;
+}
+
+.jump-btn {
+  right: 160px;
+  top: calc(50% - 152px);
+  background: #8ab4f8;
+  color: #102033;
+}
+
+.door-btn {
+  right: 16px;
+  top: calc(50% + 4px);
+  background: #c4a574;
+  color: #1a120c;
 }
 
 .ghost-blackout {
@@ -679,6 +775,22 @@ input {
     height: 72px;
   }
 
+  .jump-btn {
+    top: auto;
+    right: 204px;
+    bottom: calc(108px + env(safe-area-inset-bottom));
+    width: 72px;
+    height: 72px;
+  }
+
+  .door-btn {
+    top: auto;
+    right: 124px;
+    bottom: calc(192px + env(safe-area-inset-bottom));
+    width: 72px;
+    height: 72px;
+  }
+
   .dock {
     top: 78px;
     right: auto;
@@ -694,9 +806,19 @@ input {
     overflow: auto;
   }
 
+  .minimap {
+    width: 96px;
+    height: 96px;
+  }
+
   .weapon-pill {
     display: inline-block;
     margin: 6px 0 0;
+  }
+
+  .duck-speech-hud {
+    top: 30%;
+    max-width: 90vw;
   }
 }
 

@@ -61,6 +61,8 @@ places.push(
   { x: 96, y: 0, z: 108, rotY: 0, model: 'stairs_long.gltf' },
   { x: 66, y: 0, z: 26, rotY: 0.4, model: 'crates_stacked.gltf' },
   { x: 96, y: 0, z: 118, rotY: -0.6, model: 'crates_stacked.gltf' },
+  { x: 52.9, y: 0, z: 23, rotY: 0.2, model: 'crates_stacked.gltf' },
+  { x: 134.95, y: 0, z: 123, rotY: -0.35, model: 'crates_stacked.gltf' },
 )
 
 export const KAYKIT_PLACES = places
@@ -72,8 +74,6 @@ export const KAYKIT_TORCHES = places
 export const KAYKIT_EXTRA_WALLS: WallBox[] = [
   { cx: 58, cz: 14, hx: 3.5, hz: 2 },
   { cx: 96, cz: 112, hx: 2.5, hz: 4 },
-  { cx: 66, cz: 26, hx: 1.1, hz: 1.15 },
-  { cx: 96, cz: 118, hx: 1.1, hz: 1.15 },
 ]
 
 export const KAYKIT_OCCLUDERS: OccBox[] = [
@@ -81,4 +81,6 @@ export const KAYKIT_OCCLUDERS: OccBox[] = [
   { minX: 93.5, maxX: 98.5, minY: 0, maxY: 5.1, minZ: 108, maxZ: 116 },
   { minX: 64.9, maxX: 67.1, minY: 0, maxY: 2.2, minZ: 24.85, maxZ: 27.15 },
   { minX: 94.9, maxX: 97.1, minY: 0, maxY: 2.2, minZ: 116.85, maxZ: 119.15 },
+  { minX: 51.8, maxX: 54.0, minY: 0, maxY: 2.2, minZ: 21.85, maxZ: 24.15 },
+  { minX: 133.85, maxX: 136.05, minY: 0, maxY: 2.2, minZ: 121.85, maxZ: 124.15 },
 ]

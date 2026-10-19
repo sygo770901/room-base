@@ -4,11 +4,15 @@ import * as THREE from 'three'
 import { HIDE_RANGE, HIDE_SPOTS } from '../../shared/dungeon'
 import { isMobileDevice } from '../perf/device'
 import { WEAPON_STATS } from '../../shared/barrels'
-import { DASH_DISTANCE, DASH_DURATION_MS, dashCooldownMs } from '../../shared/movement'
+import { DASH_DISTANCE, DASH_DURATION_MS, JUMP_CEILING, dashCooldownMs } from '../../shared/movement'
+import { GRAVITY, HIDE_MAX_Y, JUMP_SPEED, platformsFor, supportY } from '../../shared/platforms'
+import { PLAYER_RADIUS } from '../../shared/furniture'
 import { SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
-import { emitDash, emitFurniturePush, emitHide, emitMove, emitSit, emitSmoke, performAttack } from '../net/socket'
+import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitSit, emitSmoke, performAttack } from '../net/socket'
+import { DOOR_RANGE, closedDoorAabbs, nearestDoor } from '../../shared/doors'
 import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
-import { resolvePlayerMove, KAYKIT_EXTRA_AABBS } from '../physics/collision'
+import { resolvePlayerMove } from '../physics/collision'
+import { extraAabbsOf } from '../../shared/mapData'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
@@ -27,7 +31,13 @@ export function LocalController({
   const furniture = useAppStore((s) => s.furniture)
   const joy = useAppStore((s) => s.joy)
   const keys = useRef<Record<string, boolean>>({})
-  const pos = useRef(new THREE.Vector3(...(player.position ?? [0, 0, 0])))
+  const pos = useRef(
+    new THREE.Vector3(player.position?.[0] ?? 0, player.position?.[1] ?? 0, player.position?.[2] ?? 0),
+  )
+  const vy = useRef(0)
+  const grounded = useRef(true)
+  const jumpPhase = useRef<'start' | 'idle' | 'land' | null>(null)
+  const landUntil = useRef(0)
   const rotY = useRef(player.rotationY)
   const lastSent = useRef(0)
   const lastPush = useRef(0)
@@ -45,6 +55,7 @@ export function LocalController({
   const dash = useRef({ until: 0, dx: 0, dz: 0 })
   const lastDir = useRef({ x: 0, z: 1 })
   const dashRequest = useAppStore((s) => s.dashRequest)
+  const jumpRequest = useAppStore((s) => s.jumpRequest)
   const smokeRequest = useAppStore((s) => s.smokeRequest)
 
   seatedRef.current = player.seated
@@ -58,7 +69,9 @@ export function LocalController({
   useEffect(() => {
     const p = useAppStore.getState().players[player.id]
     if (!p?.position) return
-    pos.current.set(p.position[0], 0, p.position[2])
+    pos.current.set(p.position[0], p.position[1] ?? 0, p.position[2])
+    vy.current = 0
+    grounded.current = (p.position[1] ?? 0) <= 0.08
     rotY.current = p.rotationY
   }, [respawnToken, poseSync, player.id])
 
@@ -81,6 +94,11 @@ export function LocalController({
     if (me.hidden) {
       emitHide(false)
       state.patchPlayer(player.id, { hidden: false })
+      return
+    }
+    if (pos.current.y > HIDE_MAX_Y) {
+      state.setToast('站在地上才能躲')
+      setTimeout(() => useAppStore.getState().setToast(null), 1600)
       return
     }
     const near = HIDE_SPOTS.some(
@@ -119,6 +137,24 @@ export function LocalController({
     emitDash(dx, dz)
   }
 
+  function setPhase(next: 'start' | 'idle' | 'land' | null) {
+    if (jumpPhase.current === next) return
+    jumpPhase.current = next
+    useAppStore.getState().setJumpPhase(player.id, next)
+  }
+
+  function tryJump() {
+    const state = useAppStore.getState()
+    const me = state.players[player.id]
+    if (!me || me.seated || me.hidden) return
+    if (me.team === 'spectator') return
+    if (!grounded.current) return
+    vy.current = JUMP_SPEED
+    grounded.current = false
+    setPhase('start')
+    emitJump()
+  }
+
   function trySmoke() {
     const state = useAppStore.getState()
     const me = state.players[player.id]
@@ -146,6 +182,11 @@ export function LocalController({
   }, [smokeRequest])
 
   useEffect(() => {
+    if (jumpRequest <= 0) return
+    tryJump()
+  }, [jumpRequest])
+
+  useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (typingInField()) return
       if (e.code === 'Escape' && pointerJustUnlocked()) {
@@ -158,8 +199,10 @@ export function LocalController({
       }
       if (e.code === 'KeyF') performAttack()
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') tryDash()
+      if (e.code === 'Space') tryJump()
       if (e.code === 'KeyE') {
         if (seatedRef.current) void emitSit(null)
+        else if (nearestDoor(pos.current.x, pos.current.z, DOOR_RANGE)) emitDoorToggle()
         else tryHide()
       }
     }
@@ -195,38 +238,39 @@ export function LocalController({
   // 它才只會套用手指轉的角度，走路本身不會把視角帶著轉。
   useFrame((_, dt) => {
     const orbit = controls as { target?: THREE.Vector3 } | null
-    const stickCamera = (x: number, z: number) => {
+    const stickCamera = (x: number, y: number, z: number) => {
       const target = orbit?.target
       if (!target) return
+      const lookY = 0.9 + y
       camera.position.x += x - target.x
-      camera.position.y += 0.9 - target.y
+      camera.position.y += lookY - target.y
       camera.position.z += z - target.z
-      target.set(x, 0.9, z)
+      target.set(x, lookY, z)
     }
 
     if (typingInField()) {
       keys.current = {}
-      stickCamera(pos.current.x, pos.current.z)
-      onPose([pos.current.x, 0, pos.current.z], rotY.current)
+      stickCamera(pos.current.x, pos.current.y, pos.current.z)
+      onPose([pos.current.x, pos.current.y, pos.current.z], rotY.current)
       return
     }
 
     if (performance.now() < useAppStore.getState().hitStopUntil) {
-      stickCamera(pos.current.x, pos.current.z)
-      onPose([pos.current.x, 0, pos.current.z], rotY.current)
+      stickCamera(pos.current.x, pos.current.y, pos.current.z)
+      onPose([pos.current.x, pos.current.y, pos.current.z], rotY.current)
       return
     }
 
     if (player.seated && player.position) {
-      stickCamera(player.position[0], player.position[2])
+      stickCamera(player.position[0], player.position[1] ?? 0, player.position[2])
       onPose(player.position, player.rotationY)
       return
     }
 
     const frozen = mode === 'tag' && player.team === 'ghost' && Date.now() < hideUntilAt.current
     if (frozen) {
-      stickCamera(pos.current.x, pos.current.z)
-      onPose([pos.current.x, 0, pos.current.z], rotY.current)
+      stickCamera(pos.current.x, pos.current.y, pos.current.z)
+      onPose([pos.current.x, pos.current.y, pos.current.z], rotY.current)
       return
     }
 
@@ -260,8 +304,20 @@ export function LocalController({
       const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * speedMul * dt
       const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * dt
 
-      const extra = useAppStore.getState().scene === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
-      const result = resolvePlayerMove(pos.current.x, pos.current.z, mx, mz, furnitureRef.current, undefined, extra)
+      const sceneId = useAppStore.getState().scene
+      const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors))
+      const plats = platformsFor(sceneId)
+      const result = resolvePlayerMove(
+        pos.current.x,
+        pos.current.z,
+        mx,
+        mz,
+        furnitureRef.current,
+        undefined,
+        extra,
+        pos.current.y,
+        plats,
+      )
       const movedX = result.x - pos.current.x
       const movedZ = result.z - pos.current.z
       pos.current.x = result.x
@@ -287,7 +343,8 @@ export function LocalController({
     const dashing = performance.now() < dash.current.until
     if (dashing) {
       const step = (DASH_DISTANCE / (DASH_DURATION_MS / 1000)) * dt
-      const extra = useAppStore.getState().scene === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
+      const sceneId = useAppStore.getState().scene
+      const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors))
       const result = resolvePlayerMove(
         pos.current.x,
         pos.current.z,
@@ -296,19 +353,52 @@ export function LocalController({
         furnitureRef.current,
         undefined,
         extra,
+        pos.current.y,
+        platformsFor(sceneId),
       )
       pos.current.x = result.x
       pos.current.z = result.z
       rotY.current = Math.atan2(dash.current.dx, dash.current.dz)
     }
 
-    stickCamera(pos.current.x, pos.current.z)
+    const prevY = pos.current.y
+    vy.current -= GRAVITY * dt
+    pos.current.y += vy.current * dt
+    if (pos.current.y > JUMP_CEILING) {
+      pos.current.y = JUMP_CEILING
+      if (vy.current > 0) vy.current = 0
+    }
+    const feet = supportY(
+      pos.current.x,
+      pos.current.z,
+      pos.current.y,
+      prevY,
+      PLAYER_RADIUS,
+      platformsFor(useAppStore.getState().scene),
+    )
+    if (pos.current.y <= feet && vy.current <= 0.05) {
+      pos.current.y = feet
+      vy.current = 0
+      if (!grounded.current) {
+        grounded.current = true
+        setPhase('land')
+        landUntil.current = performance.now() + 280
+      } else if (performance.now() > landUntil.current) {
+        setPhase(null)
+      }
+    } else {
+      grounded.current = false
+      if (vy.current > 1.2) setPhase('start')
+      else setPhase('idle')
+    }
 
-    const pose: Vec3 = [pos.current.x, 0, pos.current.z]
+    stickCamera(pos.current.x, pos.current.y, pos.current.z)
+
+    const pose: Vec3 = [pos.current.x, pos.current.y, pos.current.z]
     onPose(pose, rotY.current)
 
     const now = performance.now()
-    const moving = fwd !== 0 || strafe !== 0 || dashing
+    const moving = fwd !== 0 || strafe !== 0 || dashing || !grounded.current
     const interval = moving ? 50 : 200
     if (now - lastSent.current > interval) {
       lastSent.current = now

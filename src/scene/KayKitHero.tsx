@@ -5,6 +5,7 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import * as THREE from 'three'
 import { PLAYER_CLASS, type ClassId } from '../../shared/classes'
 import type { HeldWeapon } from '../../shared/barrels'
+import { COMBO_CLIP_NAMES, type HitAnim, type JumpPhase } from '../../shared/anim'
 
 const ROOT = '/assets/kaykit/adventurers'
 const CHAR: Record<ClassId, string> = {
@@ -142,6 +143,13 @@ const FALLBACK: Record<ClassId, { right: 'sword' | 'axe' | 'dagger' | 'staff'; l
   ranger: { right: 'sword' },
 }
 
+function once(action: THREE.AnimationAction | null) {
+  if (!action) return null
+  action.setLoop(THREE.LoopOnce, 1)
+  action.clampWhenFinished = true
+  return action
+}
+
 export function KayKitHero({
   classId,
   moving,
@@ -149,6 +157,10 @@ export function KayKitHero({
   dashing,
   dashUntil,
   attackAt,
+  combo = 0,
+  hitAt = 0,
+  hitKind,
+  jumpPhase = null,
   seated,
   hidden,
   compact,
@@ -160,6 +172,10 @@ export function KayKitHero({
   dashing?: boolean
   dashUntil?: number
   attackAt: number
+  combo?: number
+  hitAt?: number
+  hitKind?: HitAnim
+  jumpPhase?: JumpPhase | null
   seated?: boolean
   hidden?: boolean
   compact?: boolean
@@ -212,77 +228,111 @@ export function KayKitHero({
 
   const mixer = useMemo(() => new THREE.AnimationMixer(root), [root])
   const actions = useMemo(() => {
-    const idleClip = clipOf(generalGltf, 'Idle_A')
-    const walkClip = clipOf(moveGltf, 'Walking_A')
-    const runClip = clipOf(moveGltf, 'Running_A')
+    const idle = clipOf(generalGltf, 'Idle_A') ? mixer.clipAction(clipOf(generalGltf, 'Idle_A')!) : null
+    const walk = clipOf(moveGltf, 'Walking_A') ? mixer.clipAction(clipOf(moveGltf, 'Walking_A')!) : null
+    const run = clipOf(moveGltf, 'Running_A') ? mixer.clipAction(clipOf(moveGltf, 'Running_A')!) : null
     const dashClip = clipOf(moveGltf, 'Running_B')
-    const attackClip = clipOf(combatGltf, 'Melee_1H_Attack_Chop')
-    const idle = idleClip ? mixer.clipAction(idleClip) : null
-    const walk = walkClip ? mixer.clipAction(walkClip) : null
-    const run = runClip ? mixer.clipAction(runClip) : null
     const dash = dashClip ? mixer.clipAction(dashClip) : run
-    const attack = attackClip ? mixer.clipAction(attackClip) : null
+    const combo = COMBO_CLIP_NAMES.map((name) => once(clipOf(combatGltf, name) ? mixer.clipAction(clipOf(combatGltf, name)!) : null))
+    const hitA = once(clipOf(generalGltf, 'Hit_A') ? mixer.clipAction(clipOf(generalGltf, 'Hit_A')!) : null)
+    const hitB = once(clipOf(generalGltf, 'Hit_B') ? mixer.clipAction(clipOf(generalGltf, 'Hit_B')!) : null)
+    const death = once(clipOf(generalGltf, 'Death_A') ? mixer.clipAction(clipOf(generalGltf, 'Death_A')!) : null)
+    const jumpStart = once(clipOf(moveGltf, 'Jump_Start') ? mixer.clipAction(clipOf(moveGltf, 'Jump_Start')!) : null)
+    const jumpIdle = clipOf(moveGltf, 'Jump_Idle') ? mixer.clipAction(clipOf(moveGltf, 'Jump_Idle')!) : null
+    const jumpLand = once(clipOf(moveGltf, 'Jump_Land') ? mixer.clipAction(clipOf(moveGltf, 'Jump_Land')!) : null)
     idle?.setLoop(THREE.LoopRepeat, Infinity)
     walk?.setLoop(THREE.LoopRepeat, Infinity)
     run?.setLoop(THREE.LoopRepeat, Infinity)
     dash?.setLoop(THREE.LoopRepeat, Infinity)
-    if (attack) {
-      attack.setLoop(THREE.LoopOnce, 1)
-      attack.clampWhenFinished = true
-    }
-    return { idle, walk, run, dash, attack }
+    jumpIdle?.setLoop(THREE.LoopRepeat, Infinity)
+    return { idle, walk, run, dash, combo, hitA, hitB, death, jumpStart, jumpIdle, jumpLand }
   }, [mixer, moveGltf, generalGltf, combatGltf])
   const current = useRef<THREE.AnimationAction | null>(null)
   const lastAttack = useRef(0)
+  const lastHit = useRef(0)
+  const lastJump = useRef<JumpPhase | null>(null)
+  const locoRef = useRef({ moving, running, dashing, dashUntil, seated, jumpPhase })
+  locoRef.current = { moving, running, dashing, dashUntil, seated, jumpPhase }
+
+  const play = (next: THREE.AnimationAction | null, fade = 0.12) => {
+    if (!next) return
+    if (current.current === next && next.isRunning()) return
+    current.current?.fadeOut(fade)
+    next.reset().fadeIn(fade).play()
+    current.current = next
+  }
+
+  const loco = () => {
+    const s = locoRef.current
+    const dashOn = Boolean(s.dashing) || (s.dashUntil ?? 0) > Date.now()
+    if (s.seated) return actions.idle
+    if (dashOn) return actions.dash ?? actions.run
+    if (s.moving) return s.running ? actions.run : actions.walk
+    return actions.idle
+  }
+
+  const oneshot = () => {
+    const cur = current.current
+    if (!cur) return false
+    const list = [
+      ...actions.combo,
+      actions.hitA,
+      actions.hitB,
+      actions.death,
+      actions.jumpStart,
+      actions.jumpLand,
+    ]
+    return list.includes(cur) && cur.isRunning()
+  }
 
   useLayoutEffect(() => {
     const onDone = (e: { action: THREE.AnimationAction }) => {
-      if (e.action !== actions.attack) return
-      const next = seated
-        ? actions.idle
-        : dashing
-          ? actions.dash ?? actions.run
-          : moving
-            ? running
-              ? actions.run
-              : actions.walk
-            : actions.idle
-      if (!next) return
-      e.action.fadeOut(0.12)
-      next.reset().fadeIn(0.12).play()
-      current.current = next
+      const act = e.action
+      if (act === actions.jumpStart) {
+        const phase = locoRef.current.jumpPhase
+        play(phase === 'land' ? actions.jumpLand : actions.jumpIdle ?? loco(), 0.08)
+        return
+      }
+      if (act === actions.jumpLand || act === actions.death || act === actions.hitA || act === actions.hitB || actions.combo.includes(act)) {
+        play(loco(), 0.12)
+      }
     }
     mixer.addEventListener('finished', onDone)
-    return () => {
-      mixer.removeEventListener('finished', onDone)
+    return () => mixer.removeEventListener('finished', onDone)
+  }, [mixer, actions])
+
+  useLayoutEffect(
+    () => () => {
       mixer.stopAllAction()
-    }
-  }, [mixer, actions, moving, running, seated, dashing])
+    },
+    [mixer],
+  )
 
   useFrame((_, dt) => {
-    if (attackAt > lastAttack.current && actions.attack) {
+    if (hitAt > lastHit.current && hitKind) {
+      lastHit.current = hitAt
+      if (hitKind === 'death') play(actions.death, 0.05)
+      else play(hitKind === 'B' ? actions.hitB ?? actions.hitA : actions.hitA ?? actions.hitB, 0.05)
+    } else if (attackAt > lastAttack.current) {
       lastAttack.current = attackAt
-      current.current?.fadeOut(0.08)
-      actions.attack.reset().fadeIn(0.05).play()
-      current.current = actions.attack
-    } else if (current.current !== actions.attack || !actions.attack?.isRunning()) {
-      const dashOn = Boolean(dashing) || (dashUntil ?? 0) > Date.now()
-      const next = seated
-        ? actions.idle
-        : dashOn
-          ? actions.dash ?? actions.run
-          : moving
-            ? running
-              ? actions.run
-              : actions.walk
-            : actions.idle
-      if (next && current.current !== next) {
-        current.current?.fadeOut(0.16)
-        next.reset().fadeIn(0.16).play()
-        current.current = next
-      } else if (next && !next.isRunning()) {
-        next.play()
-        current.current = next
+      const clip = actions.combo[combo] ?? actions.combo[0]
+      play(clip, 0.05)
+    } else if (jumpPhase && jumpPhase !== lastJump.current) {
+      lastJump.current = jumpPhase
+      if (jumpPhase === 'start') play(actions.jumpStart ?? actions.jumpIdle, 0.06)
+      else if (jumpPhase === 'idle') play(actions.jumpIdle ?? actions.jumpStart, 0.08)
+      else play(actions.jumpLand ?? loco(), 0.06)
+    } else if (!oneshot()) {
+      if (jumpPhase === 'idle') play(actions.jumpIdle ?? loco(), 0.1)
+      else if (jumpPhase === 'start' && current.current === actions.jumpStart) {
+        /* keep start until finished */
+      } else {
+        const next = loco()
+        if (next && current.current !== next) play(next, 0.16)
+        else if (next && !next.isRunning()) {
+          next.play()
+          current.current = next
+        }
       }
     }
     mixer.update(dt)

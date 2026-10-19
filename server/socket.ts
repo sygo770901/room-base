@@ -1,7 +1,7 @@
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import type { Socket } from 'socket.io'
-import { BOSS_COUNTDOWN_MS, PLAYER_MAX_HP, ROOM_MAX_PLAYERS } from '../shared/combat.ts'
+import { BOSS_COUNTDOWN_MS, PLAYER_MAX_HP, ROOM_MAX_PLAYERS, type ProjectileState } from '../shared/combat.ts'
 import { SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
 import { createBossMonsters, createMonsters, handleAttack, publicMonsters, scaleBossHealth, tickRoom } from './combat.ts'
@@ -25,6 +25,7 @@ import { PLAYER_CLASS } from '../shared/classes.ts'
 import {
   DASH_DURATION_MS,
   DASH_IFRAME_MS,
+  JUMP_AIR_MS,
   dashCooldownMs,
   type MoveGrant,
 } from '../shared/movement.ts'
@@ -37,9 +38,18 @@ import {
   type SmokeCloud,
 } from '../shared/smoke.ts'
 import { createBarrels, type BarrelState, type LootDrop } from '../shared/barrels.ts'
+import {
+  DOOR_ANIM_MS,
+  DOOR_RANGE,
+  createDoors,
+  doorDef,
+  nearestDoor,
+  occupantInDoor,
+  type DoorState,
+} from '../shared/doors.ts'
 import { defaultSettings, isGameMode, type GameMode, type RoomSettings } from '../shared/modes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
-import type { MatchOver } from '../shared/combat.ts'
+import type { DuckSpeech, MatchOver } from '../shared/combat.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
 export interface RoomState {
@@ -70,6 +80,12 @@ export interface RoomState {
   smokes: SmokeCloud[]
   barrels: BarrelState[]
   drops: LootDrop[]
+  projectiles: ProjectileState[]
+  doors: DoorState[]
+  nextSummonAt?: number
+  duckSpeech?: DuckSpeech | null
+  lastDuckLine?: string
+  speechNextAt?: number
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -107,6 +123,8 @@ function createRoom(roomId: string): RoomState {
     smokes: [],
     barrels: createBarrels(),
     drops: [],
+    projectiles: [],
+    doors: createDoors(),
   }
 }
 
@@ -143,6 +161,9 @@ function snapshotFor(room: RoomState, viewerId: string) {
     smokes: liveSmokes(room.smokes, Date.now()),
     barrels: room.barrels,
     drops: room.drops,
+    projectiles: room.projectiles,
+    doors: room.doors,
+    duckSpeech: room.duckSpeech && room.duckSpeech.until > Date.now() ? room.duckSpeech : null,
   }
 }
 
@@ -361,6 +382,8 @@ export function attachSocketServer(httpServer: HttpServer) {
             payload.mode === 'boss' ? createBossMonsters() : payload.mode === 'tag' ? [] : createMonsters()
           room.matchOver = null
           room.damage = {}
+          room.projectiles = []
+          room.doors = createDoors()
           const allowTimed = payload.mode === 'boss' || payload.mode === 'tag'
           room.settings = {
             timed: Boolean(payload.timed) && allowTimed,
@@ -443,6 +466,10 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (room.mode === 'boss') {
         room.monsters = createBossMonsters()
         room.hpScaled = false
+        room.nextSummonAt = undefined
+        room.duckSpeech = null
+        room.lastDuckLine = undefined
+        room.speechNextAt = undefined
         for (const p of Object.values(room.players)) {
           if (p.team === 'spectator') p.team = 'hider'
         }
@@ -454,6 +481,8 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.smokes = []
       room.barrels = createBarrels()
       room.drops = []
+      room.projectiles = []
+      room.doors = createDoors()
       const ids = Object.keys(room.players)
       ids.forEach((id, i) => {
         const p = room.players[id]
@@ -573,6 +602,57 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.hurtUntil[playerId] = Math.max(room.hurtUntil[playerId] ?? 0, now + DASH_IFRAME_MS)
       io.to(room.roomId).emit('player:dash', { id: playerId, until, dirX: dx, dirZ: dz })
       io.to(playerId).emit('dash:result', { ok: true, nextAt, until })
+    })
+
+    socket.on('door:toggle', (payload: { id?: string } = {}) => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
+      if (player.seated || player.team === 'spectator') return
+      const now = Date.now()
+      const near =
+        (typeof payload.id === 'string' && doorDef(payload.id)
+          ? doorDef(payload.id)
+          : nearestDoor(player.position[0], player.position[2], DOOR_RANGE)) ?? null
+      if (!near) return
+      if (Math.hypot(near.x - player.position[0], near.z - player.position[2]) > DOOR_RANGE) return
+      const door = room.doors.find((d) => d.id === near.id)
+      if (!door || now < door.busyUntil) return
+      if (door.open) {
+        for (const p of Object.values(room.players)) {
+          if (room.awayUntil[p.id] || p.team === 'spectator') continue
+          if (occupantInDoor(near, p.position[0], p.position[2])) {
+            io.to(playerId).emit('door:result', { ok: false, reason: 'blocked' })
+            return
+          }
+        }
+      }
+      door.open = !door.open
+      door.busyUntil = now + DOOR_ANIM_MS
+      io.to(room.roomId).emit('doors:sync', room.doors)
+      if (room.mode === 'tag') {
+        for (const id of Object.keys(room.players)) emitPlayerMoved(room, io, id)
+      }
+    })
+
+    socket.on('scene:set', (payload: { scene?: string } = {}) => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, playerId } = ctx
+      if (room.hostId !== playerId) return
+      if ((room.mode === 'boss' || room.mode === 'tag') && room.started && !room.matchOver) return
+      if (!isSceneId(payload.scene)) return
+      room.scene = payload.scene
+      emitState(room, io)
+    })
+
+    socket.on('jump', () => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
+      if (player.seated || player.hidden || player.team === 'spectator') return
+      const now = Date.now()
+      room.moveGrant[playerId] = { ...room.moveGrant[playerId], jumpUntil: now + JUMP_AIR_MS }
     })
 
     socket.on('skill:smoke', (payload: { x?: number; z?: number } = {}) => {

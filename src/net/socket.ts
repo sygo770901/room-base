@@ -1,6 +1,7 @@
 import { io, Socket } from 'socket.io-client'
 import { WEAPON_STATS } from '../../shared/barrels'
-import { ATTACK_COOLDOWN_MS } from '../../shared/combat'
+import { ATTACK_COOLDOWN_MS, PLAYER_HURT_IFRAME_MS, type DuckSpeech, type ProjectileState } from '../../shared/combat'
+import { nextComboStep, type HitAnim } from '../../shared/anim'
 import type { FurnitureItem } from '../../shared/furniture'
 import { attackBlocked } from '../scene/inputLock'
 import type { MonsterState, PlayerState, RoomSnapshot, SeatId, StickyNote, Vec3 } from '../types'
@@ -10,6 +11,7 @@ import type { GameMode } from '../../shared/modes'
 import type { SceneId } from '../../shared/scenes'
 import type { BarrelState, LootDrop } from '../../shared/barrels'
 import type { SmokeCloud } from '../../shared/smoke'
+import type { DoorState } from '../../shared/doors'
 import { spawnBarrelShards } from '../scene/Barrels'
 import { playSfx, unlockSfx } from '../audio/sfx'
 import { useAppStore } from '../store'
@@ -247,6 +249,7 @@ function bindListeners(s: Socket) {
 
   s.on('boss:telegraph', (payload: { x: number; z: number; r: number; ms: number }) => {
     useAppStore.getState().setTelegraph(payload)
+    useAppStore.getState().upsertTelegraph({ id: 'boss', ...payload })
     useAppStore.getState().setToast('鴨大王要震地了！')
     setTimeout(() => useAppStore.getState().setToast(null), payload.ms)
     playSfx('slam')
@@ -270,6 +273,7 @@ function bindListeners(s: Socket) {
       x: number
       z: number
       by?: string | null
+      hitAnim?: HitAnim
     }) => {
       useAppStore.getState().pushHit(payload)
       const selfId = useAppStore.getState().selfId
@@ -282,8 +286,34 @@ function bindListeners(s: Socket) {
         playSfx('hurt')
         useAppStore.getState().triggerHitFeel('hurt')
       }
+      if (payload.kind === 'player') {
+        useAppStore.getState().setHurtFlash(payload.id, Date.now() + PLAYER_HURT_IFRAME_MS)
+        if (payload.hitAnim) useAppStore.getState().setHitAnim(payload.id, payload.hitAnim)
+      }
     },
   )
+
+  s.on('mob:telegraph', (payload: { id: string; x: number; z: number; r: number; ms: number }) => {
+    useAppStore.getState().upsertTelegraph(payload)
+  })
+
+  s.on('projectiles:sync', (projectiles: ProjectileState[]) => {
+    useAppStore.getState().setProjectiles(projectiles)
+  })
+
+  s.on('doors:sync', (doors: DoorState[]) => {
+    useAppStore.getState().setDoors(doors)
+  })
+
+  s.on('duck:speech', (speech: DuckSpeech | null) => {
+    useAppStore.getState().setDuckSpeech(speech)
+  })
+
+  s.on('door:result', (payload: { ok: boolean; reason?: string }) => {
+    if (payload.ok) return
+    useAppStore.getState().setToast(payload.reason === 'blocked' ? '有人站在門口，關不起來' : '現在不能開關這扇門')
+    setTimeout(() => useAppStore.getState().setToast(null), 1600)
+  })
 
   s.on('note:added', (note: StickyNote) => {
     useAppStore.getState().addNote(note)
@@ -297,8 +327,8 @@ function bindListeners(s: Socket) {
     useAppStore.getState().patchNote(note)
   })
 
-  s.on('player:swing', ({ id }: { id: string }) => {
-    useAppStore.getState().setSwing(id, performance.now())
+  s.on('player:swing', ({ id, combo }: { id: string; combo?: number }) => {
+    useAppStore.getState().setSwing(id, performance.now(), combo ?? 0)
   })
 
   s.on('player:dash', (payload: { id: string; until: number; dirX: number; dirZ: number }) => {
@@ -562,6 +592,18 @@ export function emitMove(position: Vec3, rotationY: number) {
   socket?.emit('move', { position, rotationY })
 }
 
+export function emitJump() {
+  socket?.emit('jump')
+}
+
+export function emitDoorToggle(id?: string) {
+  socket?.emit('door:toggle', { id })
+}
+
+export function emitScene(scene: SceneId) {
+  socket?.emit('scene:set', { scene })
+}
+
 export function emitSit(seatId: SeatId | null) {
   return new Promise<{ ok: boolean; reason?: string }>((resolve) => {
     socket?.emit('sit', { seatId }, (ok: boolean, reason?: string) => {
@@ -595,6 +637,8 @@ export function emitCheck() {
 }
 
 let lastAttackAt = 0
+let localCombo = 0
+let localComboAt = 0
 export function performAttack() {
   const now = performance.now()
   if (attackBlocked()) return
@@ -612,7 +656,10 @@ export function performAttack() {
   const cd = WEAPON_STATS[held]?.cooldown ?? ATTACK_COOLDOWN_MS
   if (now - lastAttackAt < cd) return
   lastAttackAt = now
-  if (state.selfId) state.setSwing(state.selfId, now)
+  const wall = Date.now()
+  localCombo = nextComboStep(localCombo, localComboAt, wall)
+  localComboAt = wall
+  if (state.selfId) state.setSwing(state.selfId, now, localCombo)
   playSfx('attack', 0.96 + Math.random() * 0.08)
   socket?.emit('attack')
 }

@@ -2,6 +2,7 @@ import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import * as THREE from 'three'
+import { isMobileDevice } from '../perf/device'
 
 const WHITE = '#f3f4f6'
 const STEEL = '#8e969d'
@@ -9,7 +10,7 @@ const DARK = '#1f2428'
 const PURPLE = '#b9a6ff'
 const PANEL = '#eceff3'
 
-export function DispenserPetMesh({ pouncing }: { pouncing?: boolean }) {
+export function DispenserPetMesh({ pouncing, lit }: { pouncing?: boolean; lit?: boolean }) {
   const root = useRef<THREE.Group>(null)
   const glow = useRef<THREE.MeshStandardMaterial>(null)
   const light = useRef<THREE.PointLight>(null)
@@ -103,7 +104,9 @@ export function DispenserPetMesh({ pouncing }: { pouncing?: boolean }) {
         <sphereGeometry args={[0.1, 16, 12]} />
         <meshStandardMaterial color="#c4b5fd" emissive="#7c3aed" emissiveIntensity={0.8} transparent opacity={0.45} />
       </mesh>
-      <pointLight ref={light} position={[0.08, 0.96, 0.22]} color="#b794f6" intensity={2} distance={4.5} />
+      {lit && !isMobileDevice() ? (
+        <pointLight ref={light} position={[0.08, 0.96, 0.22]} color="#b794f6" intensity={2} distance={4.5} />
+      ) : null}
 
       {/* status dots */}
       {[-0.04, 0, 0.04].map((x) => (
