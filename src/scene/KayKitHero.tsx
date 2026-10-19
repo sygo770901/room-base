@@ -38,37 +38,54 @@ function clipOf(gltf: { animations: THREE.AnimationClip[] }, name: string) {
   return THREE.AnimationClip.findByName(gltf.animations, name)
 }
 
-function findBone(root: THREE.Object3D, names: string[]) {
+function findBone(root: THREE.Object3D, name: string) {
   let found: THREE.Object3D | undefined
   root.traverse((o) => {
     if (found) return
+    if (o.name === name) {
+      found = o
+      return
+    }
     const skinned = o as THREE.SkinnedMesh
     if (!skinned.isSkinnedMesh || !skinned.skeleton) return
-    for (const name of names) {
-      const bone = skinned.skeleton.bones.find((b) => b.name === name)
-      if (bone) {
-        found = bone
-        return
-      }
-    }
+    const bone = skinned.skeleton.bones.find((b) => b.name === name)
+    if (bone) found = bone
   })
   return found
 }
 
-function cloneWeapon(src: THREE.Object3D) {
+function prepareHeld(src: THREE.Object3D) {
   const mesh = src.clone(true)
   mesh.traverse((o) => {
     const m = o as THREE.Mesh
     if (!m.isMesh) return
+    m.visible = true
     m.castShadow = true
     m.receiveShadow = true
     m.frustumCulled = false
-    if (m.material) m.material = (m.material as THREE.Material).clone()
+    m.renderOrder = 2
+    const srcMats = Array.isArray(m.material) ? m.material : [m.material]
+    const clonedMats = srcMats.map((mat) => {
+      if (!mat) return mat
+      const next = mat.clone()
+      next.transparent = false
+      next.opacity = 1
+      next.depthWrite = true
+      next.side = THREE.DoubleSide
+      next.needsUpdate = true
+      return next
+    })
+    m.material = clonedMats.length === 1 ? clonedMats[0] : clonedMats
   })
-  mesh.position.set(0, 0, 0)
-  mesh.rotation.set(0, 0, 0)
-  mesh.scale.setScalar(1)
   return mesh
+}
+
+function countMeshes(obj: THREE.Object3D) {
+  let n = 0
+  obj.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) n += 1
+  })
+  return n
 }
 
 function makeFallbackWeapon(kind: 'sword' | 'axe' | 'dagger' | 'staff' | 'shield') {
@@ -163,32 +180,22 @@ export function KayKitHero({
   const rightWeapon = useMemo(() => {
     const g = new THREE.Group()
     g.name = 'held-right'
-    let meshes = 0
     if (load.right) {
-      const cloned = cloneWeapon(rightGltf.scene)
-      cloned.traverse((o) => {
-        if ((o as THREE.Mesh).isMesh) meshes += 1
-      })
-      if (meshes) g.add(cloned)
+      const cloned = prepareHeld(rightGltf.scene)
+      if (countMeshes(cloned)) g.add(cloned)
     }
-    if (!meshes) g.add(makeFallbackWeapon(FALLBACK[classId].right))
-    g.rotation.set(Math.PI / 2, 0, 0)
+    if (!g.children.length) g.add(makeFallbackWeapon(FALLBACK[classId].right))
     return g
   }, [classId, load.right, rightGltf.scene])
 
   const leftWeapon = useMemo(() => {
     const g = new THREE.Group()
     g.name = 'held-left'
-    let meshes = 0
     if (load.left) {
-      const cloned = cloneWeapon(leftGltf.scene)
-      cloned.traverse((o) => {
-        if ((o as THREE.Mesh).isMesh) meshes += 1
-      })
-      if (meshes) g.add(cloned)
+      const cloned = prepareHeld(leftGltf.scene)
+      if (countMeshes(cloned)) g.add(cloned)
     }
-    if (!meshes && FALLBACK[classId].left) g.add(makeFallbackWeapon(FALLBACK[classId].left!))
-    g.rotation.set(Math.PI / 2, 0, 0)
+    if (!g.children.length && FALLBACK[classId].left) g.add(makeFallbackWeapon(FALLBACK[classId].left))
     return g
   }, [classId, load.left, leftGltf.scene])
 
@@ -251,18 +258,18 @@ export function KayKitHero({
   })
 
   useLayoutEffect(() => {
-    const rightBone = findBone(root, ['handslot.r', 'hand.r'])
-    const leftBone = findBone(root, ['handslot.l', 'hand.l'])
-    if (rightBone) {
-      rightBone.add(rightWeapon)
-      rightWeapon.position.set(0, 0, 0)
-      rightWeapon.scale.setScalar(1)
+    const rightBone = findBone(root, 'handslot.r')
+    const leftBone = findBone(root, 'handslot.l')
+    const mount = (bone: THREE.Object3D | undefined, held: THREE.Object3D) => {
+      if (!bone || !held.children.length) return
+      bone.add(held)
+      held.position.set(0, 0, 0)
+      held.rotation.set(0, 0, 0)
+      held.scale.setScalar(1)
+      held.updateMatrix()
     }
-    if (leftBone && leftWeapon.children.length) {
-      leftBone.add(leftWeapon)
-      leftWeapon.position.set(0, 0, 0)
-      leftWeapon.scale.setScalar(1)
-    }
+    mount(rightBone, rightWeapon)
+    mount(leftBone, leftWeapon)
     return () => {
       rightWeapon.removeFromParent()
       leftWeapon.removeFromParent()

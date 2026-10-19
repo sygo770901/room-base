@@ -11,6 +11,7 @@
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
     "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.check.json",
     "start": "tsx server/index.ts",
     "deploy:tunnel": "npm run build && concurrently -k \"npm:start\" \"npm:tunnel\"",
     "tunnel": "npx --yes cloudflared tunnel --url http://localhost:3001"
