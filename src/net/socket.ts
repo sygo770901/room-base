@@ -204,8 +204,8 @@ function bindListeners(s: Socket) {
     }
   })
 
-  s.on('player:vitals', ({ id, hp }: { id: string; hp: number }) => {
-    useAppStore.getState().patchPlayer(id, { hp })
+  s.on('player:vitals', ({ id, hp, downedUntil }: { id: string; hp: number; downedUntil?: number }) => {
+    useAppStore.getState().patchPlayer(id, { hp, downedUntil })
   })
 
   s.on('player:respawn', (payload: { position: Vec3; hp: number; rotationY: number; reason?: string }) => {
@@ -217,6 +217,7 @@ function bindListeners(s: Socket) {
       hp: payload.hp,
       seated: null,
       hidden: false,
+      downedUntil: 0,
     })
     lastPose = { position: payload.position, rotationY: payload.rotationY }
     useAppStore.getState().bumpRespawn()
@@ -602,6 +603,10 @@ export function emitJump() {
 
 export function emitPhrase(index: number) {
   socket?.emit('phrase', { index })
+}
+
+export function emitRescueHold(targetId: string) {
+  socket?.emit('rescue:hold', { targetId })
 }
 
 export function emitDoorToggle(id?: string) {

@@ -100,7 +100,7 @@ interface AppState {
   applySnapshot: (snapshot: RoomSnapshot) => void
   upsertPlayer: (player: PlayerState) => void
   removePlayer: (id: string) => void
-  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp' | 'hidden' | 'team' | 'weapon' | 'weaponUntil'>>) => void
+  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp' | 'hidden' | 'team' | 'weapon' | 'weaponUntil' | 'away' | 'phrase' | 'downedUntil'>>) => void
   addNote: (note: StickyNote) => void
   patchNote: (note: StickyNote) => void
   removeNote: (id: string) => void

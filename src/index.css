@@ -699,6 +699,33 @@ input {
   min-width: 132px;
 }
 
+.downed-banner {
+  position: absolute;
+  left: 50%;
+  top: 28%;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(196, 69, 54, 0.92);
+  font-weight: 700;
+}
+
+.rescue-btn {
+  position: absolute;
+  right: 16px;
+  top: calc(50% + 72px);
+  z-index: 16;
+  width: 64px;
+  height: 64px;
+  border: 0;
+  border-radius: 50%;
+  background: #81b29a;
+  color: #102018;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .phrase-menu button {
   border: 0;
   border-radius: 8px;

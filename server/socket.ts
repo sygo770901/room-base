@@ -4,7 +4,7 @@ import type { Socket } from 'socket.io'
 import { BOSS_COUNTDOWN_MS, PLAYER_MAX_HP, ROOM_MAX_PLAYERS, type ProjectileState } from '../shared/combat.ts'
 import { SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
-import { createBossMonsters, createMonsters, handleAttack, publicMonsters, scaleBossHealth, tickRoom } from './combat.ts'
+import { createBossMonsters, createMonsters, handleAttack, publicMonsters, scaleBossHealth, standPlayer, tickRoom } from './combat.ts'
 import {
   acceptMove,
   emitPlayerHidden,
@@ -55,6 +55,7 @@ import { doorsOf, platformsOf } from '../shared/mapData.ts'
 import { normalizeToken, resolveJoinPlayerId } from '../shared/identity.ts'
 import { PHRASE_COOLDOWN_MS, PHRASE_DURATION_MS, phraseAt } from '../shared/phrases.ts'
 import { pickLiveHost } from '../shared/host.ts'
+import { RESCUE_HOLD_MS, RESCUE_RANGE, isDowned } from '../shared/downed.ts'
 import type { DuckSpeech, MatchOver } from '../shared/combat.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
@@ -99,6 +100,7 @@ export interface RoomState {
   rescues: Record<string, number>
   hideMs: Record<string, number>
   nextPhrase: Record<string, number>
+  rescueHold: Record<string, { targetId: string; since: number }>
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -144,6 +146,7 @@ function createRoom(roomId: string): RoomState {
     rescues: {},
     hideMs: {},
     nextPhrase: {},
+    rescueHold: {},
   }
 }
 
@@ -518,6 +521,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.rescues = {}
       room.hideMs = {}
       room.nextPhrase = {}
+      room.rescueHold = {}
       room.startAt = 0
       room.matchDeadline = null
       if (room.mode === 'boss') {
@@ -547,6 +551,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         p.hp = PLAYER_MAX_HP
         p.hidden = false
         p.phrase = null
+        p.downedUntil = 0
         p.weapon = 'sword'
         p.weaponUntil = 0
         if (p.seated) {
@@ -631,7 +636,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (!ctx) return
       const { room, player, playerId } = ctx
       const now = Date.now()
-      if (player.seated || player.hidden) return
+      if (player.seated || player.hidden || isDowned(player, now)) return
       if (player.team === 'spectator') return
       if ((room.mode === 'boss' || room.mode === 'tag') && !room.started) return
       if (room.mode === 'tag' && player.team === 'ghost' && room.tag && now < room.tag.hideUntil) {
@@ -666,7 +671,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       const ctx = inRoom(socket, currentRoomId)
       if (!ctx) return
       const { room, player, playerId } = ctx
-      if (player.seated || player.team === 'spectator') return
+      if (player.seated || player.team === 'spectator' || isDowned(player)) return
       const now = Date.now()
       const defs = doorsOf(room.scene)
       const near =
@@ -720,11 +725,42 @@ export function attachSocketServer(httpServer: HttpServer) {
       emitState(room, io)
     })
 
+    socket.on('rescue:hold', (payload: { targetId?: string } = {}) => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
+      const now = Date.now()
+      if (room.mode !== 'boss' || !room.started || room.matchOver) return
+      if (isDowned(player, now) || player.team === 'spectator') return
+      const targetId = typeof payload.targetId === 'string' ? payload.targetId : ''
+      const target = room.players[targetId]
+      if (!target || !isDowned(target, now)) {
+        delete room.rescueHold[playerId]
+        return
+      }
+      const dist = Math.hypot(player.position[0] - target.position[0], player.position[2] - target.position[2])
+      if (dist > RESCUE_RANGE) {
+        delete room.rescueHold[playerId]
+        return
+      }
+      const prev = room.rescueHold[playerId]
+      if (!prev || prev.targetId !== targetId) {
+        room.rescueHold[playerId] = { targetId, since: now }
+        return
+      }
+      if (now - prev.since < RESCUE_HOLD_MS) return
+      standPlayer(room, io, target, now)
+      if (!room.rescues) room.rescues = {}
+      room.rescues[playerId] = (room.rescues[playerId] ?? 0) + 1
+      delete room.rescueHold[playerId]
+      emitState(room, io)
+    })
+
     socket.on('jump', () => {
       const ctx = inRoom(socket, currentRoomId)
       if (!ctx) return
       const { room, player, playerId } = ctx
-      if (player.seated || player.hidden || player.team === 'spectator') return
+      if (player.seated || player.hidden || player.team === 'spectator' || isDowned(player)) return
       const [x, y, z] = player.position
       if (!canStartJump(x, z, y ?? 0, platformsOf(room.scene))) return
       const now = Date.now()
@@ -736,7 +772,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (!ctx) return
       const { room, player, playerId } = ctx
       const now = Date.now()
-      if (player.seated || player.hidden) return
+      if (player.seated || player.hidden || isDowned(player, now)) return
       if (player.team === 'spectator') return
       if ((room.mode === 'boss' || room.mode === 'tag') && !room.started) return
       const readyAt = room.nextSmoke[playerId] ?? 0

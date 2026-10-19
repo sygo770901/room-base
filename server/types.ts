@@ -19,6 +19,7 @@ export interface PlayerState {
   weaponUntil?: number
   away?: boolean
   phrase?: { text: string; until: number } | null
+  downedUntil?: number
 }
 
 export interface StickyNote {

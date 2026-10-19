@@ -20,6 +20,7 @@ import {
   type TagState,
 } from '../shared/tag.ts'
 import { computeAwards } from '../shared/awards.ts'
+import { isDowned } from '../shared/downed.ts'
 import type { PlayerState, Vec3 } from './types.ts'
 
 export type { TagState }
@@ -414,7 +415,7 @@ export function tryHide(room: TagRoom, playerId: string, want: boolean, now: num
   const player = room.players[playerId]
   const tag = room.tag
   if (!player) return false
-  if (player.team === 'ghost' || player.team === 'spectator') return false
+  if (player.team === 'ghost' || player.team === 'spectator' || isDowned(player, now)) return false
   if (!want) {
     player.hidden = false
     if (tag) {
@@ -463,6 +464,7 @@ export function handleCheck(room: TagRoom, io: Server, playerId: string, now: nu
 export function handleTagAttack(room: TagRoom, io: Server, playerId: string, now: number, attackerSocketId?: string) {
   const player = room.players[playerId]
   if (!player || player.seated || player.hidden) return
+  if (isDowned(player, now)) return
   if (room.matchOver) return
   if ((room.nextAttack?.[playerId] ?? 0) > now) return
   if (!room.nextAttack) room.nextAttack = {}
@@ -540,6 +542,7 @@ export function acceptMove(
   payload: { position: Vec3; rotationY: number },
   now: number,
 ) {
+  if (isDowned(player, now)) return false
   if (player.team === 'ghost' && hidePhase(room, now)) return false
   if (!room.lastMoveAt) room.lastMoveAt = {}
   if (!room.moveGrant) room.moveGrant = {}

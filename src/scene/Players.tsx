@@ -123,7 +123,7 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
           outlineWidth={0.01}
           outlineColor="#000000"
         >
-          {player.away ? '斷線中' : player.name}
+          {player.away ? '斷線中' : player.downedUntil && player.downedUntil > Date.now() ? `${player.name} · 倒地` : player.name}
           {player.away ? '' : player.role === 'host' ? ' · 房主' : ''}
           {player.hidden && !player.away ? ' · 躲藏' : ''}
         </Text>

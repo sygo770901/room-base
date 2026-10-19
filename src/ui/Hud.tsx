@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { LOOK_SENS_MAX, LOOK_SENS_MIN, LOOK_SENS_STEP } from '../../shared/input'
-import { disconnectSocket, emitAddNote, emitCheck, emitDoorToggle, emitHide, emitPhrase, emitRemoveNote, emitRestart, emitScene, emitStart, emitUpdateNote, performAttack } from '../net/socket'
+import { disconnectSocket, emitAddNote, emitCheck, emitDoorToggle, emitHide, emitPhrase, emitRemoveNote, emitRescueHold, emitRestart, emitScene, emitStart, emitUpdateNote, performAttack } from '../net/socket'
 import { QUICK_PHRASES } from '../../shared/phrases'
 import { typingInField } from '../scene/inputLock'
 import { SCENE_IDS, SCENE_LABELS } from '../../shared/scenes'
@@ -11,6 +11,7 @@ import { useAppStore } from '../store'
 import { VirtualJoystick } from './VirtualJoystick'
 import { Minimap } from './Minimap'
 import { nearestDoor, DOOR_RANGE } from '../../shared/doors'
+import { isDowned, nearestDowned } from '../../shared/downed'
 import { doorsOf } from '../../shared/mapData'
 import { DUCK_MAX_DISPENSERS } from '../../shared/combat'
 
@@ -60,6 +61,7 @@ export function Hud() {
   const [checkLeft, setCheckLeft] = useState(0)
   const [fontSize, setFontSize] = useState(0.12)
   const [phraseOpen, setPhraseOpen] = useState(false)
+  const [rescuing, setRescuing] = useState(false)
 
   useEffect(() => {
     if (pendingNote || noteAsk) exitGameLock()
@@ -87,6 +89,18 @@ export function Hud() {
   useEffect(() => {
     if (matchOver || ((mode === 'boss' || mode === 'tag') && !started)) exitGameLock()
   }, [matchOver, mode, started])
+
+  useEffect(() => {
+    if (!rescuing || !self?.position) return
+    const tick = () => {
+      const t = nearestDowned(self.id, self.position![0], self.position![2], Object.values(useAppStore.getState().players))
+      if (t) emitRescueHold(t.id)
+      else setRescuing(false)
+    }
+    tick()
+    const id = window.setInterval(tick, 160)
+    return () => window.clearInterval(id)
+  }, [rescuing, self])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -275,6 +289,20 @@ export function Hud() {
         <div className="boss-hint">鴨大王在東南王房</div>
       )}
 
+      {mode === 'boss' && started && !matchOver && self && isDowned(self, nowMs) && (
+        <div className="downed-banner">倒地 {Math.max(0, Math.ceil(((self.downedUntil ?? 0) - nowMs) / 1000))} 秒 · 等隊友扶</div>
+      )}
+      {mode === 'boss' && started && !matchOver && self && !isDowned(self, nowMs) && self.position && nearestDowned(self.id, self.position[0], self.position[2], Object.values(players), nowMs) && (
+        <button
+          type="button"
+          className="rescue-btn"
+          onPointerDown={() => setRescuing(true)}
+          onPointerUp={() => setRescuing(false)}
+          onPointerLeave={() => setRescuing(false)}
+        >
+          扶
+        </button>
+      )}
       {mode === 'boss' && started && !matchOver && duckSpeech && duckSpeech.until > Date.now() && (
         <div className={duckSpeech.shout ? 'duck-speech-hud shout' : 'duck-speech-hud'} aria-live="polite">
           {duckSpeech.text}

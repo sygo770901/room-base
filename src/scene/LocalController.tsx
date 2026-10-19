@@ -8,7 +8,8 @@ import { DASH_DISTANCE, DASH_DURATION_MS, JUMP_CEILING, dashCooldownMs } from '.
 import { GRAVITY, HIDE_MAX_Y, JUMP_SPEED, platformsFor, supportY } from '../../shared/platforms'
 import { PLAYER_RADIUS } from '../../shared/furniture'
 import { SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
-import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitSit, emitSmoke, performAttack } from '../net/socket'
+import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitRescueHold, emitSit, emitSmoke, performAttack } from '../net/socket'
+import { isDowned, nearestDowned } from '../../shared/downed'
 import { DOOR_RANGE, closedDoorAabbs, nearestDoor } from '../../shared/doors'
 import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
 import { resolvePlayerMove } from '../physics/collision'
@@ -116,7 +117,7 @@ export function LocalController({
   function tryDash() {
     const state = useAppStore.getState()
     const me = state.players[player.id]
-    if (!me || me.seated || me.hidden) return
+    if (!me || me.seated || me.hidden || isDowned(me)) return
     if (me.team === 'spectator') return
     if ((state.mode === 'boss' || state.mode === 'tag') && !state.started) return
     if (state.mode === 'tag' && me.team === 'ghost' && (state.tagHud?.hideLeftMs ?? 0) > 0) {
@@ -146,7 +147,7 @@ export function LocalController({
   function tryJump() {
     const state = useAppStore.getState()
     const me = state.players[player.id]
-    if (!me || me.seated || me.hidden) return
+    if (!me || me.seated || me.hidden || isDowned(me)) return
     if (me.team === 'spectator') return
     if (!grounded.current) return
     vy.current = JUMP_SPEED
@@ -158,7 +159,7 @@ export function LocalController({
   function trySmoke() {
     const state = useAppStore.getState()
     const me = state.players[player.id]
-    if (!me || me.seated || me.hidden) return
+    if (!me || me.seated || me.hidden || isDowned(me)) return
     if (me.team === 'spectator') return
     if ((state.mode === 'boss' || state.mode === 'tag') && !state.started) return
     const now = Date.now()
@@ -201,8 +202,11 @@ export function LocalController({
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') tryDash()
       if (e.code === 'Space') tryJump()
       if (e.code === 'KeyE') {
+        const st = useAppStore.getState()
+        const nearDowned = nearestDowned(player.id, pos.current.x, pos.current.z, Object.values(st.players))
+        if (nearDowned) return
         if (seatedRef.current) void emitSit(null)
-        else if (nearestDoor(pos.current.x, pos.current.z, doorsOf(useAppStore.getState().scene), DOOR_RANGE)) emitDoorToggle()
+        else if (nearestDoor(pos.current.x, pos.current.z, doorsOf(st.scene), DOOR_RANGE)) emitDoorToggle()
         else tryHide()
       }
     }
@@ -259,6 +263,17 @@ export function LocalController({
       stickCamera(pos.current.x, pos.current.y, pos.current.z)
       onPose([pos.current.x, pos.current.y, pos.current.z], rotY.current)
       return
+    }
+
+    if (isDowned(player)) {
+      stickCamera(pos.current.x, pos.current.y, pos.current.z)
+      onPose([pos.current.x, pos.current.y, pos.current.z], rotY.current)
+      return
+    }
+
+    if (keys.current.KeyE) {
+      const tgt = nearestDowned(player.id, pos.current.x, pos.current.z, Object.values(useAppStore.getState().players))
+      if (tgt) emitRescueHold(tgt.id)
     }
 
     if (player.seated && player.position) {

@@ -103,6 +103,7 @@ import {
 import type { TagState } from '../shared/tag.ts'
 import { handleTagAttack, tickTag } from './tag.ts'
 import { computeAwards } from '../shared/awards.ts'
+import { DOWNED_MS, RESCUE_HP, isDowned } from '../shared/downed.ts'
 import type { PlayerState } from './types.ts'
 
 export interface ServerMonster {
@@ -266,6 +267,7 @@ function nearestVisible(
     if (p.hidden) continue
     if (p.team === 'spectator') continue
     if (room.awayUntil?.[p.id]) continue
+    if (isDowned(p)) continue
     if (inSmoke(room.smokes, p.position[0], p.position[2], Date.now())) continue
     const d = Math.hypot(p.position[0] - mx, p.position[2] - mz)
     if (d > sight || d >= best) continue
@@ -314,8 +316,54 @@ function bossAwards(room: CombatRoom) {
   })
 }
 
+export function respawnPlayer(room: CombatRoom, io: Server, player: PlayerState, now: number, reason?: string) {
+  const sp = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)]
+  player.hp = PLAYER_MAX_HP
+  player.downedUntil = 0
+  player.position = [sp.x, 0, sp.z]
+  player.seated = null
+  room.hurtUntil[player.id] = now + IFRAME_MS
+  if (room.lastMoveAt) room.lastMoveAt[player.id] = now
+  if (room.moveGrant) delete room.moveGrant[player.id]
+  io.to(player.id).emit('player:respawn', {
+    position: player.position,
+    hp: player.hp,
+    rotationY: player.rotationY,
+    reason,
+  })
+  io.to(room.roomId).emit('player:moved', {
+    id: player.id,
+    position: player.position,
+    rotationY: player.rotationY,
+    snap: true,
+  })
+  io.to(room.roomId).emit('player:vitals', { id: player.id, hp: player.hp, downedUntil: 0 })
+}
+
+export function standPlayer(room: CombatRoom, io: Server, player: PlayerState, now: number) {
+  player.hp = RESCUE_HP
+  player.downedUntil = 0
+  room.hurtUntil[player.id] = now + IFRAME_MS
+  io.to(room.roomId).emit('player:vitals', { id: player.id, hp: player.hp, downedUntil: 0 })
+}
+
+function wipeIfAllDowned(room: CombatRoom, io: Server, now: number) {
+  if (room.mode !== 'boss') return
+  const live = Object.values(room.players).filter((p) => !room.awayUntil?.[p.id] && p.team !== 'spectator')
+  if (!live.length || !live.every((p) => isDowned(p, now))) return
+  for (const p of live) respawnPlayer(room, io, p, now)
+}
+
+export function tickDowned(room: CombatRoom, io: Server, now: number) {
+  if (room.mode !== 'boss' || room.matchOver) return
+  for (const p of Object.values(room.players)) {
+    if (p.downedUntil && now >= p.downedUntil && p.hp <= 0) respawnPlayer(room, io, p, now)
+  }
+}
+
 function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: number, now: number) {
   if (now < (room.hurtUntil[player.id] ?? 0)) return
+  if (isDowned(player, now)) return
   const x = player.position[0]
   const z = player.position[2]
   const lethal = (player.hp ?? PLAYER_MAX_HP) - dmg <= 0
@@ -333,27 +381,19 @@ function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: numb
     hitAnim,
   })
   if (player.hp <= 0) {
-    const sp = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)]
-    player.hp = PLAYER_MAX_HP
-    player.position = [sp.x, 0, sp.z]
-    player.seated = null
-    room.hurtUntil[player.id] = now + IFRAME_MS
-    if (room.lastMoveAt) room.lastMoveAt[player.id] = now
-    if (room.moveGrant) delete room.moveGrant[player.id]
-    io.to(player.id).emit('player:respawn', {
-      position: player.position,
-      hp: player.hp,
-      rotationY: player.rotationY,
-    })
-    io.to(room.roomId).emit('player:moved', {
-      id: player.id,
-      position: player.position,
-      rotationY: player.rotationY,
-    })
+    if (room.mode === 'boss' && room.started && !room.matchOver) {
+      player.hp = 0
+      player.downedUntil = now + DOWNED_MS
+      room.hurtUntil[player.id] = now + PLAYER_HURT_IFRAME_MS
+      io.to(room.roomId).emit('player:vitals', { id: player.id, hp: 0, downedUntil: player.downedUntil })
+      wipeIfAllDowned(room, io, now)
+    } else {
+      respawnPlayer(room, io, player, now)
+    }
   } else {
     room.hurtUntil[player.id] = now + PLAYER_HURT_IFRAME_MS
   }
-  io.to(room.roomId).emit('player:vitals', { id: player.id, hp: player.hp })
+  io.to(room.roomId).emit('player:vitals', { id: player.id, hp: player.hp, downedUntil: player.downedUntil ?? 0 })
 }
 
 function tryTouch(
@@ -838,7 +878,7 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
     if (duck.windupUntil && !duck.slamResolved && now >= duck.windupUntil) {
       duck.slamResolved = true
       for (const p of Object.values(room.players)) {
-        if (room.awayUntil?.[p.id] || p.team === 'spectator') continue
+        if (room.awayUntil?.[p.id] || p.team === 'spectator' || isDowned(p, now)) continue
         const dist = Math.hypot(p.position[0] - duck.x, p.position[2] - duck.z)
         if (dist <= duck.slamRadius) hurtPlayer(room, io, p, SLAM_DAMAGE, now)
       }
@@ -921,6 +961,7 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
     }
   }
   if (room.matchOver) return
+  tickDowned(room, io, now)
   if (room.mode === 'tag') {
     tickTag(room, io, now)
     return
@@ -1009,6 +1050,7 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
   }
   const player = room.players[playerId]
   if (!player || player.seated || player.hidden || player.team === 'spectator') return
+  if (isDowned(player, now)) return
   if (room.matchOver) return
   if (room.mode === 'boss' && !room.started) return
   if (room.startAt && now < room.startAt) return
