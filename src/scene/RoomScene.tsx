@@ -286,6 +286,7 @@ function CameraRig() {
     }
     camera.up.set(0, 1, 0)
     camera.lookAt(target)
+    useAppStore.getState().setLookYaw(Math.atan2(target.x - camera.position.x, target.z - camera.position.z))
   }, 0)
   return null
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { BOSS_ROOM, CELL, MAP_H, MAP_W, MAP_WORLD, isFloorCell } from '../../shared/dungeon'
-import { MINIMAP_DESKTOP_PX, MINIMAP_MOBILE_PX } from '../../shared/minimap'
+import { MINIMAP_DESKTOP_PX, MINIMAP_FOV_RAD, MINIMAP_FOV_REACH, MINIMAP_MOBILE_PX } from '../../shared/minimap'
 import { isMobileDevice } from '../perf/device'
 import { useAppStore } from '../store'
 
@@ -67,18 +67,18 @@ export function Minimap() {
         ctx.arc(pos.x, pos.y, self ? 4.2 : 3.1, 0, Math.PI * 2)
         ctx.fill()
         if (self) {
+          const yaw = state.lookYaw
+          const fov = MINIMAP_FOV_RAD
+          const reach = MINIMAP_FOV_REACH
+          ctx.beginPath()
+          ctx.moveTo(pos.x, pos.y)
+          ctx.arc(pos.x, pos.y, reach, yaw - fov / 2 + Math.PI / 2, yaw + fov / 2 + Math.PI / 2)
+          ctx.closePath()
+          ctx.fillStyle = 'rgba(255, 214, 120, 0.28)'
+          ctx.fill()
           ctx.strokeStyle = '#fff6e8'
           ctx.lineWidth = 1.4
           ctx.stroke()
-          const fx = Math.sin(p.rotationY)
-          const fz = Math.cos(p.rotationY)
-          ctx.beginPath()
-          ctx.moveTo(pos.x + fx * 9, pos.y + fz * 9)
-          ctx.lineTo(pos.x - fz * 3.4 - fx * 2, pos.y + fx * 3.4 - fz * 2)
-          ctx.lineTo(pos.x + fz * 3.4 - fx * 2, pos.y - fx * 3.4 - fz * 2)
-          ctx.closePath()
-          ctx.fillStyle = '#fff6e8'
-          ctx.fill()
         }
       }
       raf = requestAnimationFrame(tick)

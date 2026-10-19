@@ -59,6 +59,7 @@ interface AppState {
   sfxOn: boolean
   lookSensitivity: number
   pointerLocked: boolean
+  lookYaw: number
   displayName: string
   players: Record<string, PlayerState>
   notes: StickyNote[]
@@ -136,6 +137,7 @@ interface AppState {
   setSfxOn: (on: boolean) => void
   setLookSensitivity: (n: number) => void
   setPointerLocked: (on: boolean) => void
+  setLookYaw: (yaw: number) => void
   setDash: (id: string, until: number) => void
   setDashReadyAt: (at: number) => void
   requestDash: () => void
@@ -174,6 +176,7 @@ export const useAppStore = create<AppState>((set) => ({
   sfxOn: typeof localStorage === 'undefined' ? true : localStorage.getItem('rb-sfx') !== '0',
   lookSensitivity: readLookSens(),
   pointerLocked: false,
+  lookYaw: 0,
   displayName: boot?.name ?? '',
   players: {},
   notes: [],
@@ -352,6 +355,7 @@ export const useAppStore = create<AppState>((set) => ({
     set({ lookSensitivity: v })
   },
   setPointerLocked: (on) => set({ pointerLocked: on }),
+  setLookYaw: (yaw) => set({ lookYaw: yaw }),
   setDash: (id, until) => set((s) => ({ dashUntil: { ...s.dashUntil, [id]: until } })),
   setDashReadyAt: (at) => set({ dashReadyAt: at }),
   requestDash: () => set((s) => ({ dashRequest: s.dashRequest + 1 })),
@@ -408,6 +412,7 @@ export const useAppStore = create<AppState>((set) => ({
       hurtFlashUntil: {},
       joy: { x: 0, y: 0 },
       pointerLocked: false,
+      lookYaw: 0,
       dashUntil: {},
       dashReadyAt: 0,
       dashRequest: 0,
