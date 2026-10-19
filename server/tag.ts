@@ -4,7 +4,8 @@ import { nextComboStep } from '../shared/anim.ts'
 import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
 import { JUMP_CEILING, JUMP_MAX_DELTA, MOVE_Y_PAD, moveAllowance, type MoveGrant } from '../shared/movement.ts'
-import { HIDE_MAX_Y } from '../shared/platforms.ts'
+import { HIDE_MAX_Y, JUMP_GROUND_EPS, supportY, PLAYER_FOOT_RADIUS } from '../shared/platforms.ts'
+import { platformsOf } from '../shared/mapData.ts'
 import { smokeHidesFrom, type SmokeCloud } from '../shared/smoke.ts'
 import { doorHidesFrom, type DoorState } from '../shared/doors.ts'
 import {
@@ -45,6 +46,7 @@ export interface TagRoom {
   moveGrant?: Record<string, MoveGrant>
   smokes?: SmokeCloud[]
   doors?: DoorState[]
+  scene?: string | null
 }
 
 export function emptyTag(): TagState {
@@ -514,8 +516,17 @@ export function acceptMove(
   if (!room.lastMoveAt) room.lastMoveAt = {}
   if (!room.moveGrant) room.moveGrant = {}
   if (!Array.isArray(payload.position) || payload.position.length < 3) return false
-  const [x, y, z] = payload.position
-  if (![x, y, z, payload.rotationY].every((n) => typeof n === 'number' && Number.isFinite(n))) return false
+  const [x, rawY, z] = payload.position
+  if (![x, rawY, z, payload.rotationY].every((n) => typeof n === 'number' && Number.isFinite(n))) return false
+
+  const grant = room.moveGrant[player.id]
+  const jumping = Boolean(grant?.jumpUntil && now <= grant.jumpUntil)
+  const prevY = player.position[1] ?? 0
+  const platforms = platformsOf(room.scene)
+  const floor = supportY(x, z, rawY, prevY, PLAYER_FOOT_RADIUS, platforms)
+  let y = rawY
+  if (!jumping && y > floor + JUMP_GROUND_EPS) y = floor
+  if (y > JUMP_CEILING + 0.2 || y < -0.08) return false
 
   const prev = room.lastMoveAt[player.id]
   if (prev == null) {
@@ -525,12 +536,10 @@ export function acceptMove(
     return true
   }
 
-  const allow = moveAllowance(now - prev, room.moveGrant[player.id], now)
+  const allow = moveAllowance(now - prev, grant, now)
   const dist = Math.hypot(x - player.position[0], z - player.position[2])
-  const prevY = player.position[1] ?? 0
   const rise = y - prevY
   const drop = prevY - y
-  if (y > JUMP_CEILING + 0.2 || y < -0.08) return false
   if (dist > allow.horiz || rise > allow.vert || drop > JUMP_MAX_DELTA + MOVE_Y_PAD) return false
 
   player.position = [x, y, z]

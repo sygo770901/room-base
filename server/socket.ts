@@ -49,6 +49,8 @@ import {
 } from '../shared/doors.ts'
 import { defaultSettings, isGameMode, type GameMode, type RoomSettings } from '../shared/modes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
+import { canStartJump } from '../shared/platforms.ts'
+import { platformsOf } from '../shared/mapData.ts'
 import type { DuckSpeech, MatchOver } from '../shared/combat.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
@@ -651,6 +653,8 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (!ctx) return
       const { room, player, playerId } = ctx
       if (player.seated || player.hidden || player.team === 'spectator') return
+      const [x, y, z] = player.position
+      if (!canStartJump(x, z, y ?? 0, platformsOf(room.scene))) return
       const now = Date.now()
       room.moveGrant[playerId] = { ...room.moveGrant[playerId], jumpUntil: now + JUMP_AIR_MS }
     })

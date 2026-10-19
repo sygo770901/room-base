@@ -3,6 +3,14 @@ export const GRAVITY = 20
 export const JUMP_SPEED = 9.2
 export const LAND_SNAP = 0.32
 export const HIDE_MAX_Y = 0.4
+/** 離支撐面多近才算著地，才能再跳（先定，昱豪可改）。 */
+export const JUMP_GROUND_EPS = 0.18
+export const PLAYER_FOOT_RADIUS = 0.26
+
+export function canStartJump(x: number, z: number, y: number, platforms: Platform[]) {
+  const floor = supportY(x, z, y, y, PLAYER_FOOT_RADIUS, platforms)
+  return y <= floor + JUMP_GROUND_EPS
+}
 
 export type Platform = {
   minX: number
