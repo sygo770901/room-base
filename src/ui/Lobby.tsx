@@ -1,21 +1,14 @@
 import { FormEvent, useState } from 'react'
-import type { SceneId } from '../../shared/scenes'
+import { SCENE_BLURBS, SCENE_IDS, SCENE_LABELS, isSceneId, type SceneId } from '../../shared/scenes'
 import { MODE_BLURBS, MODE_IDS, MODE_LABELS, isGameMode, type GameMode } from '../../shared/modes'
 import { joinRoom } from '../net/socket'
 import { useAppStore } from '../store'
 
-const SCENES: { id: SceneId; title: string; text: string }[] = [
-  {
-    id: 'kenney',
-    title: 'Kenney 模組地城',
-    text: '現在這套。紫色石牆、橙色地板、柱子。',
-  },
-  {
-    id: 'kaykit',
-    title: 'KayKit Dungeon Pack 1.1',
-    text: '石磚貼圖、門、鐵柵、樓梯、天花板。面數是為手機準備的。',
-  },
-]
+const SCENES: { id: SceneId; title: string; text: string }[] = SCENE_IDS.map((id) => ({
+  id,
+  title: SCENE_LABELS[id],
+  text: SCENE_BLURBS[id],
+}))
 
 function savedMode(): GameMode {
   const raw = localStorage.getItem('rb-mode')
@@ -28,7 +21,10 @@ export function Lobby() {
   const setLobby = useAppStore((s) => s.setLobby)
   const [name, setName] = useState(displayName || localStorage.getItem('rb-name') || '')
   const [room, setRoom] = useState(roomId || localStorage.getItem('rb-room') || 'home')
-  const [scene, setScene] = useState<SceneId>(localStorage.getItem('rb-scene') === 'kaykit' ? 'kaykit' : 'kenney')
+  const [scene, setScene] = useState<SceneId>(() => {
+    const raw = localStorage.getItem('rb-scene')
+    return isSceneId(raw) ? raw : 'kenney'
+  })
   const [mode, setMode] = useState<GameMode>(savedMode)
   const [timed, setTimed] = useState(localStorage.getItem('rb-timed') === '1')
   const [busy, setBusy] = useState(false)

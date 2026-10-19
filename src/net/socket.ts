@@ -596,6 +596,10 @@ export function emitDoorToggle(id?: string) {
   socket?.emit('door:toggle', { id })
 }
 
+export function emitScene(scene: SceneId) {
+  socket?.emit('scene:set', { scene })
+}
+
 export function emitSit(seatId: SeatId | null) {
   return new Promise<{ ok: boolean; reason?: string }>((resolve) => {
     socket?.emit('sit', { seatId }, (ok: boolean, reason?: string) => {

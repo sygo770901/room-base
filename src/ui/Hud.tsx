@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { LOOK_SENS_MAX, LOOK_SENS_MIN, LOOK_SENS_STEP } from '../../shared/input'
-import { disconnectSocket, emitAddNote, emitCheck, emitDoorToggle, emitHide, emitRemoveNote, emitRestart, emitStart, emitUpdateNote, performAttack } from '../net/socket'
+import { disconnectSocket, emitAddNote, emitCheck, emitDoorToggle, emitHide, emitRemoveNote, emitRestart, emitScene, emitStart, emitUpdateNote, performAttack } from '../net/socket'
+import { SCENE_IDS, SCENE_LABELS } from '../../shared/scenes'
 import { setMicEnabled } from '../net/voice'
 import { isMobileDevice } from '../perf/device'
 import { exitGameLock } from '../scene/pointerLock'
@@ -26,6 +27,7 @@ export function Hud() {
   const setNoteAsk = useAppStore((s) => s.setNoteAsk)
   const self = selfId ? players[selfId] : null
   const mode = useAppStore((s) => s.mode)
+  const scene = useAppStore((s) => s.scene)
   const matchOver = useAppStore((s) => s.matchOver)
   const monsters = useAppStore((s) => s.monsters)
   const timeLeftMs = useAppStore((s) => s.timeLeftMs)
@@ -166,6 +168,7 @@ export function Hud() {
           房間 <strong>{roomId}</strong>
           {self?.role === 'host' ? ' · 房主' : ' · 訪客'}
           {mode === 'boss' ? ' · 打鴨王' : mode === 'tag' ? ' · 鬼抓人' : ' · 地城狩獵'}
+          {` · ${SCENE_LABELS[scene] ?? scene}`}
           {pendingNote ? ' · 點地板貼便籤中' : ''}
           {mode === 'tag' && self?.team ? ` · ${self.team === 'ghost' ? '鬼' : self.team === 'hider' ? '躲的人' : '觀戰'}` : ''}
           {mode === 'tag' && tagHud?.roundActive ? ` · 還有 ${tagHud.hidersLeft} 人沒被抓` : ''}
@@ -388,6 +391,21 @@ export function Hud() {
             />
           </label>
         )}
+        {self?.role === 'host' && (!(mode === 'boss' || mode === 'tag') || !started || Boolean(matchOver)) && (
+          <div className="map-host" role="radiogroup" aria-label="地圖">
+            {SCENE_IDS.map((id) => (
+              <button
+                key={id}
+                type="button"
+                className={scene === id ? 'hud-btn on' : 'hud-btn'}
+                disabled={scene === id}
+                onClick={() => emitScene(id)}
+              >
+                {SCENE_LABELS[id]}
+              </button>
+            ))}
+          </div>
+        )}
         <button type="button" className="hud-btn" onClick={() => disconnectSocket()}>
           離開
         </button>
@@ -397,7 +415,7 @@ export function Hud() {
         <div className="help">
           WASD／搖桿移動 · 電腦點畫面鎖定滑鼠轉視角（Esc 解除{pointerLocked ? ' · 已鎖定' : ''}）· 手機單指拖曳 · 滾輪／雙指縮放
           <br />
-          鎖定後左鍵、F 或攻擊鈕揮劍 · 右鍵留給技能 · E 靠木箱躲藏
+          鎖定後左鍵、F 或攻擊鈕揮劍 · 右鍵留給技能 · E 靠近門 1.5 內優先開關門，否則躲藏
           {pendingNote ? ' · 移動滑鼠看虛影，點地面後確認' : ''}
         </div>
         <form className="note-panel" onSubmit={armNote}>

@@ -620,6 +620,17 @@ export function attachSocketServer(httpServer: HttpServer) {
       }
     })
 
+    socket.on('scene:set', (payload: { scene?: string } = {}) => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, playerId } = ctx
+      if (room.hostId !== playerId) return
+      if ((room.mode === 'boss' || room.mode === 'tag') && room.started && !room.matchOver) return
+      if (!isSceneId(payload.scene)) return
+      room.scene = payload.scene
+      emitState(room, io)
+    })
+
     socket.on('jump', () => {
       const ctx = inRoom(socket, currentRoomId)
       if (!ctx) return

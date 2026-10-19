@@ -483,6 +483,20 @@ input {
   pointer-events: none;
 }
 
+.map-host {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  max-width: 220px;
+}
+
+.map-host .hud-btn.on,
+.map-host .hud-btn:disabled {
+  opacity: 1;
+  outline: 1px solid #f2cc8f;
+}
+
 .dock {
   position: absolute;
   right: 16px;

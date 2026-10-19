@@ -11,7 +11,8 @@ import { SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/s
 import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitSit, emitSmoke, performAttack } from '../net/socket'
 import { DOOR_RANGE, closedDoorAabbs, nearestDoor } from '../../shared/doors'
 import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
-import { resolvePlayerMove, KAYKIT_EXTRA_AABBS } from '../physics/collision'
+import { resolvePlayerMove } from '../physics/collision'
+import { extraAabbsOf } from '../../shared/mapData'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
@@ -304,9 +305,7 @@ export function LocalController({
       const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * dt
 
       const sceneId = useAppStore.getState().scene
-      const extra = (sceneId === 'kaykit' ? KAYKIT_EXTRA_AABBS : []).concat(
-        closedDoorAabbs(useAppStore.getState().doors),
-      )
+      const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors))
       const plats = platformsFor(sceneId)
       const result = resolvePlayerMove(
         pos.current.x,
@@ -345,9 +344,7 @@ export function LocalController({
     if (dashing) {
       const step = (DASH_DISTANCE / (DASH_DURATION_MS / 1000)) * dt
       const sceneId = useAppStore.getState().scene
-      const extra = (sceneId === 'kaykit' ? KAYKIT_EXTRA_AABBS : []).concat(
-        closedDoorAabbs(useAppStore.getState().doors),
-      )
+      const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors))
       const result = resolvePlayerMove(
         pos.current.x,
         pos.current.z,

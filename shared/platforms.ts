@@ -19,8 +19,15 @@ export const KAYKIT_PLATFORMS: Platform[] = [
   { minX: 133.85, maxX: 136.05, minZ: 121.85, maxZ: 124.15, topY: 2.12 },
 ]
 
+export const JUNGLE_ROCKS: Platform[] = [
+  { minX: 72.4, maxX: 75.2, minZ: 54.4, maxZ: 57.1, topY: 0.85 },
+  { minX: 108.3, maxX: 111.1, minZ: 98.2, maxZ: 101.0, topY: 0.9 },
+]
+
 export function platformsFor(scene?: string | null): Platform[] {
-  return scene === 'kaykit' ? KAYKIT_PLATFORMS : []
+  if (scene === 'kaykit') return KAYKIT_PLATFORMS
+  if (scene === 'jungle') return KAYKIT_PLATFORMS.concat(JUNGLE_ROCKS)
+  return []
 }
 
 function onTop(x: number, z: number, radius: number, p: Platform) {

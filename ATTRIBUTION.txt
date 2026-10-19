@@ -26,6 +26,12 @@
 - 授權：CC0 1.0
 - 用途：玩家與小怪角色、動畫、手持武器
 
+## KayKit Forest Nature Pack（免費 CC0 版）
+- 作者：Kay Lousberg
+- 網址：https://kaylousberg.itch.io/kaykit-forest
+- 授權：CC0 1.0
+- 用途：叢林遺跡地圖的參考風格。免費 zip 約 6.1MB，超過「新地圖首次載入 ≤ 5MB」上限，因此本批沒有整包放進 public/assets；叢林遺跡沿用現有 KayKit 地城牆柱，樹木與岩石用專案內的低面數幾何（不另佔下載）。
+
 ## Draco 3D Data Compression
 - 作者：Google
 - 網址：https://github.com/google/draco

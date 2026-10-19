@@ -10,6 +10,7 @@ import {
   type Place,
 } from '../../shared/dungeon'
 import { KAYKIT_PLACES } from '../../shared/kaykitScene'
+import { usesKaykitKit } from '../../shared/mapData'
 import { isMobileDevice } from '../perf/device'
 import { useAppStore } from '../store'
 
@@ -134,8 +135,8 @@ function KitModel({ root, model, places }: { root: string; model: string; places
 
 export function Dungeon(_props: { focusX: number; focusZ: number }) {
   const scene = useAppStore((s) => s.scene)
-  const root = scene === 'kaykit' ? KAYKIT_ROOT : KENNEY_ROOT
-  const places = scene === 'kaykit' ? KAYKIT_PLACES : KENNEY_PLACES
+  const root = usesKaykitKit(scene) ? KAYKIT_ROOT : KENNEY_ROOT
+  const places = usesKaykitKit(scene) ? KAYKIT_PLACES : KENNEY_PLACES
   const groups = useMemo(() => {
     const map = new Map<string, Place[]>()
     for (const place of places) {

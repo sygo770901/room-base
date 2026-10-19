@@ -1,5 +1,5 @@
 import type { Server } from 'socket.io'
-import { resolvePlayerMove, KAYKIT_EXTRA_AABBS } from '../src/physics/collision.ts'
+import { resolvePlayerMove } from '../src/physics/collision.ts'
 import {
   ATTACK_COS,
   ATTACK_COOLDOWN_MS,
@@ -59,7 +59,7 @@ import {
   type MonsterState,
   type ProjectileState,
 } from '../shared/combat.ts'
-import { KAYKIT_EXTRA_WALLS } from '../shared/kaykitScene.ts'
+import { extraAabbsOf, extraWallsOf } from '../shared/mapData.ts'
 import {
   BOSS_DEFS,
   FLOOR_CENTERS,
@@ -134,7 +134,7 @@ export interface ServerMonster {
 
 export interface CombatRoom {
   roomId: string
-  scene?: 'kenney' | 'kaykit'
+  scene?: import('../shared/scenes.ts').SceneId
   mode?: GameMode
   players: Record<string, PlayerState>
   monsters: ServerMonster[]
@@ -538,13 +538,11 @@ function tickProjectiles(room: CombatRoom, io: Server, now: number, dt: number, 
 }
 
 function sceneWalls(room: CombatRoom, now: number) {
-  const base = room.scene === 'kaykit' ? KAYKIT_EXTRA_WALLS : []
-  return base.concat(closedDoorWalls(room.doors, now))
+  return extraWallsOf(room.scene).concat(closedDoorWalls(room.doors, now))
 }
 
 function sceneAabbs(room: CombatRoom, now: number) {
-  const base = room.scene === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
-  return base.concat(closedDoorAabbs(room.doors, now))
+  return extraAabbsOf(room.scene).concat(closedDoorAabbs(room.doors, now))
 }
 
 function maybeMonsterOpenDoor(room: CombatRoom, io: Server, m: ServerMonster, tx: number, tz: number, now: number) {

@@ -3,7 +3,8 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { rayOcclusion, SPAWN_POINTS } from '../../shared/dungeon'
-import { KAYKIT_OCCLUDERS, KAYKIT_TORCHES } from '../../shared/kaykitScene'
+import { KAYKIT_TORCHES } from '../../shared/kaykitScene'
+import { occludersOf, usesKaykitKit } from '../../shared/mapData'
 import {
   DESKTOP_DYNAMIC_POINT_LIGHTS,
   DESKTOP_SHADOW_MAP,
@@ -17,6 +18,7 @@ import { bindPointerLockWatch, exitGameLock, requestGameLock } from './pointerLo
 import { typingInField } from './inputLock'
 import { NotePlacementPlane, StickyNotes3D } from './Furniture'
 import { Dungeon } from './Dungeon'
+import { JungleFoliage } from './JungleFoliage'
 import { HitEffects } from './HitEffects'
 import { Telegraph } from './Telegraph'
 import { Projectiles } from './Projectiles'
@@ -76,7 +78,7 @@ function FollowLight({ mobile }: { mobile: boolean }) {
     }
     fill.current?.position.set(x, 3.4, z)
 
-    if (mobile || sceneId !== 'kaykit') return
+    if (mobile || !usesKaykitKit(sceneId)) return
     ranked.length = 0
     for (const t of KAYKIT_TORCHES) {
       ranked.push({ ...t, d: Math.hypot(t.x - x, t.z - z) })
@@ -145,7 +147,7 @@ function CameraRig() {
     const unwatch = bindPointerLockWatch()
     const arm = (scale: number) => {
       const next = saved.current
-      const maxR = useAppStore.getState().scene === 'kaykit' ? KAYKIT_MAX_RADIUS : MAX_RADIUS
+      const maxR = usesKaykitKit(useAppStore.getState().scene) ? KAYKIT_MAX_RADIUS : MAX_RADIUS
       next.radius = THREE.MathUtils.clamp(next.radius * scale, MIN_RADIUS, maxR)
     }
     const down = (e: PointerEvent) => {
@@ -254,7 +256,7 @@ function CameraRig() {
         shot.ready = true
       }
     }
-    if (useAppStore.getState().scene === 'kaykit') {
+    if (usesKaykitKit(useAppStore.getState().scene)) {
       const maxR = KAYKIT_MAX_RADIUS
       shot.radius = THREE.MathUtils.clamp(shot.radius, MIN_RADIUS, maxR)
       const rise = KAYKIT_CAM_Y - target.y
@@ -289,7 +291,7 @@ function CameraGuard() {
         const dirx = dx * inv
         const diry = dy * inv
         const dirz = dz * inv
-        const extra = useAppStore.getState().scene === 'kaykit' ? KAYKIT_OCCLUDERS : []
+        const extra = occludersOf(useAppStore.getState().scene)
         const hit = rayOcclusion(target.x, target.y, target.z, dirx, diry, dirz, dist, extra)
         if (hit < dist - 0.2) {
           const desired = Math.max(MIN_RADIUS, hit - 0.45)
@@ -334,14 +336,22 @@ function SceneContent() {
   return (
     <>
       <BlockContextMenu />
-      <color attach="background" args={[sceneId === 'kaykit' ? '#2a2428' : '#3a3544']} />
-      <fog attach="fog" args={sceneId === 'kaykit' ? ['#2a2428', 18, 70] : ['#3a3544', 28, 92]} />
-      <hemisphereLight args={['#cbbba6', '#3a2c24', 1.25]} />
+      <color attach="background" args={[sceneId === 'jungle' ? '#1c2a1c' : sceneId === 'kaykit' ? '#2a2428' : '#3a3544']} />
+      <fog
+        attach="fog"
+        args={
+          sceneId === 'jungle' ? ['#1c2a1c', 16, 62] : sceneId === 'kaykit' ? ['#2a2428', 18, 70] : ['#3a3544', 28, 92]
+        }
+      />
+      <hemisphereLight
+        args={sceneId === 'jungle' ? ['#c8ddb0', '#2a3a24', 1.2] : ['#cbbba6', '#3a2c24', 1.25]}
+      />
       <ambientLight intensity={0.8} />
       <FollowLight mobile={isMobileDevice()} />
 
       <Suspense fallback={null}>
         <Dungeon focusX={displaySelf?.position?.[0] ?? SPAWN.x} focusZ={displaySelf?.position?.[2] ?? SPAWN.z} />
+        {sceneId === 'jungle' ? <JungleFoliage /> : null}
         <Monsters />
       </Suspense>
 
@@ -384,7 +394,7 @@ function SceneContent() {
 }
 
 export function RoomScene() {
-  const kaykit = useAppStore((s) => s.scene) === 'kaykit'
+  const kaykit = usesKaykitKit(useAppStore((s) => s.scene))
   const mobile = isMobileDevice()
   const cameraPos: [number, number, number] = kaykit
     ? [SPAWN.x + 5.5, KAYKIT_CAM_Y, SPAWN.z + 6.8]
