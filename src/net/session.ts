@@ -13,6 +13,7 @@ export interface RoomSession {
   scene: SceneId
   mode: GameMode
   wantHost: boolean
+  timed: boolean
 }
 
 function isUuidLike(value: string) {
@@ -49,6 +50,7 @@ export function loadSession(): RoomSession | null {
       scene: isSceneId(parsed.scene) ? parsed.scene : 'kenney',
       mode: isGameMode(parsed.mode) ? parsed.mode : 'hunt',
       wantHost: Boolean(parsed.wantHost),
+      timed: Boolean(parsed.timed),
     }
   } catch {
     return null

@@ -1,5 +1,5 @@
-import { FormEvent, useState } from 'react'
-import { disconnectSocket, emitAddNote, emitRemoveNote, emitUpdateNote, performAttack } from '../net/socket'
+import { FormEvent, useEffect, useState } from 'react'
+import { disconnectSocket, emitAddNote, emitRemoveNote, emitRestart, emitUpdateNote, performAttack } from '../net/socket'
 import { setMicEnabled } from '../net/voice'
 import { useAppStore } from '../store'
 import { VirtualJoystick } from './VirtualJoystick'
@@ -21,8 +21,20 @@ export function Hud() {
   const mode = useAppStore((s) => s.mode)
   const matchOver = useAppStore((s) => s.matchOver)
   const monsters = useAppStore((s) => s.monsters)
+  const timeLeftMs = useAppStore((s) => s.timeLeftMs)
+  const hostId = useAppStore((s) => s.hostId)
   const [note, setNote] = useState('')
+  const [clock, setClock] = useState(timeLeftMs)
   const [fontSize, setFontSize] = useState(0.12)
+
+  useEffect(() => {
+    setClock(timeLeftMs)
+    if (timeLeftMs == null) return
+    const origin = Date.now()
+    const base = timeLeftMs
+    const id = window.setInterval(() => setClock(Math.max(0, base - (Date.now() - origin))), 250)
+    return () => window.clearInterval(id)
+  }, [timeLeftMs])
   const [busyMic, setBusyMic] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState('')
@@ -60,8 +72,14 @@ export function Hud() {
         <div className="pill">
           房間 <strong>{roomId}</strong>
           {self?.role === 'host' ? ' · 房主' : ' · 訪客'}
-          {mode === 'boss' ? ' · 最終BOSS戰' : ' · 地城狩獵'}
+          {mode === 'boss' ? ' · 打鴨王' : ' · 地城狩獵'}
           {pendingNote ? ' · 點地板貼便籤中' : ''}
+          {mode === 'boss' && clock != null && clock > 0 && !matchOver && (
+            <span className={clock <= 30_000 ? 'time-low' : ''}>
+              {' '}
+              · {Math.floor(clock / 60000)}:{String(Math.floor((clock % 60000) / 1000)).padStart(2, '0')}
+            </span>
+          )}
           <div className="hp-bar" title="生命">
             <span style={{ width: `${Math.max(0, Math.min(100, self?.hp ?? 100))}%` }} />
           </div>
@@ -96,16 +114,35 @@ export function Hud() {
 
       {matchOver && (
         <div className="modal match-over">
-          <p>最終BOSS戰結束</p>
-          <p className="modal-preview">{matchOver.winnerName} 打倒了鴨大王與飲水機，贏得這場遊戲。</p>
+          <p>{matchOver.teamWin ? '全隊勝利' : '全隊失敗'}</p>
+          <p className="modal-preview">
+            {matchOver.reason === 'timeout' ? '時間到，鴨大王還活著。' : '全隊打倒了鴨大王與飲水機。'}
+          </p>
+          <ol className="rank-list">
+            {(matchOver.ranking ?? []).map((row, i) => (
+              <li key={row.id} className={i === 0 ? 'rank-first' : ''}>
+                {i === 0 ? '第一名 · ' : ''}
+                {row.name}　{row.dmg}
+              </li>
+            ))}
+          </ol>
+          {selfId && hostId === selfId ? (
+            <button type="button" className="restart-btn" onClick={() => emitRestart()}>
+              再來一局
+            </button>
+          ) : (
+            <p className="modal-preview">等房主開下一局</p>
+          )}
         </div>
       )}
 
       <VirtualJoystick />
 
-      <button type="button" className="attack-btn" onClick={() => performAttack()}>
-        攻擊
-      </button>
+      {!matchOver && (
+        <button type="button" className="attack-btn" onClick={() => performAttack()}>
+          攻擊
+        </button>
+      )}
 
       <div className="dock">
         <button type="button" className="hud-btn" onClick={() => void toggleMic()} disabled={busyMic}>

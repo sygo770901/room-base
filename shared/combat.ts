@@ -17,12 +17,22 @@ export interface MonsterState {
   pouncing?: boolean
 }
 
+export interface DamageRank {
+  id: string
+  name: string
+  dmg: number
+}
+
 export interface MatchOver {
-  winnerId: string
-  winnerName: string
+  teamWin: boolean
+  reason?: 'timeout' | 'cleared'
+  ranking: DamageRank[]
+  winner?: 'hiders' | 'ghosts'
 }
 
 export const PLAYER_MAX_HP = 100
+export const ROOM_MAX_PLAYERS = 10
+export const MATCH_TIME_LIMIT_SEC = 300
 export const ATTACK_RANGE = 2.5
 export const ATTACK_DAMAGE = 34
 export const ATTACK_COOLDOWN_MS = 460

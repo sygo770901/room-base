@@ -38,6 +38,7 @@ function sessionFromStore(wantHost = false): RoomSession | null {
     scene: state.scene || saved?.scene || 'kenney',
     mode: state.mode || saved?.mode || 'hunt',
     wantHost: saved?.wantHost ?? wantHost,
+    timed: saved?.timed ?? false,
   }
 }
 
@@ -191,7 +192,7 @@ function bindListeners(s: Socket) {
     useAppStore.getState().patchPlayer(id, { hp })
   })
 
-  s.on('player:respawn', (payload: { position: Vec3; hp: number; rotationY: number }) => {
+  s.on('player:respawn', (payload: { position: Vec3; hp: number; rotationY: number; reason?: string }) => {
     const selfId = useAppStore.getState().selfId
     if (!selfId) return
     useAppStore.getState().patchPlayer(selfId, {
@@ -199,10 +200,11 @@ function bindListeners(s: Socket) {
       rotationY: payload.rotationY,
       hp: payload.hp,
       seated: null,
+      hidden: false,
     })
     lastPose = { position: payload.position, rotationY: payload.rotationY }
     useAppStore.getState().bumpRespawn()
-    useAppStore.getState().setToast('你被打倒了，已送回入口')
+    useAppStore.getState().setToast(payload.reason === 'restart' ? '新的一局開始' : '你被打倒了，已送回入口')
     setTimeout(() => useAppStore.getState().setToast(null), 2200)
   })
 
@@ -212,7 +214,7 @@ function bindListeners(s: Socket) {
 
   s.on('match:over', (over: MatchOver) => {
     useAppStore.getState().setMatchOver(over)
-    useAppStore.getState().setToast(`${over.winnerName} 打倒了鴨大王與飲水機`)
+    useAppStore.getState().setToast(over.teamWin ? '全隊打倒了鴨大王！' : '時間到，全隊失敗')
     setTimeout(() => useAppStore.getState().setToast(null), 3200)
   })
 
@@ -307,13 +309,14 @@ function emitJoin(session: RoomSession) {
         scene: session.scene,
         mode: session.mode,
         playerId,
+        timed: session.timed,
         resume,
       },
       (snapshot: RoomSnapshot) => {
         clearTimeout(timer)
         if (seq !== joinSeq) return
-        if (!snapshot) {
-          reject(new Error('加入失敗'))
+        if (!snapshot || snapshot.error) {
+          reject(new Error(snapshot?.error || '加入失敗'))
           return
         }
         saveSession({ ...session, playerId })
@@ -402,6 +405,7 @@ export function joinRoom(
   wantHost = false,
   scene: SceneId = 'kenney',
   mode: GameMode = 'hunt',
+  timed = false,
 ) {
   leaving = false
   const session: RoomSession = {
@@ -411,6 +415,7 @@ export function joinRoom(
     scene,
     mode,
     wantHost,
+    timed,
   }
   saveSession(session)
   return joinWithRetry(session)
@@ -455,6 +460,12 @@ export function performAttack() {
   if (attackBlocked()) return
   const state = useAppStore.getState()
   if (state.pendingNote || state.noteAsk) return
+  const me = state.selfId ? state.players[state.selfId] : null
+  if (me?.hidden) {
+    state.setToast('躲藏中不能攻擊')
+    setTimeout(() => useAppStore.getState().setToast(null), 1600)
+    return
+  }
   if (now - lastAttackAt < ATTACK_COOLDOWN_MS) return
   lastAttackAt = now
   if (state.selfId) state.setSwing(state.selfId, now)
@@ -475,6 +486,10 @@ export function emitFurniturePush(id: string, position: Vec3) {
 
 export function emitAttack() {
   socket?.emit('attack')
+}
+
+export function emitRestart() {
+  socket?.emit('match:restart')
 }
 
 export function disconnectSocket() {

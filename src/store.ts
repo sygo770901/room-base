@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { type MatchOver, type MonsterState } from '../shared/combat'
 import { DEFAULT_FURNITURE, type FurnitureItem } from '../shared/furniture'
 import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
-import type { GameMode } from '../shared/modes'
+import { defaultSettings, type GameMode, type RoomSettings } from '../shared/modes'
 import type { SceneId } from '../shared/scenes'
 import { loadSession } from './net/session'
 
@@ -32,6 +32,8 @@ interface AppState {
   scene: SceneId
   mode: GameMode
   matchOver: MatchOver | null
+  settings: RoomSettings
+  timeLeftMs: number | null
   displayName: string
   players: Record<string, PlayerState>
   notes: StickyNote[]
@@ -85,6 +87,8 @@ export const useAppStore = create<AppState>((set) => ({
   scene: boot?.scene ?? 'kenney',
   mode: boot?.mode ?? 'hunt',
   matchOver: null,
+  settings: defaultSettings(),
+  timeLeftMs: null,
   displayName: boot?.name ?? '',
   players: {},
   notes: [],
@@ -112,6 +116,8 @@ export const useAppStore = create<AppState>((set) => ({
       scene: snapshot.scene ?? 'kenney',
       mode: snapshot.mode ?? 'hunt',
       matchOver: snapshot.matchOver ?? null,
+      settings: snapshot.settings ?? defaultSettings(),
+      timeLeftMs: snapshot.timeLeftMs ?? null,
       players: snapshot.players,
       notes: snapshot.notes,
       seats: snapshot.seats,
@@ -130,7 +136,9 @@ export const useAppStore = create<AppState>((set) => ({
       roomId: snapshot.roomId,
       scene: snapshot.scene ?? s.scene,
       mode: snapshot.mode ?? s.mode,
-      matchOver: snapshot.matchOver ?? s.matchOver,
+      matchOver: snapshot.matchOver ?? null,
+      settings: snapshot.settings ?? s.settings,
+      timeLeftMs: snapshot.timeLeftMs ?? s.timeLeftMs,
     })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
@@ -183,6 +191,8 @@ export const useAppStore = create<AppState>((set) => ({
       furniture: DEFAULT_FURNITURE,
       monsters: [],
       matchOver: null,
+      settings: defaultSettings(),
+      timeLeftMs: null,
       hostId: null,
       micOn: false,
       pendingNote: null,

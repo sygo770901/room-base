@@ -5,6 +5,7 @@ import {
   ATTACK_COOLDOWN_MS,
   ATTACK_DAMAGE,
   ATTACK_RANGE,
+  type DamageRank,
   BOSS_SIGHT,
   CHASE_SPEED,
   FLEE_SPEED,
@@ -72,6 +73,9 @@ export interface CombatRoom {
   nextAttack: Record<string, number>
   matchOver?: MatchOver | null
   awayUntil?: Record<string, number>
+  damage?: Record<string, { name: string; dmg: number }>
+  settings?: { timed: boolean; timeLimitSec: 0 | 300 }
+  matchDeadline?: number | null
 }
 
 function fromDef(d: MonsterDef): ServerMonster {
@@ -343,26 +347,39 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
   }
 }
 
+export function rankingOf(room: CombatRoom): DamageRank[] {
+  return Object.entries(room.damage ?? {})
+    .map(([id, v]) => ({ id, name: v.name, dmg: v.dmg }))
+    .sort((a, b) => b.dmg - a.dmg)
+}
+
 export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) {
+  if (room.mode === 'boss' && !room.matchOver && room.matchDeadline && now >= room.matchDeadline) {
+    const duck = room.monsters.find((m) => m.kind === 'duck-king')
+    if (duck?.alive) {
+      room.matchOver = { teamWin: false, reason: 'timeout', ranking: rankingOf(room) }
+      io.to(room.roomId).emit('match:over', room.matchOver)
+    }
+  }
+  if (room.matchOver) return
   if (room.mode === 'boss') tickBoss(room, io, now, dt)
   else tickHunt(room, io, now, dt)
   io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
 }
 
-function maybeWin(room: CombatRoom, io: Server, killerId: string) {
+function maybeWin(room: CombatRoom, io: Server, _killerId: string) {
   if (room.mode !== 'boss' || room.matchOver) return
   const duck = room.monsters.find((m) => m.kind === 'duck-king')
   const pet = room.monsters.find((m) => m.kind === 'dispenser')
   if (!duck || !pet || duck.alive || pet.alive) return
-  const player = room.players[killerId]
-  const winnerName = player?.name ?? '挑戰者'
-  room.matchOver = { winnerId: killerId, winnerName }
+  room.matchOver = { teamWin: true, reason: 'cleared', ranking: rankingOf(room) }
   io.to(room.roomId).emit('match:over', room.matchOver)
 }
 
 export function handleAttack(room: CombatRoom, playerId: string, io: Server, now: number, attackerSocketId?: string) {
   const player = room.players[playerId]
-  if (!player || player.seated) return
+  if (!player || player.seated || player.hidden) return
+  if (room.matchOver) return
   if (room.awayUntil?.[playerId]) return
   if ((room.nextAttack[playerId] ?? 0) > now) return
   room.nextAttack[playerId] = now + ATTACK_COOLDOWN_MS
@@ -390,15 +407,22 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
     bestD = dist
   }
   if (!best) return
+  const dealt = Math.min(ATTACK_DAMAGE, Math.max(0, best.hp))
+  if (dealt <= 0) return
   io.to(room.roomId).emit('combat:hit', {
     id: best.id,
     kind: 'monster',
-    amount: ATTACK_DAMAGE,
+    amount: dealt,
     x: best.x,
     z: best.z,
   })
-  best.hp -= ATTACK_DAMAGE
+  best.hp -= dealt
   best.lastHitBy = playerId
+  if (!room.damage) room.damage = {}
+  const row = room.damage[playerId] ?? { name: player.name, dmg: 0 }
+  row.name = player.name
+  row.dmg += dealt
+  room.damage[playerId] = row
   if (best.hp <= 0) {
     best.hp = 0
     best.alive = false

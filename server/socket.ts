@@ -1,13 +1,13 @@
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import type { Socket } from 'socket.io'
-import { PLAYER_MAX_HP } from '../shared/combat.ts'
+import { PLAYER_MAX_HP, ROOM_MAX_PLAYERS } from '../shared/combat.ts'
 import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
 import { createBossMonsters, createMonsters, handleAttack, publicMonsters, tickRoom } from './combat.ts'
 import { loadPersistedRoom, savePersistedRoom } from './persist.ts'
 import { PLAYER_CLASS } from '../shared/classes.ts'
-import { isGameMode, type GameMode } from '../shared/modes.ts'
+import { defaultSettings, isGameMode, type GameMode, type RoomSettings } from '../shared/modes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
 import type { MatchOver } from '../shared/combat.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
@@ -26,6 +26,9 @@ export interface RoomState {
   nextAttack: Record<string, number>
   matchOver: MatchOver | null
   awayUntil: Record<string, number>
+  damage: Record<string, { name: string; dmg: number }>
+  settings: RoomSettings
+  matchDeadline: number | null
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -50,6 +53,9 @@ function createRoom(roomId: string): RoomState {
     nextAttack: {},
     matchOver: null,
     awayUntil: {},
+    damage: {},
+    settings: defaultSettings(),
+    matchDeadline: null,
   }
 }
 
@@ -78,6 +84,8 @@ function publicRoom(room: RoomState) {
     furniture: room.furniture,
     monsters: publicMonsters(room.monsters),
     matchOver: room.matchOver,
+    settings: room.settings,
+    timeLeftMs: room.matchDeadline ? Math.max(0, room.matchDeadline - Date.now()) : null,
   }
 }
 
@@ -224,6 +232,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           scene?: string
           mode?: string
           playerId?: string
+          timed?: boolean
           resume?: {
             position?: Vec3
             rotationY?: number
@@ -236,8 +245,16 @@ export function attachSocketServer(httpServer: HttpServer) {
         const roomId = (payload.roomId || 'home').trim().slice(0, 32) || 'home'
         const name = (payload.name || '訪客').trim().slice(0, 16) || '訪客'
         const playerId = normalizePlayerId(payload.playerId ?? socket.handshake.auth?.playerId, socket.id)
+        if (payload.mode === 'tag') {
+          ack?.({ error: '這個模式還沒開放' })
+          return
+        }
         const room = getOrCreateRoom(roomId)
         const existing = room.players[playerId]
+        if (!existing && Object.keys(room.players).length >= ROOM_MAX_PLAYERS) {
+          ack?.({ error: '房間已滿' })
+          return
+        }
         const sameSocket = existing && playerSockets.get(playerId) === socket.id && currentRoomId === roomId
 
         if (sameSocket && !room.awayUntil[playerId]) {
@@ -276,6 +293,12 @@ export function attachSocketServer(httpServer: HttpServer) {
           room.mode = payload.mode
           room.monsters = payload.mode === 'boss' ? createBossMonsters() : createMonsters()
           room.matchOver = null
+          room.damage = {}
+          room.settings = {
+            timed: Boolean(payload.timed) && payload.mode === 'boss',
+            timeLimitSec: payload.timed && payload.mode === 'boss' ? 300 : 0,
+          }
+          room.matchDeadline = room.settings.timed ? Date.now() + room.settings.timeLimitSec * 1000 : null
         }
 
         let player = existing
@@ -321,6 +344,40 @@ export function attachSocketServer(httpServer: HttpServer) {
         io.to(roomId).emit('room:state', snapshot)
       },
     )
+
+    socket.on('match:restart', () => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, playerId } = ctx
+      if (room.hostId !== playerId) return
+      if (room.mode !== 'boss' || !room.matchOver) return
+      room.monsters = createBossMonsters()
+      room.matchOver = null
+      room.hurtUntil = {}
+      room.nextAttack = {}
+      room.damage = {}
+      room.matchDeadline = room.settings.timed ? Date.now() + room.settings.timeLimitSec * 1000 : null
+      const ids = Object.keys(room.players)
+      ids.forEach((id, i) => {
+        const p = room.players[id]
+        const sp = SPAWN_POINTS[i % SPAWN_POINTS.length]
+        p.hp = PLAYER_MAX_HP
+        p.hidden = false
+        if (p.seated) {
+          room.seats[p.seated] = null
+          p.seated = null
+        }
+        p.position = [sp.x, 0, sp.z]
+        p.rotationY = 0
+        io.to(id).emit('player:respawn', {
+          position: p.position,
+          hp: p.hp,
+          rotationY: p.rotationY,
+          reason: 'restart',
+        })
+      })
+      io.to(room.roomId).emit('room:state', publicRoom(room))
+    })
 
     socket.on('leave', () => {
       const ctx = inRoom(socket, currentRoomId)

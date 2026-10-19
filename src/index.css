@@ -58,6 +58,12 @@ input {
   background: rgba(129, 178, 154, 0.16);
 }
 
+.lobby .scene-pick button:disabled,
+.lobby .scene-pick button.off {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
 .lobby .mode-pick button.on {
   border-color: #c9a0ff;
   background: rgba(183, 148, 246, 0.16);
@@ -76,8 +82,43 @@ input {
 }
 
 .match-over {
-  top: 36%;
+  top: 22%;
   text-align: center;
+  z-index: 50;
+  max-height: min(70vh, 520px);
+  overflow: auto;
+}
+
+.rank-list {
+  margin: 8px 0 12px;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+.rank-list li {
+  padding: 4px 0;
+  opacity: 0.88;
+}
+
+.rank-first {
+  color: #f2cc8f;
+  font-weight: 700;
+}
+
+.restart-btn {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 16px;
+  background: #81b29a;
+  color: #132018;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.time-low {
+  color: #e07a5f;
+  font-weight: 700;
 }
 
 .match-over p:first-child {
