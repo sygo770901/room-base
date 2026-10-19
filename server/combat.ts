@@ -6,6 +6,10 @@ import {
   ATTACK_DAMAGE,
   ATTACK_RANGE,
   type DamageRank,
+  BARB_DAMAGE,
+  BARB_SPEED,
+  BARB_TELEGRAPH_R,
+  BARB_WINDUP_MS,
   BOSS_COUNTDOWN_MS,
   BOSS_SIGHT,
   duckKingHp,
@@ -24,7 +28,16 @@ import {
   SLAM_WINDUP_RAGE_MS,
   PET_SKILL_CD_RAGE_MS,
   IFRAME_MS,
-  MONSTER_DAMAGE,
+  KNIGHT_DAMAGE,
+  KNIGHT_SPEED,
+  MAGE_CAST_CD_MS,
+  MAGE_KEEP_MAX,
+  MAGE_KEEP_MIN,
+  MAGE_ORB_DAMAGE,
+  MAGE_ORB_RADIUS,
+  MAGE_ORB_SPEED,
+  MAGE_ORB_TTL_MS,
+  MAGE_WINDUP_MS,
   MONSTER_HIT_CD,
   MONSTER_TOUCH,
   PATROL_SPEED,
@@ -33,13 +46,18 @@ import {
   PET_POUNCE_MS,
   PET_POUNCE_SPEED,
   PET_SKILL_CD_MS,
+  PLAYER_HURT_IFRAME_MS,
   PLAYER_MAX_HP,
   RESPAWN_MS,
+  ROGUE_DAMAGE,
+  ROGUE_RETREAT_MS,
+  ROGUE_SPEED,
   SIGHT,
   monsterRadius,
   type MatchOver,
   type MonsterKind,
   type MonsterState,
+  type ProjectileState,
 } from '../shared/combat.ts'
 import { KAYKIT_EXTRA_WALLS } from '../shared/kaykitScene.ts'
 import {
@@ -97,6 +115,11 @@ export interface ServerMonster {
   slamRadius: number
   phase: 1 | 2
   invulnUntil: number
+  retreatUntil: number
+  castUntil: number
+  nextCast: number
+  windupX: number
+  windupZ: number
 }
 
 export interface CombatRoom {
@@ -121,6 +144,7 @@ export interface CombatRoom {
   smokes?: SmokeCloud[]
   barrels?: BarrelState[]
   drops?: LootDrop[]
+  projectiles?: ProjectileState[]
 }
 
 function fromDef(d: MonsterDef): ServerMonster {
@@ -152,6 +176,11 @@ function fromDef(d: MonsterDef): ServerMonster {
     slamRadius: SLAM_RADIUS,
     phase: 1,
     invulnUntil: 0,
+    retreatUntil: 0,
+    castUntil: 0,
+    nextCast: 0,
+    windupX: 0,
+    windupZ: 0,
   }
 }
 
@@ -177,6 +206,7 @@ export function publicMonsters(list: ServerMonster[]): MonsterState[] {
     alive: m.alive,
     pouncing: m.kind === 'dispenser' && m.pounceUntil > Date.now(),
     phase: m.kind === 'duck-king' ? m.phase : undefined,
+    casting: m.model === 'mage' && m.castUntil > Date.now(),
   }))
 }
 
@@ -272,6 +302,8 @@ function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: numb
       position: player.position,
       rotationY: player.rotationY,
     })
+  } else {
+    room.hurtUntil[player.id] = now + PLAYER_HURT_IFRAME_MS
   }
   io.to(room.roomId).emit('player:vitals', { id: player.id, hp: player.hp })
 }
@@ -289,7 +321,202 @@ function tryTouch(
   if (dist <= touch && now >= m.nextHit && now >= (room.hurtUntil[target.id] ?? 0)) {
     m.nextHit = now + MONSTER_HIT_CD
     hurtPlayer(room, io, target, dmg, now)
+    return true
   }
+  return false
+}
+
+type ExtraAabb = { minX: number; maxX: number; minZ: number; maxZ: number }
+type ExtraWall = { cx: number; cz: number; hx: number; hz: number }
+
+function patrolToward(
+  room: CombatRoom,
+  m: ServerMonster,
+  seen: { target: PlayerState | null; dist: number },
+  speed: number,
+  dt: number,
+  extraAabbs: ExtraAabb[],
+) {
+  const wp = m.patrol[m.patrolI]
+  let tx = wp.x
+  let tz = wp.z
+  let use = PATROL_SPEED
+  if (seen.target) {
+    tx = seen.target.position[0]
+    tz = seen.target.position[2]
+    use = speed
+  }
+  const { moved, remain } = stepMonster(room, m, tx, tz, use, dt, extraAabbs)
+  if (!seen.target && (remain < 0.85 || moved < 0.02)) {
+    m.patrolI = (m.patrolI + 1) % m.patrol.length
+  }
+}
+
+function tickKnight(
+  room: CombatRoom,
+  io: Server,
+  m: ServerMonster,
+  now: number,
+  dt: number,
+  extraWalls: ExtraWall[],
+  extraAabbs: ExtraAabb[],
+) {
+  const seen = nearestVisible(room, m.x, m.z, extraWalls, SIGHT)
+  if (seen.target) tryTouch(room, io, m, seen.target, now, seen.dist, KNIGHT_DAMAGE)
+  patrolToward(room, m, seen, KNIGHT_SPEED, dt, extraAabbs)
+}
+
+function tickRogue(
+  room: CombatRoom,
+  io: Server,
+  m: ServerMonster,
+  now: number,
+  dt: number,
+  extraWalls: ExtraWall[],
+  extraAabbs: ExtraAabb[],
+) {
+  const seen = nearestVisible(room, m.x, m.z, extraWalls, SIGHT)
+  if (now < m.retreatUntil) {
+    const from = seen.target
+    const dx = from ? m.x - from.position[0] : Math.sin(m.rotationY)
+    const dz = from ? m.z - from.position[2] : Math.cos(m.rotationY)
+    const len = Math.hypot(dx, dz) || 1
+    stepMonster(room, m, m.x + (dx / len) * 6, m.z + (dz / len) * 6, ROGUE_SPEED, dt, extraAabbs)
+    return
+  }
+  if (seen.target && tryTouch(room, io, m, seen.target, now, seen.dist, ROGUE_DAMAGE)) {
+    m.retreatUntil = now + ROGUE_RETREAT_MS
+    return
+  }
+  patrolToward(room, m, seen, ROGUE_SPEED, dt, extraAabbs)
+}
+
+function tickBarbarian(
+  room: CombatRoom,
+  io: Server,
+  m: ServerMonster,
+  now: number,
+  dt: number,
+  extraWalls: ExtraWall[],
+  extraAabbs: ExtraAabb[],
+) {
+  if (m.windupUntil && !m.slamResolved && now >= m.windupUntil) {
+    m.slamResolved = true
+    m.nextHit = now + MONSTER_HIT_CD
+    for (const p of Object.values(room.players)) {
+      if (p.hidden || p.team === 'spectator' || room.awayUntil?.[p.id]) continue
+      const dist = Math.hypot(p.position[0] - m.windupX, p.position[2] - m.windupZ)
+      if (dist <= m.slamRadius) hurtPlayer(room, io, p, BARB_DAMAGE, now)
+    }
+  }
+  const winding = Boolean(m.windupUntil) && now < m.windupUntil && !m.slamResolved
+  if (winding) return
+  const seen = nearestVisible(room, m.x, m.z, extraWalls, SIGHT)
+  if (seen.target && seen.dist <= MONSTER_TOUCH + 0.35 && now >= m.nextHit) {
+    m.windupUntil = now + BARB_WINDUP_MS
+    m.slamResolved = false
+    m.windupX = m.x
+    m.windupZ = m.z
+    m.slamRadius = BARB_TELEGRAPH_R
+    io.to(room.roomId).emit('mob:telegraph', {
+      id: m.id,
+      x: m.x,
+      z: m.z,
+      r: BARB_TELEGRAPH_R,
+      ms: BARB_WINDUP_MS,
+    })
+    return
+  }
+  patrolToward(room, m, seen, BARB_SPEED, dt, extraAabbs)
+}
+
+function fireMageOrb(room: CombatRoom, m: ServerMonster, target: PlayerState, now: number) {
+  const dx = target.position[0] - m.x
+  const dz = target.position[2] - m.z
+  const len = Math.hypot(dx, dz) || 1
+  if (!room.projectiles) room.projectiles = []
+  room.projectiles.push({
+    id: `orb-${m.id}-${now}`,
+    x: m.x,
+    z: m.z,
+    vx: (dx / len) * MAGE_ORB_SPEED,
+    vz: (dz / len) * MAGE_ORB_SPEED,
+    until: now + MAGE_ORB_TTL_MS,
+  })
+}
+
+function tickMage(
+  room: CombatRoom,
+  io: Server,
+  m: ServerMonster,
+  now: number,
+  dt: number,
+  extraWalls: ExtraWall[],
+  extraAabbs: ExtraAabb[],
+) {
+  const seen = nearestVisible(room, m.x, m.z, extraWalls, SIGHT)
+  if (m.castUntil && now >= m.castUntil) {
+    if (seen.target) fireMageOrb(room, m, seen.target, now)
+    m.castUntil = 0
+  }
+  if (seen.target) {
+    const d = seen.dist
+    const dx = m.x - seen.target.position[0]
+    const dz = m.z - seen.target.position[2]
+    const len = Math.hypot(dx, dz) || 1
+    if (d < MAGE_KEEP_MIN) {
+      stepMonster(room, m, m.x + (dx / len) * 4, m.z + (dz / len) * 4, KNIGHT_SPEED, dt, extraAabbs)
+    } else if (d > MAGE_KEEP_MAX) {
+      stepMonster(room, m, seen.target.position[0], seen.target.position[2], KNIGHT_SPEED, dt, extraAabbs)
+    } else {
+      m.rotationY = Math.atan2(seen.target.position[0] - m.x, seen.target.position[2] - m.z)
+    }
+    if (!m.castUntil && now >= m.nextCast) {
+      m.castUntil = now + MAGE_WINDUP_MS
+      m.nextCast = now + MAGE_CAST_CD_MS
+    }
+    return
+  }
+  patrolToward(room, m, seen, PATROL_SPEED, dt, extraAabbs)
+}
+
+function pointBlocked(x: number, z: number, extraAabbs: ExtraAabb[]) {
+  if (!isWalkableWorld(x, z, 0.12)) return true
+  for (const b of extraAabbs) {
+    if (x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ) return true
+  }
+  return false
+}
+
+function tickProjectiles(room: CombatRoom, io: Server, now: number, dt: number, extraAabbs: ExtraAabb[]) {
+  const list = room.projectiles
+  if (!list?.length) return
+  const hitR = MAGE_ORB_RADIUS + 0.26
+  const keep: ProjectileState[] = []
+  for (const orb of list) {
+    if (now >= orb.until) continue
+    const steps = Math.max(1, Math.ceil((MAGE_ORB_SPEED * dt) / 0.22))
+    const stepDt = dt / steps
+    let dead = false
+    for (let i = 0; i < steps; i++) {
+      orb.x += orb.vx * stepDt
+      orb.z += orb.vz * stepDt
+      if (pointBlocked(orb.x, orb.z, extraAabbs)) {
+        dead = true
+        break
+      }
+      for (const p of Object.values(room.players)) {
+        if (p.hidden || p.team === 'spectator' || room.awayUntil?.[p.id]) continue
+        if (Math.hypot(p.position[0] - orb.x, p.position[2] - orb.z) > hitR) continue
+        hurtPlayer(room, io, p, MAGE_ORB_DAMAGE, now)
+        dead = true
+        break
+      }
+      if (dead) break
+    }
+    if (!dead) keep.push(orb)
+  }
+  room.projectiles = keep
 }
 
 function tickHunt(room: CombatRoom, io: Server, now: number, dt: number) {
@@ -304,27 +531,19 @@ function tickHunt(room: CombatRoom, io: Server, now: number, dt: number) {
         m.x = p.x
         m.z = p.z
         m.patrolI = 0
+        m.castUntil = 0
+        m.retreatUntil = 0
+        m.windupUntil = 0
+        m.slamResolved = true
       }
       continue
     }
-
-    const seen = nearestVisible(room, m.x, m.z, extraWalls, SIGHT)
-    const wp = m.patrol[m.patrolI]
-    let tx = wp.x
-    let tz = wp.z
-    let speed = PATROL_SPEED
-    if (seen.target) {
-      tx = seen.target.position[0]
-      tz = seen.target.position[2]
-      speed = CHASE_SPEED
-      tryTouch(room, io, m, seen.target, now, seen.dist, MONSTER_DAMAGE)
-    }
-
-    const { moved, remain } = stepMonster(room, m, tx, tz, speed, dt, extraAabbs)
-    if (!seen.target && (remain < 0.85 || moved < 0.02)) {
-      m.patrolI = (m.patrolI + 1) % m.patrol.length
-    }
+    if (m.model === 'mage') tickMage(room, io, m, now, dt, extraWalls, extraAabbs)
+    else if (m.model === 'rogue') tickRogue(room, io, m, now, dt, extraWalls, extraAabbs)
+    else if (m.model === 'barbarian') tickBarbarian(room, io, m, now, dt, extraWalls, extraAabbs)
+    else tickKnight(room, io, m, now, dt, extraWalls, extraAabbs)
   }
+  tickProjectiles(room, io, now, dt, extraAabbs)
 }
 
 export function scaleBossHealth(room: CombatRoom) {
@@ -502,6 +721,7 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
   else tickHunt(room, io, now, dt)
   tickLoot(room, io, now)
   io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
+  io.to(room.roomId).emit('projectiles:sync', room.projectiles ?? [])
 }
 
 function maybeWin(room: CombatRoom, io: Server, _killerId: string) {

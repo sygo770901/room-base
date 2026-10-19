@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client'
 import { WEAPON_STATS } from '../../shared/barrels'
-import { ATTACK_COOLDOWN_MS } from '../../shared/combat'
+import { ATTACK_COOLDOWN_MS, PLAYER_HURT_IFRAME_MS, type ProjectileState } from '../../shared/combat'
 import type { FurnitureItem } from '../../shared/furniture'
 import { attackBlocked } from '../scene/inputLock'
 import type { MonsterState, PlayerState, RoomSnapshot, SeatId, StickyNote, Vec3 } from '../types'
@@ -247,6 +247,7 @@ function bindListeners(s: Socket) {
 
   s.on('boss:telegraph', (payload: { x: number; z: number; r: number; ms: number }) => {
     useAppStore.getState().setTelegraph(payload)
+    useAppStore.getState().upsertTelegraph({ id: 'boss', ...payload })
     useAppStore.getState().setToast('鴨大王要震地了！')
     setTimeout(() => useAppStore.getState().setToast(null), payload.ms)
     playSfx('slam')
@@ -282,8 +283,19 @@ function bindListeners(s: Socket) {
         playSfx('hurt')
         useAppStore.getState().triggerHitFeel('hurt')
       }
+      if (payload.kind === 'player') {
+        useAppStore.getState().setHurtFlash(payload.id, Date.now() + PLAYER_HURT_IFRAME_MS)
+      }
     },
   )
+
+  s.on('mob:telegraph', (payload: { id: string; x: number; z: number; r: number; ms: number }) => {
+    useAppStore.getState().upsertTelegraph(payload)
+  })
+
+  s.on('projectiles:sync', (projectiles: ProjectileState[]) => {
+    useAppStore.getState().setProjectiles(projectiles)
+  })
 
   s.on('note:added', (note: StickyNote) => {
     useAppStore.getState().addNote(note)

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { type MatchOver, type MonsterState } from '../shared/combat'
+import { type MatchOver, type MonsterState, type ProjectileState } from '../shared/combat'
 import { DEFAULT_FURNITURE, type FurnitureItem } from '../shared/furniture'
 import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
 import { defaultSettings, type GameMode, type RoomSettings } from '../shared/modes'
@@ -76,6 +76,9 @@ interface AppState {
   hits: HitFx[]
   hitSeq: number
   telegraph: { x: number; z: number; r: number; ms: number; until: number } | null
+  telegraphs: { id: string; x: number; z: number; r: number; ms: number; until: number }[]
+  projectiles: ProjectileState[]
+  hurtFlashUntil: Record<string, number>
   dashUntil: Record<string, number>
   dashReadyAt: number
   dashRequest: number
@@ -106,6 +109,9 @@ interface AppState {
   setMonsters: (monsters: MonsterState[]) => void
   setMatchOver: (over: MatchOver | null) => void
   setTelegraph: (tel: { x: number; z: number; r: number; ms: number } | null) => void
+  upsertTelegraph: (tel: { id: string; x: number; z: number; r: number; ms: number }) => void
+  setProjectiles: (projectiles: ProjectileState[]) => void
+  setHurtFlash: (id: string, until: number) => void
   bumpRespawn: () => void
   bumpPoseSync: () => void
   setTagHud: (hud: TagHud | null) => void
@@ -165,6 +171,9 @@ export const useAppStore = create<AppState>((set) => ({
   hits: [],
   hitSeq: 1,
   telegraph: null,
+  telegraphs: [],
+  projectiles: [],
+  hurtFlashUntil: {},
   dashUntil: {},
   dashReadyAt: 0,
   dashRequest: 0,
@@ -198,6 +207,7 @@ export const useAppStore = create<AppState>((set) => ({
       smokes: snapshot.smokes ?? [],
       barrels: snapshot.barrels ?? [],
       drops: snapshot.drops ?? [],
+      projectiles: snapshot.projectiles ?? [],
     }),
   applySnapshot: (snapshot) =>
     set((s) => ({
@@ -219,6 +229,7 @@ export const useAppStore = create<AppState>((set) => ({
       smokes: snapshot.smokes ?? s.smokes,
       barrels: snapshot.barrels ?? s.barrels,
       drops: snapshot.drops ?? s.drops,
+      projectiles: snapshot.projectiles ?? s.projectiles,
     })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
@@ -264,6 +275,15 @@ export const useAppStore = create<AppState>((set) => ({
     set({
       telegraph: tel ? { ...tel, until: performance.now() + tel.ms } : null,
     }),
+  upsertTelegraph: (tel) =>
+    set((s) => {
+      const until = performance.now() + tel.ms
+      const next = s.telegraphs.filter((t) => t.id !== tel.id && performance.now() < t.until)
+      next.push({ ...tel, until })
+      return { telegraphs: next }
+    }),
+  setProjectiles: (projectiles) => set({ projectiles }),
+  setHurtFlash: (id, until) => set((s) => ({ hurtFlashUntil: { ...s.hurtFlashUntil, [id]: until } })),
   bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
   bumpPoseSync: () => set((s) => ({ poseSync: s.poseSync + 1 })),
   setTagHud: (hud) => set({ tagHud: hud }),
@@ -324,6 +344,9 @@ export const useAppStore = create<AppState>((set) => ({
       hits: [],
       hitSeq: 1,
       telegraph: null,
+      telegraphs: [],
+      projectiles: [],
+      hurtFlashUntil: {},
       joy: { x: 0, y: 0 },
       pointerLocked: false,
       dashUntil: {},

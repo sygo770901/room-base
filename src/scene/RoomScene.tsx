@@ -19,6 +19,7 @@ import { NotePlacementPlane, StickyNotes3D } from './Furniture'
 import { Dungeon } from './Dungeon'
 import { HitEffects } from './HitEffects'
 import { Telegraph } from './Telegraph'
+import { Projectiles } from './Projectiles'
 import { Monsters } from './Monsters'
 import { LocalAvatar, RemotePlayers } from './Players'
 import { LocalController } from './LocalController'
@@ -348,6 +349,7 @@ function SceneContent() {
 
       <HitEffects />
       <Telegraph />
+      <Projectiles />
       <SmokeClouds />
       <Suspense fallback={null}>
         <Barrels />

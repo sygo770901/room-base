@@ -1,3 +1,5 @@
+import { BARB_HP, KNIGHT_HP, MAGE_HP, ROGUE_HP } from './combat'
+
 /** Kenney Modular Dungeon Kit（CC0）拼在 4m 格子上。牆厚約 2m，擺在走道外側。 */
 
 export const CELL = 4
@@ -486,7 +488,7 @@ export const MONSTER_DEFS: MonsterDef[] = [
     id: 'knight',
     name: '騎士',
     model: 'knight',
-    maxHp: 120,
+    maxHp: KNIGHT_HP,
     patrol: patrol([
       [8, 14],
       [18, 14],
@@ -498,7 +500,7 @@ export const MONSTER_DEFS: MonsterDef[] = [
     id: 'barbarian',
     name: '蠻族',
     model: 'barbarian',
-    maxHp: 160,
+    maxHp: BARB_HP,
     patrol: patrol([
       [20, 14],
       [20, 20],
@@ -512,7 +514,7 @@ export const MONSTER_DEFS: MonsterDef[] = [
     id: 'mage',
     name: '法師',
     model: 'mage',
-    maxHp: 90,
+    maxHp: MAGE_HP,
     patrol: patrol([
       [33, 20],
       [37, 20],
@@ -524,7 +526,7 @@ export const MONSTER_DEFS: MonsterDef[] = [
     id: 'rogue',
     name: '盜賊',
     model: 'rogue',
-    maxHp: 80,
+    maxHp: ROGUE_HP,
     patrol: roguePatrol,
   },
 ]

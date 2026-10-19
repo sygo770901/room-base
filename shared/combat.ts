@@ -16,6 +16,25 @@ export interface MonsterState {
   /** 飲水機正在衝撞玩家 */
   pouncing?: boolean
   phase?: 1 | 2
+  /** 法師蓄力發光 */
+  casting?: boolean
+}
+
+export interface ProjectileState {
+  id: string
+  x: number
+  z: number
+  vx: number
+  vz: number
+  until: number
+}
+
+export interface TelegraphCue {
+  id: string
+  x: number
+  z: number
+  r: number
+  ms: number
 }
 
 export interface DamageRank {
@@ -52,6 +71,29 @@ export const ATTACK_COS = Math.cos(1.15)
 export const MONSTER_TOUCH = 1.2
 export const MONSTER_DAMAGE = 12
 export const MONSTER_HIT_CD = 850
+/** 被打中後短暫無敵；復活仍用 IFRAME_MS（先定，昱豪可改） */
+export const PLAYER_HURT_IFRAME_MS = 600
+export const KNIGHT_SPEED = 4.1
+export const KNIGHT_DAMAGE = 12
+export const KNIGHT_HP = 120
+export const ROGUE_SPEED = 5.6
+export const ROGUE_DAMAGE = 8
+export const ROGUE_RETREAT_MS = 1500
+export const ROGUE_HP = 80
+export const BARB_SPEED = 3.2
+export const BARB_DAMAGE = 30
+export const BARB_WINDUP_MS = 900
+export const BARB_HP = 160
+export const BARB_TELEGRAPH_R = 1.8
+export const MAGE_KEEP_MIN = 6
+export const MAGE_KEEP_MAX = 8
+export const MAGE_CAST_CD_MS = 2500
+export const MAGE_WINDUP_MS = 600
+export const MAGE_ORB_SPEED = 9
+export const MAGE_ORB_DAMAGE = 10
+export const MAGE_ORB_RADIUS = 0.4
+export const MAGE_ORB_TTL_MS = 4000
+export const MAGE_HP = 90
 export const SIGHT = 14
 export const BOSS_SIGHT = 16
 export const CHASE_SPEED = 4.1

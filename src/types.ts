@@ -1,5 +1,5 @@
 import type { ClassId } from '../shared/classes'
-import type { MatchOver, MonsterState } from '../shared/combat'
+import type { MatchOver, MonsterState, ProjectileState } from '../shared/combat'
 import type { FurnitureItem } from '../shared/furniture'
 import type { GameMode, RoomSettings } from '../shared/modes'
 import type { TagHud } from '../shared/tag'
@@ -56,6 +56,7 @@ export interface RoomSnapshot {
   smokes?: SmokeCloud[]
   barrels?: BarrelState[]
   drops?: LootDrop[]
+  projectiles?: ProjectileState[]
   error?: string
 }
 

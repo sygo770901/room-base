@@ -1,7 +1,7 @@
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import type { Socket } from 'socket.io'
-import { BOSS_COUNTDOWN_MS, PLAYER_MAX_HP, ROOM_MAX_PLAYERS } from '../shared/combat.ts'
+import { BOSS_COUNTDOWN_MS, PLAYER_MAX_HP, ROOM_MAX_PLAYERS, type ProjectileState } from '../shared/combat.ts'
 import { SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
 import { createBossMonsters, createMonsters, handleAttack, publicMonsters, scaleBossHealth, tickRoom } from './combat.ts'
@@ -70,6 +70,7 @@ export interface RoomState {
   smokes: SmokeCloud[]
   barrels: BarrelState[]
   drops: LootDrop[]
+  projectiles: ProjectileState[]
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -107,6 +108,7 @@ function createRoom(roomId: string): RoomState {
     smokes: [],
     barrels: createBarrels(),
     drops: [],
+    projectiles: [],
   }
 }
 
@@ -143,6 +145,7 @@ function snapshotFor(room: RoomState, viewerId: string) {
     smokes: liveSmokes(room.smokes, Date.now()),
     barrels: room.barrels,
     drops: room.drops,
+    projectiles: room.projectiles,
   }
 }
 
@@ -361,6 +364,7 @@ export function attachSocketServer(httpServer: HttpServer) {
             payload.mode === 'boss' ? createBossMonsters() : payload.mode === 'tag' ? [] : createMonsters()
           room.matchOver = null
           room.damage = {}
+          room.projectiles = []
           const allowTimed = payload.mode === 'boss' || payload.mode === 'tag'
           room.settings = {
             timed: Boolean(payload.timed) && allowTimed,
@@ -451,6 +455,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.smokes = []
       room.barrels = createBarrels()
       room.drops = []
+      room.projectiles = []
       const ids = Object.keys(room.players)
       ids.forEach((id, i) => {
         const p = room.players[id]

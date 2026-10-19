@@ -45,6 +45,12 @@ function MonsterView({ monster }: { monster: MonsterState }) {
       ) : (
         <KayKitHero classId={classId === 'ranger' ? 'knight' : classId} moving={moving} running={speed.current > 3.2} attackAt={0} />
       )}
+      {monster.casting && (
+        <mesh position={[0, 1.25, 0]}>
+          <sphereGeometry args={[0.58, 12, 10]} />
+          <meshBasicMaterial color="#c8f4ff" transparent opacity={0.42} depthWrite={false} />
+        </mesh>
+      )}
       <Billboard position={[0, barY, 0]}>
         {(monster.kind === 'duck-king' || monster.kind === 'dispenser') && (
           <Text fontSize={0.2} color="#f4f1ec" anchorX="center" anchorY="bottom" outlineWidth={0.012} outlineColor="#000">

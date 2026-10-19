@@ -20,11 +20,17 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
   const ready = useRef(false)
   const swingAt = useAppStore((s) => s.swings[player.id] ?? 0)
   const dashUntil = useAppStore((s) => s.dashUntil[player.id] ?? 0)
+  const hurtUntil = useAppStore((s) => s.hurtFlashUntil[player.id] ?? 0)
 
   useFrame((_, dt) => {
     const g = group.current
     const p = player.position
     if (!g || !p) return
+    if (hurtUntil > Date.now()) {
+      g.visible = Math.floor(Date.now() / 80) % 2 === 0
+    } else if (!g.visible) {
+      g.visible = true
+    }
     if (isSelf || !ready.current) {
       g.position.set(p[0], 0, p[2])
       g.rotation.y = player.rotationY
