@@ -4,7 +4,8 @@ import { OrbitControls, useProgress } from '@react-three/drei'
 import * as THREE from 'three'
 import { rayOcclusion, SPAWN_POINTS } from '../../shared/dungeon'
 import { KAYKIT_TORCHES } from '../../shared/kaykitScene'
-import { occludersOf, usesKaykitKit } from '../../shared/mapData'
+import { doorsOf, extraAabbsOf, occludersOf, usesKaykitKit } from '../../shared/mapData'
+import { closedDoorAabbs } from '../../shared/doors'
 import {
   DESKTOP_DYNAMIC_POINT_LIGHTS,
   DESKTOP_SHADOW_MAP,
@@ -309,12 +310,16 @@ function CameraGuard() {
         const dirx = dx * inv
         const diry = dy * inv
         const dirz = dz * inv
-        const extra = occludersOf(useAppStore.getState().scene)
+        const state = useAppStore.getState()
+        const extra = occludersOf(state.scene).concat(
+          extraAabbsOf(state.scene).map((b) => ({ ...b, minY: 0, maxY: 4 })),
+          closedDoorAabbs(state.doors, doorsOf(state.scene)).map((b) => ({ ...b, minY: 0, maxY: 3.2 })),
+        )
         const hit = rayOcclusion(target.x, target.y, target.z, dirx, diry, dirz, dist, extra)
-        if (hit < dist - 0.2) {
-          const desired = Math.max(MIN_RADIUS, hit - 0.45)
+        if (hit < dist - 0.12) {
+          const desired = Math.max(0.85, hit - 0.28)
           if (desired < dist) {
-            const nd = THREE.MathUtils.damp(dist, desired, 3, dt)
+            const nd = THREE.MathUtils.damp(dist, desired, 10, dt)
             camera.position.set(target.x + dirx * nd, target.y + diry * nd, target.z + dirz * nd)
           }
         }
