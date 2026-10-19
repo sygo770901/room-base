@@ -60,7 +60,7 @@ export function Lobby() {
   return (
     <div className="lobby">
       <form className="lobby-card" onSubmit={onSubmit}>
-        <h1>地城迴廊</h1>
+        <h1>BOSS大逃殺</h1>
         <p>
           玩家都是較瘦的遊俠，右手單手劍。進房前選場景和模式。房間裡已經有人時，會沿用開房時的設定。
         </p>
