@@ -60,6 +60,8 @@ interface AppState {
   lookSensitivity: number
   pointerLocked: boolean
   lookYaw: number
+  localX: number
+  localZ: number
   displayName: string
   players: Record<string, PlayerState>
   notes: StickyNote[]
@@ -138,6 +140,7 @@ interface AppState {
   setLookSensitivity: (n: number) => void
   setPointerLocked: (on: boolean) => void
   setLookYaw: (yaw: number) => void
+  setLocalXZ: (x: number, z: number) => void
   setDash: (id: string, until: number) => void
   setDashReadyAt: (at: number) => void
   requestDash: () => void
@@ -177,6 +180,8 @@ export const useAppStore = create<AppState>((set) => ({
   lookSensitivity: readLookSens(),
   pointerLocked: false,
   lookYaw: 0,
+  localX: 0,
+  localZ: 0,
   displayName: boot?.name ?? '',
   players: {},
   notes: [],
@@ -236,6 +241,8 @@ export const useAppStore = create<AppState>((set) => ({
       mapLoadProgress: 0,
       tagHud: snapshot.tagHud ?? null,
       players: snapshot.players,
+      localX: snapshot.players[selfId]?.position?.[0] ?? 0,
+      localZ: snapshot.players[selfId]?.position?.[2] ?? 0,
       notes: snapshot.notes,
       seats: snapshot.seats,
       furniture: snapshot.furniture?.length ? snapshot.furniture : DEFAULT_FURNITURE,
@@ -356,6 +363,7 @@ export const useAppStore = create<AppState>((set) => ({
   },
   setPointerLocked: (on) => set({ pointerLocked: on }),
   setLookYaw: (yaw) => set({ lookYaw: yaw }),
+  setLocalXZ: (x, z) => set({ localX: x, localZ: z }),
   setDash: (id, until) => set((s) => ({ dashUntil: { ...s.dashUntil, [id]: until } })),
   setDashReadyAt: (at) => set({ dashReadyAt: at }),
   requestDash: () => set((s) => ({ dashRequest: s.dashRequest + 1 })),
@@ -413,6 +421,8 @@ export const useAppStore = create<AppState>((set) => ({
       joy: { x: 0, y: 0 },
       pointerLocked: false,
       lookYaw: 0,
+      localX: 0,
+      localZ: 0,
       dashUntil: {},
       dashReadyAt: 0,
       dashRequest: 0,

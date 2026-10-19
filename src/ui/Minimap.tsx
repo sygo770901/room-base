@@ -60,8 +60,10 @@ export function Minimap() {
       const selfId = state.selfId
       for (const p of Object.values(state.players)) {
         if (!p.position || p.team === 'spectator') continue
-        const pos = worldToMap(p.position[0], p.position[2], size, pad)
         const self = p.id === selfId
+        const wx = self ? state.localX : p.position[0]
+        const wz = self ? state.localZ : p.position[2]
+        const pos = worldToMap(wx, wz, size, pad)
         ctx.fillStyle = p.color || '#fff'
         ctx.beginPath()
         ctx.arc(pos.x, pos.y, self ? 4.2 : 3.1, 0, Math.PI * 2)

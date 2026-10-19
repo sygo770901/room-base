@@ -256,6 +256,7 @@ export function LocalController({
       keys.current = {}
       stickCamera(pos.current.x, pos.current.y, pos.current.z)
       onPose([pos.current.x, pos.current.y, pos.current.z], rotY.current)
+      useAppStore.getState().setLocalXZ(pos.current.x, pos.current.z)
       return
     }
 
@@ -411,6 +412,7 @@ export function LocalController({
 
     const pose: Vec3 = [pos.current.x, pos.current.y, pos.current.z]
     onPose(pose, rotY.current)
+    useAppStore.getState().setLocalXZ(pose[0], pose[2])
 
     const now = performance.now()
     const moving = fwd !== 0 || strafe !== 0 || dashing || !grounded.current
