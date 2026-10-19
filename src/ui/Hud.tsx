@@ -40,6 +40,7 @@ export function Hud() {
   const smokeReadyAt = useAppStore((s) => s.smokeReadyAt)
   const requestSmoke = useAppStore((s) => s.requestSmoke)
   const [smokeLeft, setSmokeLeft] = useState(0)
+  const [nowMs, setNowMs] = useState(Date.now())
   const [note, setNote] = useState('')
   const [clock, setClock] = useState(timeLeftMs)
   const [countMs, setCountMs] = useState(startInMs)
@@ -66,6 +67,11 @@ export function Hud() {
     const id = window.setInterval(tick, 100)
     return () => window.clearInterval(id)
   }, [smokeReadyAt])
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 250)
+    return () => window.clearInterval(id)
+  }, [])
 
   useEffect(() => {
     if (matchOver || ((mode === 'boss' || mode === 'tag') && !started)) exitGameLock()
@@ -175,6 +181,11 @@ export function Hud() {
           <div className="hp-bar" title="生命">
             <span style={{ width: `${Math.max(0, Math.min(100, self?.hp ?? 100))}%` }} />
           </div>
+          {self?.weapon && self.weapon !== 'sword' && (self.weaponUntil ?? 0) > nowMs && (
+            <span className="weapon-pill">
+              {self.weapon === 'dagger' ? '匕首' : '大鎚'} · {Math.max(1, Math.ceil(((self.weaponUntil ?? 0) - nowMs) / 1000))}s
+            </span>
+          )}
         </div>
         <div className="pill player-list">
           {Object.values(players).map((p) => (

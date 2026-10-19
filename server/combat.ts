@@ -52,6 +52,19 @@ import {
   type MonsterDef,
 } from '../shared/dungeon.ts'
 import type { GameMode } from '../shared/modes.ts'
+import {
+  BARREL_HP,
+  BARREL_RADIUS,
+  BARREL_RESPAWN_MS,
+  DROP_TTL_MS,
+  HEAL_POTION,
+  PICKUP_RANGE,
+  WEAPON_STATS,
+  WEAPON_TTL_MS,
+  rollDrop,
+  type BarrelState,
+  type LootDrop,
+} from '../shared/barrels.ts'
 import { inSmoke, type SmokeCloud } from '../shared/smoke.ts'
 import type { TagState } from '../shared/tag.ts'
 import { handleTagAttack, tickTag } from './tag.ts'
@@ -106,6 +119,8 @@ export interface CombatRoom {
   lastMoveAt?: Record<string, number>
   moveGrant?: Record<string, { dashUntil?: number; jumpUntil?: number }>
   smokes?: SmokeCloud[]
+  barrels?: BarrelState[]
+  drops?: LootDrop[]
 }
 
 function fromDef(d: MonsterDef): ServerMonster {
@@ -485,6 +500,7 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
   }
   if (room.mode === 'boss') tickBoss(room, io, now, dt)
   else tickHunt(room, io, now, dt)
+  tickLoot(room, io, now)
   io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
 }
 
@@ -495,6 +511,66 @@ function maybeWin(room: CombatRoom, io: Server, _killerId: string) {
   if (!duck || !pet || duck.alive || pet.alive) return
   room.matchOver = { teamWin: true, reason: 'cleared', ranking: rankingOf(room) }
   io.to(room.roomId).emit('match:over', room.matchOver)
+}
+
+function weaponOf(player: PlayerState) {
+  const kind = player.weapon && (player.weaponUntil ?? 0) > Date.now() ? player.weapon : 'sword'
+  return WEAPON_STATS[kind] ?? WEAPON_STATS.sword
+}
+
+function syncBarrels(room: CombatRoom, io: Server) {
+  io.to(room.roomId).emit('barrels:sync', { barrels: room.barrels ?? [], drops: room.drops ?? [] })
+}
+
+function hitBarrel(room: CombatRoom, io: Server, player: PlayerState, now: number, stats: (typeof WEAPON_STATS)['sword']) {
+  if (room.mode === 'tag') return false
+  if (!room.barrels) return false
+  const fx = Math.sin(player.rotationY)
+  const fz = Math.cos(player.rotationY)
+  let best: BarrelState | null = null
+  let bestD = stats.range
+  for (const b of room.barrels) {
+    if (!b.alive) continue
+    const dx = b.x - player.position[0]
+    const dz = b.z - player.position[2]
+    const dist = Math.hypot(dx, dz)
+    if (dist > bestD) continue
+    if (dist > BARREL_RADIUS + 0.26) {
+      const dot = (dx / (dist || 1)) * fx + (dz / (dist || 1)) * fz
+      if (dot < stats.cos) continue
+    }
+    best = b
+    bestD = dist
+  }
+  if (!best) return false
+  best.hp -= stats.damage
+  io.to(room.roomId).emit('combat:hit', {
+    id: best.id,
+    kind: 'monster',
+    amount: stats.damage,
+    x: best.x,
+    z: best.z,
+    by: player.id,
+  })
+  if (best.hp <= 0) {
+    best.hp = 0
+    best.alive = false
+    best.respawnAt = room.mode === 'hunt' ? now + BARREL_RESPAWN_MS : Number.POSITIVE_INFINITY
+    io.to(room.roomId).emit('barrel:break', { id: best.id, x: best.x, z: best.z })
+    const loot = rollDrop()
+    if (loot) {
+      if (!room.drops) room.drops = []
+      room.drops.push({
+        id: `drop-${now}-${best.id}`,
+        x: best.x,
+        z: best.z,
+        kind: loot,
+        until: now + DROP_TTL_MS,
+      })
+    }
+  }
+  syncBarrels(room, io)
+  return true
 }
 
 export function handleAttack(room: CombatRoom, playerId: string, io: Server, now: number, attackerSocketId?: string) {
@@ -508,8 +584,9 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
   if (room.mode === 'boss' && !room.started) return
   if (room.startAt && now < room.startAt) return
   if (room.awayUntil?.[playerId]) return
+  const stats = weaponOf(player)
   if ((room.nextAttack[playerId] ?? 0) > now) return
-  room.nextAttack[playerId] = now + ATTACK_COOLDOWN_MS
+  room.nextAttack[playerId] = now + stats.cooldown
   const swing = attackerSocketId
     ? io.to(room.roomId).except(attackerSocketId)
     : io.to(room.roomId).except(playerId)
@@ -518,7 +595,7 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
   const fx = Math.sin(player.rotationY)
   const fz = Math.cos(player.rotationY)
   let best: ServerMonster | null = null
-  let bestD = ATTACK_RANGE
+  let bestD = stats.range
   for (const m of room.monsters) {
     if (!m.alive) continue
     const dx = m.x - player.position[0]
@@ -528,14 +605,17 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
     if (dist > bestD) continue
     if (dist >= embed) {
       const dot = (dx / dist) * fx + (dz / dist) * fz
-      if (dot < ATTACK_COS) continue
+      if (dot < stats.cos) continue
     }
     best = m
     bestD = dist
   }
-  if (!best) return
+  if (!best) {
+    hitBarrel(room, io, player, now, stats)
+    return
+  }
   if (best.kind === 'duck-king' && now < best.invulnUntil) return
-  const dealt = Math.min(ATTACK_DAMAGE, Math.max(0, best.hp))
+  const dealt = Math.min(stats.damage, Math.max(0, best.hp))
   if (dealt <= 0) return
   io.to(room.roomId).emit('combat:hit', {
     id: best.id,
@@ -560,4 +640,51 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
     maybeWin(room, io, playerId)
   }
   io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
+}
+
+function tickLoot(room: CombatRoom, io: Server, now: number) {
+  if (room.barrels) {
+    let changed = false
+    for (const b of room.barrels) {
+      if (!b.alive && b.respawnAt && now >= b.respawnAt && Number.isFinite(b.respawnAt)) {
+        b.alive = true
+        b.hp = BARREL_HP
+        b.respawnAt = 0
+        changed = true
+      }
+    }
+    if (changed) syncBarrels(room, io)
+  }
+  if (room.drops?.length) {
+    const next = room.drops.filter((d) => d.until > now)
+    if (next.length !== room.drops.length) {
+      room.drops = next
+      syncBarrels(room, io)
+    }
+    for (const drop of [...(room.drops ?? [])]) {
+      for (const p of Object.values(room.players)) {
+        if (room.awayUntil?.[p.id] || p.team === 'spectator' || p.hidden) continue
+        if (Math.hypot(p.position[0] - drop.x, p.position[2] - drop.z) > PICKUP_RANGE) continue
+        room.drops = (room.drops ?? []).filter((d) => d.id !== drop.id)
+        if (drop.kind === 'heal') {
+          p.hp = Math.min(PLAYER_MAX_HP, (p.hp ?? PLAYER_MAX_HP) + HEAL_POTION)
+          io.to(room.roomId).emit('player:vitals', { id: p.id, hp: p.hp })
+        } else {
+          p.weapon = drop.kind
+          p.weaponUntil = now + WEAPON_TTL_MS
+          io.to(room.roomId).emit('player:weapon', { id: p.id, weapon: p.weapon, until: p.weaponUntil })
+        }
+        io.to(room.roomId).emit('loot:pickup', { id: drop.id, by: p.id, kind: drop.kind })
+        syncBarrels(room, io)
+        break
+      }
+    }
+  }
+  for (const p of Object.values(room.players)) {
+    if (p.weapon && p.weapon !== 'sword' && (p.weaponUntil ?? 0) <= now) {
+      p.weapon = 'sword'
+      p.weaponUntil = 0
+      io.to(room.roomId).emit('player:weapon', { id: p.id, weapon: 'sword', until: 0 })
+    }
+  }
 }

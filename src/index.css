@@ -416,6 +416,16 @@ input {
   font-weight: 600;
 }
 
+.weapon-pill {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(242, 204, 143, 0.9);
+  color: #1a1c1e;
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+
 .sens-row {
   display: flex;
   flex-direction: column;
@@ -682,6 +692,11 @@ input {
     max-width: 46vw;
     max-height: 28vh;
     overflow: auto;
+  }
+
+  .weapon-pill {
+    display: inline-block;
+    margin: 6px 0 0;
   }
 }
 

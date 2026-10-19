@@ -5,6 +5,7 @@ import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
 import { defaultSettings, type GameMode, type RoomSettings } from '../shared/modes'
 import type { TagHud } from '../shared/tag'
 import type { SceneId } from '../shared/scenes'
+import type { BarrelState, LootDrop } from '../shared/barrels'
 import type { SmokeCloud } from '../shared/smoke'
 import { LOOK_SENS_DEFAULT, LOOK_SENS_MAX, LOOK_SENS_MIN } from '../shared/input'
 import { loadSession } from './net/session'
@@ -81,12 +82,14 @@ interface AppState {
   smokes: SmokeCloud[]
   smokeReadyAt: number
   smokeRequest: number
+  barrels: BarrelState[]
+  drops: LootDrop[]
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
   upsertPlayer: (player: PlayerState) => void
   removePlayer: (id: string) => void
-  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp' | 'hidden' | 'team'>>) => void
+  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp' | 'hidden' | 'team' | 'weapon' | 'weaponUntil'>>) => void
   addNote: (note: StickyNote) => void
   patchNote: (note: StickyNote) => void
   removeNote: (id: string) => void
@@ -116,6 +119,8 @@ interface AppState {
   setSmokes: (smokes: SmokeCloud[]) => void
   setSmokeReadyAt: (at: number) => void
   requestSmoke: () => void
+  setBarrels: (barrels: BarrelState[]) => void
+  setDrops: (drops: LootDrop[]) => void
   setConnection: (status: ConnectionStatus) => void
   setJoinError: (msg: string | null) => void
   leaveToLobby: () => void
@@ -166,6 +171,8 @@ export const useAppStore = create<AppState>((set) => ({
   smokes: [],
   smokeReadyAt: 0,
   smokeRequest: 0,
+  barrels: [],
+  drops: [],
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
     set({
@@ -189,6 +196,8 @@ export const useAppStore = create<AppState>((set) => ({
       monsters: snapshot.monsters ?? [],
       hostId: snapshot.hostId,
       smokes: snapshot.smokes ?? [],
+      barrels: snapshot.barrels ?? [],
+      drops: snapshot.drops ?? [],
     }),
   applySnapshot: (snapshot) =>
     set((s) => ({
@@ -208,6 +217,8 @@ export const useAppStore = create<AppState>((set) => ({
       started: snapshot.started ?? s.started,
       tagHud: snapshot.tagHud ?? s.tagHud,
       smokes: snapshot.smokes ?? s.smokes,
+      barrels: snapshot.barrels ?? s.barrels,
+      drops: snapshot.drops ?? s.drops,
     })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
@@ -281,6 +292,8 @@ export const useAppStore = create<AppState>((set) => ({
   setSmokes: (smokes) => set({ smokes }),
   setSmokeReadyAt: (at) => set({ smokeReadyAt: at }),
   requestSmoke: () => set((s) => ({ smokeRequest: s.smokeRequest + 1 })),
+  setBarrels: (barrels) => set({ barrels }),
+  setDrops: (drops) => set({ drops }),
   setConnection: (status) => set({ connection: status }),
   setJoinError: (msg) => set({ joinError: msg }),
   leaveToLobby: () =>
@@ -319,6 +332,8 @@ export const useAppStore = create<AppState>((set) => ({
       smokes: [],
       smokeReadyAt: 0,
       smokeRequest: 0,
+      barrels: [],
+      drops: [],
     }),
 }))
 

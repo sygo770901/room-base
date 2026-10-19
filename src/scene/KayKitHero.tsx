@@ -4,6 +4,7 @@ import { useFrame } from '@react-three/fiber'
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import * as THREE from 'three'
 import { PLAYER_CLASS, type ClassId } from '../../shared/classes'
+import type { HeldWeapon } from '../../shared/barrels'
 
 const ROOT = '/assets/kaykit/adventurers'
 const CHAR: Record<ClassId, string> = {
@@ -151,6 +152,7 @@ export function KayKitHero({
   seated,
   hidden,
   compact,
+  heldWeapon,
 }: {
   classId: ClassId
   moving: boolean
@@ -161,13 +163,15 @@ export function KayKitHero({
   seated?: boolean
   hidden?: boolean
   compact?: boolean
+  heldWeapon?: HeldWeapon
 }) {
   const char = useGLTF(CHAR[classId])
   const moveGltf = useGLTF(MOVE_URL)
   const generalGltf = useGLTF(GENERAL_URL)
   const combatGltf = useGLTF(COMBAT_URL)
   const load = LOADOUT[classId]
-  const rightGltf = useGLTF(load.right ? `${WEAPON_ROOT}/${load.right}` : MOVE_URL)
+  const held = heldWeapon === 'dagger' ? 'dagger.gltf' : heldWeapon === 'hammer' ? 'axe_1handed.gltf' : load.right
+  const rightGltf = useGLTF(held ? `${WEAPON_ROOT}/${held}` : MOVE_URL)
   const leftGltf = useGLTF(load.left ? `${WEAPON_ROOT}/${load.left}` : MOVE_URL)
 
   const root = useMemo(() => {
@@ -184,13 +188,16 @@ export function KayKitHero({
   const rightWeapon = useMemo(() => {
     const g = new THREE.Group()
     g.name = 'held-right'
-    if (load.right) {
+    if (held) {
       const cloned = prepareHeld(rightGltf.scene)
       if (countMeshes(cloned)) g.add(cloned)
     }
-    if (!g.children.length) g.add(makeFallbackWeapon(FALLBACK[classId].right))
+    if (!g.children.length) {
+      const kind = heldWeapon === 'dagger' ? 'dagger' : heldWeapon === 'hammer' ? 'axe' : FALLBACK[classId].right
+      g.add(makeFallbackWeapon(kind))
+    }
     return g
-  }, [classId, load.right, rightGltf.scene])
+  }, [classId, held, heldWeapon, rightGltf.scene])
 
   const leftWeapon = useMemo(() => {
     const g = new THREE.Group()

@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { HIDE_RANGE, HIDE_SPOTS } from '../../shared/dungeon'
 import { isMobileDevice } from '../perf/device'
+import { WEAPON_STATS } from '../../shared/barrels'
 import { DASH_DISTANCE, DASH_DURATION_MS, dashCooldownMs } from '../../shared/movement'
 import { SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
 import { emitDash, emitFurniturePush, emitHide, emitMove, emitSit, emitSmoke, performAttack } from '../net/socket'
@@ -253,8 +254,11 @@ export function LocalController({
       right.crossVectors(forward, up).normalize()
 
       const len = Math.hypot(fwd, strafe) || 1
-      const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * dt
-      const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * dt
+      const held =
+        player.weapon && (player.weaponUntil ?? 0) > Date.now() ? player.weapon : 'sword'
+      const speedMul = WEAPON_STATS[held].speed
+      const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * speedMul * dt
+      const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * dt
 
       const extra = useAppStore.getState().scene === 'kaykit' ? KAYKIT_EXTRA_AABBS : []
       const result = resolvePlayerMove(pos.current.x, pos.current.z, mx, mz, furnitureRef.current, undefined, extra)

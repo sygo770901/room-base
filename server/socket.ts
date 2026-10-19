@@ -36,6 +36,7 @@ import {
   smokeCooldownMs,
   type SmokeCloud,
 } from '../shared/smoke.ts'
+import { createBarrels, type BarrelState, type LootDrop } from '../shared/barrels.ts'
 import { defaultSettings, isGameMode, type GameMode, type RoomSettings } from '../shared/modes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
 import type { MatchOver } from '../shared/combat.ts'
@@ -67,6 +68,8 @@ export interface RoomState {
   nextDash: Record<string, number>
   nextSmoke: Record<string, number>
   smokes: SmokeCloud[]
+  barrels: BarrelState[]
+  drops: LootDrop[]
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -102,6 +105,8 @@ function createRoom(roomId: string): RoomState {
     nextDash: {},
     nextSmoke: {},
     smokes: [],
+    barrels: createBarrels(),
+    drops: [],
   }
 }
 
@@ -136,6 +141,8 @@ function snapshotFor(room: RoomState, viewerId: string) {
     started: room.started,
     tagHud: tagHudFor(room, viewerId),
     smokes: liveSmokes(room.smokes, Date.now()),
+    barrels: room.barrels,
+    drops: room.drops,
   }
 }
 
@@ -442,12 +449,16 @@ export function attachSocketServer(httpServer: HttpServer) {
         room.tag = undefined
       }
       room.smokes = []
+      room.barrels = createBarrels()
+      room.drops = []
       const ids = Object.keys(room.players)
       ids.forEach((id, i) => {
         const p = room.players[id]
         const sp = SPAWN_POINTS[i % SPAWN_POINTS.length]
         p.hp = PLAYER_MAX_HP
         p.hidden = false
+        p.weapon = 'sword'
+        p.weaponUntil = 0
         if (p.seated) {
           room.seats[p.seated] = null
           p.seated = null

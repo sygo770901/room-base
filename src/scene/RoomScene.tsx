@@ -23,6 +23,7 @@ import { Monsters } from './Monsters'
 import { LocalAvatar, RemotePlayers } from './Players'
 import { LocalController } from './LocalController'
 import { SmokeClouds } from './SmokeClouds'
+import { Barrels } from './Barrels'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
@@ -348,6 +349,9 @@ function SceneContent() {
       <HitEffects />
       <Telegraph />
       <SmokeClouds />
+      <Suspense fallback={null}>
+        <Barrels />
+      </Suspense>
       <Suspense fallback={null}>
         <RemotePlayers players={players} selfId={selfId} />
         {displaySelf?.position && <LocalAvatar player={displaySelf} />}

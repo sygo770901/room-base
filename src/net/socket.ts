@@ -1,4 +1,5 @@
 import { io, Socket } from 'socket.io-client'
+import { WEAPON_STATS } from '../../shared/barrels'
 import { ATTACK_COOLDOWN_MS } from '../../shared/combat'
 import type { FurnitureItem } from '../../shared/furniture'
 import { attackBlocked } from '../scene/inputLock'
@@ -7,7 +8,9 @@ import type { MatchOver } from '../../shared/combat'
 import type { TagHud } from '../../shared/tag'
 import type { GameMode } from '../../shared/modes'
 import type { SceneId } from '../../shared/scenes'
+import type { BarrelState, LootDrop } from '../../shared/barrels'
 import type { SmokeCloud } from '../../shared/smoke'
+import { spawnBarrelShards } from '../scene/Barrels'
 import { playSfx, unlockSfx } from '../audio/sfx'
 import { useAppStore } from '../store'
 import { clearSession, getPlayerId, loadSession, saveSession, type RoomSession } from './session'
@@ -318,6 +321,19 @@ function bindListeners(s: Socket) {
     if (payload.nextAt) useAppStore.getState().setSmokeReadyAt(payload.nextAt)
   })
 
+  s.on('barrels:sync', (payload: { barrels: BarrelState[]; drops: LootDrop[] }) => {
+    useAppStore.getState().setBarrels(payload.barrels)
+    useAppStore.getState().setDrops(payload.drops)
+  })
+
+  s.on('barrel:break', (payload: { x: number; z: number }) => {
+    spawnBarrelShards(payload.x, payload.z)
+  })
+
+  s.on('player:weapon', (payload: { id: string; weapon: 'sword' | 'dagger' | 'hammer'; until: number }) => {
+    useAppStore.getState().patchPlayer(payload.id, { weapon: payload.weapon, weaponUntil: payload.until })
+  })
+
   s.on('player:hidden', (payload: { id: string; hidden: boolean; position?: Vec3; rotationY?: number }) => {
     useAppStore.getState().patchPlayer(payload.id, {
       hidden: payload.hidden,
@@ -592,7 +608,9 @@ export function performAttack() {
     setTimeout(() => useAppStore.getState().setToast(null), 1600)
     return
   }
-  if (now - lastAttackAt < ATTACK_COOLDOWN_MS) return
+  const held = me?.weapon && (me.weaponUntil ?? 0) > Date.now() ? me.weapon : 'sword'
+  const cd = WEAPON_STATS[held]?.cooldown ?? ATTACK_COOLDOWN_MS
+  if (now - lastAttackAt < cd) return
   lastAttackAt = now
   if (state.selfId) state.setSwing(state.selfId, now)
   playSfx('attack', 0.96 + Math.random() * 0.08)
