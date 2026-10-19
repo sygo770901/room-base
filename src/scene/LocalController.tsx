@@ -26,6 +26,7 @@ export function LocalController({
   const rotY = useRef(player.rotationY)
   const lastSent = useRef(0)
   const lastPush = useRef(0)
+  const wasMoving = useRef(false)
   const seatedRef = useRef(player.seated)
   const furnitureRef = useRef(furniture)
   const joyRef = useRef(joy)
@@ -201,7 +202,13 @@ export function LocalController({
     onPose(pose, rotY.current)
 
     const now = performance.now()
-    if (now - lastSent.current > 50 && (fwd !== 0 || strafe !== 0)) {
+    const moving = fwd !== 0 || strafe !== 0
+    if (moving && now - lastSent.current > 50) {
+      lastSent.current = now
+      wasMoving.current = true
+      emitMove(pose, rotY.current)
+    } else if (!moving && wasMoving.current) {
+      wasMoving.current = false
       lastSent.current = now
       emitMove(pose, rotY.current)
     }

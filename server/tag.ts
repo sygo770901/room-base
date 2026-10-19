@@ -122,6 +122,14 @@ export function emitRoomState(
 export function emitPlayerMoved(room: TagRoom, io: Server, playerId: string) {
   const p = room.players[playerId]
   if (!p) return
+  if (room.mode !== 'tag') {
+    io.to(room.roomId).emit('player:moved', {
+      id: playerId,
+      position: p.position,
+      rotationY: p.rotationY,
+    })
+    return
+  }
   for (const viewerId of Object.keys(room.players)) {
     if (viewerId === playerId) continue
     const view = playerViewFor(room, viewerId, p)

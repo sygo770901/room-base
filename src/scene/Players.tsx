@@ -7,23 +7,50 @@ import { useAppStore } from '../store'
 import type { PlayerState } from '../types'
 import { KayKitHero } from './KayKitHero'
 
+function dampAngle(current: number, target: number, lambda: number, dt: number) {
+  let diff = target - current
+  while (diff > Math.PI) diff -= Math.PI * 2
+  while (diff < -Math.PI) diff += Math.PI * 2
+  return current + diff * (1 - Math.exp(-lambda * dt))
+}
+
 export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boolean }) {
-  const pos = player.position ?? [0, 0, 0]
-  const prev = useRef(new THREE.Vector3(...pos))
+  const group = useRef<THREE.Group>(null)
   const speed = useRef(0)
+  const ready = useRef(false)
   const swingAt = useAppStore((s) => s.swings[player.id] ?? 0)
 
   useFrame((_, dt) => {
-    const here = new THREE.Vector3(pos[0], pos[1], pos[2])
-    speed.current = here.distanceTo(prev.current) / Math.max(dt, 1 / 120)
-    prev.current.copy(here)
+    const g = group.current
+    const p = player.position
+    if (!g || !p) return
+    if (isSelf || !ready.current) {
+      g.position.set(p[0], 0, p[2])
+      g.rotation.y = player.rotationY
+      ready.current = true
+      speed.current = 0
+      return
+    }
+    const dist = Math.hypot(p[0] - g.position.x, p[2] - g.position.z)
+    if (dist > 8) {
+      g.position.set(p[0], 0, p[2])
+      g.rotation.y = player.rotationY
+      speed.current = 0
+      return
+    }
+    const nx = THREE.MathUtils.damp(g.position.x, p[0], 14, dt)
+    const nz = THREE.MathUtils.damp(g.position.z, p[2], 14, dt)
+    speed.current = Math.hypot(nx - g.position.x, nz - g.position.z) / Math.max(dt, 1 / 120)
+    g.position.x = nx
+    g.position.z = nz
+    g.rotation.y = dampAngle(g.rotation.y, player.rotationY, 16, dt)
   })
 
   const moving = !player.seated && speed.current > 0.28
   const labelY = player.hidden ? 1.15 : 1.95
 
   return (
-    <group position={pos} rotation={[0, player.rotationY, 0]}>
+    <group ref={group}>
       <KayKitHero
         classId={PLAYER_CLASS}
         moving={moving}

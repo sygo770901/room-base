@@ -303,7 +303,8 @@ export function RoomScene() {
   return (
     <Canvas
       shadows
-      gl={{ toneMappingExposure: 1.35 }}
+      dpr={[1, 1.5]}
+      gl={{ toneMappingExposure: 1.35, powerPreference: 'high-performance' }}
       camera={{ position: cameraPos, fov: 48, near: 0.1, far: 180 }}
       style={{ width: '100%', height: '100%', touchAction: 'none' }}
     >

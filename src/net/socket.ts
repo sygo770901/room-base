@@ -183,11 +183,12 @@ function bindListeners(s: Socket) {
   })
 
   s.on('player:moved', (payload: { id: string; position: Vec3; rotationY: number; snap?: boolean }) => {
+    const selfId = useAppStore.getState().selfId
+    if (payload.id === selfId && !payload.snap) return
     useAppStore.getState().patchPlayer(payload.id, {
       position: payload.position,
       rotationY: payload.rotationY,
     })
-    const selfId = useAppStore.getState().selfId
     if (payload.snap && payload.id === selfId) {
       lastPose = { position: payload.position, rotationY: payload.rotationY }
       useAppStore.getState().bumpPoseSync()
