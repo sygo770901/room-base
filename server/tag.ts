@@ -23,7 +23,8 @@ export type { TagState }
 export interface TagRoom {
   roomId: string
   mode?: GameMode
-  hostId: string | null
+  hostId?: string | null
+  started?: boolean
   players: Record<string, PlayerState>
   notes?: unknown
   seats?: Record<string, string | null>
@@ -80,7 +81,7 @@ export function playerViewFor(room: TagRoom, viewerId: string, p: PlayerState): 
   const hidingCoords = hidePhase(room) ? p.team === 'hider' : Boolean(p.hidden && p.team === 'hider')
   if (!hidingCoords) return stripPlayer(p)
   const { position: _pos, ...rest } = p
-  return rest
+  return rest as PlayerState
 }
 
 export function playersForViewer(room: TagRoom, viewerId: string) {
@@ -217,6 +218,7 @@ export function startTagRound(room: TagRoom, io: Server, now: number) {
     nextCheck: {},
     opened: false,
   }
+  room.started = true
   room.matchOver = null
   room.matchDeadline = timed ? playUntil : null
   room.startAt = hideUntil
@@ -224,10 +226,15 @@ export function startTagRound(room: TagRoom, io: Server, now: number) {
   return true
 }
 
-export function maybeStartTag(room: TagRoom, io: Server, now: number) {
-  if (room.mode !== 'tag' || room.matchOver) return
-  if (room.tag?.roundActive) return
-  startTagRound(room, io, now)
+export function settleTag(room: TagRoom, io: Server, now: number) {
+  if (room.mode !== 'tag' || room.matchOver || !room.tag?.roundActive) return
+  if (room.tag.playUntil && now >= room.tag.playUntil) {
+    const anyHider = Object.values(room.players).some((p) => p.team === 'hider')
+    endTag(room, io, anyHider ? 'hiders' : 'ghosts', now)
+    return
+  }
+  const presentHiders = presentPlayers(room).filter((p) => p.team === 'hider')
+  if (presentHiders.length === 0) endTag(room, io, 'ghosts', now)
 }
 
 function rankingOf(room: TagRoom, now: number): MatchOver['ranking'] {
@@ -249,7 +256,10 @@ function rankingOf(room: TagRoom, now: number): MatchOver['ranking'] {
         dmg: isGhost ? catches : surviveSec,
         catches,
         surviveSec,
-        team: isGhost ? 'ghost' : p.team === 'spectator' ? 'spectator' : 'hider',
+        team: (isGhost ? 'ghost' : p.team === 'spectator' ? 'spectator' : 'hider') as
+          | 'ghost'
+          | 'hider'
+          | 'spectator',
       }
     })
     .sort((a, b) => {
@@ -270,10 +280,6 @@ function endTag(room: TagRoom, io: Server, winner: 'hiders' | 'ghosts', now: num
   io.to(room.roomId).emit('match:over', over)
 }
 
-function hidersLeft(room: TagRoom) {
-  return presentPlayers(room).filter((p) => p.team === 'hider').length
-}
-
 export function catchHider(room: TagRoom, io: Server, ghostId: string, victimId: string, now: number) {
   if (room.mode !== 'tag' || room.matchOver) return
   const tag = room.tag
@@ -291,10 +297,11 @@ export function catchHider(room: TagRoom, io: Server, ghostId: string, victimId:
   emitPlayerMoved(room, io, victimId)
   for (const id of Object.keys(room.players)) io.to(id).emit('tag:hud', tagHudFor(room, id, now))
   io.to(room.roomId).emit('combat:skill', { text: `${victim.name} 被抓到了，變成鬼` })
-  if (hidersLeft(room) <= 0) endTag(room, io, 'ghosts', now)
+  settleTag(room, io, now)
 }
 
 export function maybeRerollGhosts(room: TagRoom, io: Server, now: number) {
+  settleTag(room, io, now)
   if (room.mode !== 'tag' || !room.tag?.roundActive || room.matchOver) return
   const live = presentPlayers(room).filter((p) => p.team !== 'spectator')
   const ghosts = live.filter((p) => p.team === 'ghost')
@@ -426,7 +433,6 @@ export function handleTagAttack(room: TagRoom, io: Server, playerId: string, now
 
 export function tickTag(room: TagRoom, io: Server, now: number) {
   if (room.mode !== 'tag' || room.matchOver) return
-  maybeStartTag(room, io, now)
   const tag = room.tag
   if (!tag?.roundActive) return
 
@@ -462,9 +468,7 @@ export function tickTag(room: TagRoom, io: Server, now: number) {
     }
   }
 
-  if (tag.playUntil && now >= tag.playUntil && hidersLeft(room) > 0) {
-    endTag(room, io, 'hiders', now)
-  }
+  settleTag(room, io, now)
 }
 
 export function acceptMove(

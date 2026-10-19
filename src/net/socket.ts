@@ -259,15 +259,24 @@ function bindListeners(s: Socket) {
 
   s.on(
     'combat:hit',
-    (payload: { id: string; kind: 'player' | 'monster'; amount: number; x: number; z: number }) => {
+    (payload: {
+      id: string
+      kind: 'player' | 'monster'
+      amount: number
+      x: number
+      z: number
+      by?: string | null
+    }) => {
       useAppStore.getState().pushHit(payload)
+      const selfId = useAppStore.getState().selfId
       if (payload.kind === 'monster') {
-        playSfx('hit')
-        useAppStore.getState().triggerHitFeel('hit')
-      } else {
+        if (payload.by === selfId) {
+          playSfx('hit')
+          useAppStore.getState().triggerHitFeel('hit')
+        }
+      } else if (payload.id === selfId) {
         playSfx('hurt')
-        const selfId = useAppStore.getState().selfId
-        if (payload.id === selfId) useAppStore.getState().triggerHitFeel('hurt')
+        useAppStore.getState().triggerHitFeel('hurt')
       }
     },
   )
@@ -335,12 +344,11 @@ function emitJoin(session: RoomSession) {
   const me = state.selfId ? state.players[state.selfId] : null
   const seq = ++joinSeq
   const resume = lastPose
-    ? { position: lastPose.position, rotationY: lastPose.rotationY, hidden: me?.hidden, seated: me?.seated }
+    ? { position: lastPose.position, rotationY: lastPose.rotationY, seated: me?.seated }
     : me
       ? {
           position: me.position,
           rotationY: me.rotationY,
-          hidden: me.hidden,
           seated: me.seated,
         }
       : undefined
@@ -371,6 +379,7 @@ function emitJoin(session: RoomSession) {
         }
         saveSession({ ...session, playerId })
         useAppStore.getState().enterRoom(playerId, snapshot)
+        if (snapshot.players[playerId]?.hidden) useAppStore.getState().bumpPoseSync()
         const peers = Object.keys(snapshot.players).filter((id) => id !== playerId)
         const sid = s.id ?? null
         if (sid && sid === lastVoiceSocketId) {
@@ -379,7 +388,8 @@ function emitJoin(session: RoomSession) {
           lastVoiceSocketId = sid
           restartVoiceSession(playerId, peers)
         }
-        if (lastPose) s.emit('move', lastPose)
+        const hid = snapshot.players[playerId]?.hidden
+        if (lastPose && !hid) s.emit('move', lastPose)
         markOnline()
         resolve(snapshot)
       },
@@ -412,18 +422,50 @@ export async function resumeRoom(opts?: { force?: boolean }) {
   }
   try {
     return await joinWithRetry(session)
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : ''
+    if (msg === '房間已滿') {
+      failJoinFull(msg)
+      return null
+    }
     if (socket?.connected && opts?.force) {
       try {
         return await joinWithRetry(session)
-      } catch {
-        /* fall through */
+      } catch (e2) {
+        const msg2 = e2 instanceof Error ? e2.message : ''
+        if (msg2 === '房間已滿') {
+          failJoinFull(msg2)
+          return null
+        }
       }
     }
     if (!socket?.connected) markDisconnected()
-    else void joinWithRetry(session).catch(() => markDisconnected())
+    else void joinWithRetry(session).catch((err) => {
+      const m = err instanceof Error ? err.message : ''
+      if (m === '房間已滿') failJoinFull(m)
+      else markDisconnected()
+    })
     return null
   }
+}
+
+function failJoinFull(msg: string) {
+  joinSeq += 1
+  joinInFlight = null
+  lastPose = null
+  lastVoiceSocketId = null
+  clearSession()
+  if (socket) {
+    socket.io.reconnection(false)
+    socket.removeAllListeners()
+    socket.io.removeAllListeners()
+    socket.disconnect()
+    socket = null
+  }
+  listenersBound = false
+  useAppStore.getState().leaveToLobby()
+  useAppStore.getState().setJoinError(msg)
+  useAppStore.getState().setConnection('online')
 }
 
 export function resumeSessionIfNeeded() {
@@ -458,6 +500,7 @@ export function joinRoom(
   timed = false,
 ) {
   leaving = false
+  useAppStore.getState().setJoinError(null)
   const session: RoomSession = {
     playerId: getPlayerId(),
     roomId,
@@ -468,7 +511,13 @@ export function joinRoom(
     timed,
   }
   saveSession(session)
-  return joinWithRetry(session)
+  return joinWithRetry(session).catch((e) => {
+    if (e instanceof Error && e.message === '房間已滿') {
+      clearSession()
+      useAppStore.getState().setJoinError(e.message)
+    }
+    throw e
+  })
 }
 
 export function emitMove(position: Vec3, rotationY: number) {
@@ -515,6 +564,7 @@ export function performAttack() {
   const state = useAppStore.getState()
   if (state.pendingNote || state.noteAsk) return
   const me = state.selfId ? state.players[state.selfId] : null
+  if ((state.mode === 'boss' || state.mode === 'tag') && !state.started) return
   if (state.mode === 'tag' && (me?.team === 'spectator' || ((state.tagHud?.hideLeftMs ?? 0) > 0 && me?.team === 'ghost'))) return
   if (me?.hidden) {
     state.setToast('躲藏中不能攻擊')
@@ -546,6 +596,10 @@ export function emitAttack() {
 
 export function emitRestart() {
   socket?.emit('match:restart')
+}
+
+export function emitStart() {
+  socket?.emit('match:start')
 }
 
 export function disconnectSocket() {

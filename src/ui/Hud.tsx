@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { disconnectSocket, emitAddNote, emitCheck, emitHide, emitRemoveNote, emitRestart, emitUpdateNote, performAttack } from '../net/socket'
+import { disconnectSocket, emitAddNote, emitCheck, emitHide, emitRemoveNote, emitRestart, emitStart, emitUpdateNote, performAttack } from '../net/socket'
 import { setMicEnabled } from '../net/voice'
 import { useAppStore } from '../store'
 import { VirtualJoystick } from './VirtualJoystick'
@@ -26,6 +26,7 @@ export function Hud() {
   const timeLeftMs = useAppStore((s) => s.timeLeftMs)
   const hostId = useAppStore((s) => s.hostId)
   const startInMs = useAppStore((s) => s.startInMs)
+  const started = useAppStore((s) => s.started)
   const tagHud = useAppStore((s) => s.tagHud)
   const [note, setNote] = useState('')
   const [clock, setClock] = useState(timeLeftMs)
@@ -158,25 +159,48 @@ export function Hud() {
 
       {toast && <div className="toast">{toast}</div>}
 
+      {(mode === 'boss' || mode === 'tag') && !started && !matchOver && (
+        <div className="modal match-over">
+          <p>等房主開始</p>
+          <p className="modal-preview">
+            {mode === 'tag'
+              ? `至少 2 人才能開局。現在 ${Object.values(players).filter((p) => p.team !== 'spectator').length} 人。`
+              : '按下開始後會倒數 5 秒，鴨王血量依當時人數計算。'}
+          </p>
+          {selfId && hostId === selfId ? (
+            <button
+              type="button"
+              className="restart-btn"
+              disabled={mode === 'tag' && Object.values(players).filter((p) => p.team !== 'spectator').length < 2}
+              onClick={() => emitStart()}
+            >
+              開始
+            </button>
+          ) : (
+            <p className="modal-preview">等房主按開始</p>
+          )}
+        </div>
+      )}
+
       {mode === 'tag' && self?.team === 'ghost' && hideLeft > 0 && !matchOver && (
         <div className="ghost-blackout" aria-live="polite">
           {Math.max(1, Math.ceil(hideLeft / 1000))} 秒後出發
         </div>
       )}
 
-      {mode === 'boss' && !matchOver && countMs > 0 && (
+      {mode === 'boss' && started && !matchOver && countMs > 0 && (
         <div className="countdown-banner" aria-live="polite">
           {Math.max(1, Math.ceil(countMs / 1000))}
         </div>
       )}
-      {mode === 'boss' && !matchOver && goFlash && countMs <= 0 && (
+      {mode === 'boss' && started && !matchOver && goFlash && countMs <= 0 && (
         <div className="countdown-banner go">開打！</div>
       )}
-      {mode === 'boss' && !matchOver && countMs <= 0 && !goFlash && (
+      {mode === 'boss' && started && !matchOver && countMs <= 0 && !goFlash && (
         <div className="boss-hint">鴨大王在東南王房</div>
       )}
 
-      {mode === 'boss' && !matchOver && (
+      {mode === 'boss' && started && !matchOver && (
         <div className="boss-objective">
           {monsters
             .filter((m) => m.kind === 'duck-king' || m.kind === 'dispenser')
@@ -242,12 +266,12 @@ export function Hud() {
 
       <VirtualJoystick />
 
-      {!matchOver && self?.team !== 'spectator' && (
+      {!matchOver && started && self?.team !== 'spectator' && (
         <button type="button" className="attack-btn" onClick={() => performAttack()}>
           攻擊
         </button>
       )}
-      {!matchOver && self && self.team !== 'ghost' && self.team !== 'spectator' && (
+      {!matchOver && started && self && self.team !== 'ghost' && self.team !== 'spectator' && (
         <button
           type="button"
           className="hide-btn"
@@ -256,7 +280,7 @@ export function Hud() {
           {self.hidden ? '出來' : '躲'}
         </button>
       )}
-      {!matchOver && mode === 'tag' && self?.team === 'ghost' && hideLeft <= 0 && (
+      {!matchOver && started && mode === 'tag' && self?.team === 'ghost' && hideLeft <= 0 && (
         <button type="button" className="check-btn" disabled={checkLeft > 0} onClick={() => emitCheck()}>
           {checkLeft > 0 ? `${Math.ceil(checkLeft / 1000)}` : '檢查'}
         </button>

@@ -47,6 +47,7 @@ export interface RoomSnapshot {
   settings?: RoomSettings
   timeLeftMs?: number | null
   startInMs?: number
+  started?: boolean
   tagHud?: TagHud | null
   error?: string
 }

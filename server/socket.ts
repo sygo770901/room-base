@@ -4,7 +4,7 @@ import type { Socket } from 'socket.io'
 import { BOSS_COUNTDOWN_MS, PLAYER_MAX_HP, ROOM_MAX_PLAYERS } from '../shared/combat.ts'
 import { SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
-import { createBossMonsters, createMonsters, handleAttack, publicMonsters, tickRoom } from './combat.ts'
+import { createBossMonsters, createMonsters, handleAttack, publicMonsters, scaleBossHealth, tickRoom } from './combat.ts'
 import {
   acceptMove,
   emitPlayerHidden,
@@ -12,9 +12,9 @@ import {
   emitPlayerMoved,
   handleCheck,
   maybeRerollGhosts,
-  maybeStartTag,
   playersForViewer,
   resetPlayersForTagRestart,
+  settleTag,
   startTagRound,
   tagHudFor,
   tryHide,
@@ -46,6 +46,7 @@ export interface RoomState {
   matchDeadline: number | null
   startAt: number
   hpScaled: boolean
+  started: boolean
   tag?: TagState
   lastMoveAt: Record<string, number>
 }
@@ -77,6 +78,7 @@ function createRoom(roomId: string): RoomState {
     matchDeadline: null,
     startAt: 0,
     hpScaled: false,
+    started: false,
     lastMoveAt: {},
   }
 }
@@ -109,6 +111,7 @@ function snapshotFor(room: RoomState, viewerId: string) {
     settings: room.settings,
     timeLeftMs: room.matchDeadline ? Math.max(0, room.matchDeadline - Date.now()) : null,
     startInMs: room.startAt ? Math.max(0, room.startAt - Date.now()) : 0,
+    started: room.started,
     tagHud: tagHudFor(room, viewerId),
   }
 }
@@ -182,6 +185,7 @@ function applyResume(
 ) {
   if (!resume) return
   if (
+    !player.hidden &&
     Array.isArray(resume.position) &&
     resume.position.length >= 3 &&
     resume.position.slice(0, 3).every((n) => typeof n === 'number' && Number.isFinite(n))
@@ -191,7 +195,6 @@ function applyResume(
   if (typeof resume.rotationY === 'number' && Number.isFinite(resume.rotationY)) {
     player.rotationY = resume.rotationY
   }
-  if (typeof resume.hidden === 'boolean') player.hidden = resume.hidden
 }
 
 function removeFromOtherRooms(playerId: string, keepRoomId: string, io: Server) {
@@ -222,6 +225,7 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
   io.to(room.roomId).emit('player:left', { id: playerId })
   io.to(room.roomId).emit('voice:peer-left', { id: playerId })
   maybeRerollGhosts(room, io, Date.now())
+  settleTag(room, io, Date.now())
   emitState(room, io)
 
   if (Object.keys(room.players).length === 0) {
@@ -317,6 +321,7 @@ export function attachSocketServer(httpServer: HttpServer) {
 
         const isFirst = Object.keys(room.players).length === 0
         if (isFirst && isSceneId(payload.scene)) room.scene = payload.scene
+        if (isFirst && !isGameMode(payload.mode)) room.started = true
         if (isFirst && isGameMode(payload.mode)) {
           room.mode = payload.mode
           room.monsters =
@@ -328,11 +333,13 @@ export function attachSocketServer(httpServer: HttpServer) {
             timed: Boolean(payload.timed) && allowTimed,
             timeLimitSec: payload.timed && allowTimed ? 300 : 0,
           }
-          if (payload.mode === 'boss') {
-            room.startAt = Date.now() + BOSS_COUNTDOWN_MS
+          if (payload.mode === 'boss' || payload.mode === 'tag') {
+            room.started = false
+            room.startAt = 0
             room.hpScaled = false
-            room.matchDeadline = room.settings.timed ? room.startAt + room.settings.timeLimitSec * 1000 : null
+            room.matchDeadline = null
           } else {
+            room.started = true
             room.startAt = 0
             room.matchDeadline = null
           }
@@ -359,7 +366,11 @@ export function attachSocketServer(httpServer: HttpServer) {
             hp: PLAYER_MAX_HP,
             hidden: false,
             team:
-              room.mode === 'tag' && room.tag?.roundActive && !room.matchOver ? 'spectator' : room.mode === 'tag' ? 'hider' : undefined,
+              room.started && !room.matchOver && (room.mode === 'tag' || room.mode === 'boss')
+                ? 'spectator'
+                : room.mode === 'tag' || room.mode === 'boss'
+                  ? 'hider'
+                  : undefined,
           }
           room.players[playerId] = player
           room.lastMoveAt[playerId] = Date.now()
@@ -375,7 +386,6 @@ export function attachSocketServer(httpServer: HttpServer) {
         socket.join(roomId)
         socket.join(playerId)
 
-        maybeStartTag(room, io, Date.now())
         ack?.(snapshotFor(room, playerId))
         if (!resumed) emitPlayerJoined(room, io, player)
         socket.to(roomId).emit('voice:peer-joined', { id: playerId })
@@ -391,17 +401,19 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (!room.matchOver) return
       if (room.mode !== 'boss' && room.mode !== 'tag') return
       room.matchOver = null
+      room.started = false
       room.hurtUntil = {}
       room.nextAttack = {}
       room.damage = {}
+      room.startAt = 0
+      room.matchDeadline = null
       if (room.mode === 'boss') {
         room.monsters = createBossMonsters()
         room.hpScaled = false
-        room.startAt = Date.now() + BOSS_COUNTDOWN_MS
-        room.matchDeadline = room.settings.timed ? room.startAt + room.settings.timeLimitSec * 1000 : null
       } else {
         room.monsters = []
         resetPlayersForTagRestart(room)
+        room.tag = undefined
       }
       const ids = Object.keys(room.players)
       ids.forEach((id, i) => {
@@ -424,7 +436,28 @@ export function attachSocketServer(httpServer: HttpServer) {
           reason: 'restart',
         })
       })
-      if (room.mode === 'tag') startTagRound(room, io, Date.now())
+      emitState(room, io)
+    })
+
+    socket.on('match:start', () => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, playerId } = ctx
+      if (room.hostId !== playerId) return
+      if (room.matchOver || room.started) return
+      if (room.mode !== 'boss' && room.mode !== 'tag') return
+      const present = Object.values(room.players).filter((p) => !room.awayUntil[p.id])
+      if (room.mode === 'tag') {
+        if (present.length < 2) return
+        for (const p of present) p.team = 'hider'
+        if (!startTagRound(room, io, Date.now())) return
+      } else {
+        room.started = true
+        room.hpScaled = false
+        room.startAt = Date.now() + BOSS_COUNTDOWN_MS
+        room.matchDeadline = room.settings.timed ? room.startAt + room.settings.timeLimitSec * 1000 : null
+        scaleBossHealth(room)
+      }
       emitState(room, io)
     })
 
@@ -444,14 +477,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       const { room, player, playerId } = ctx
       if (player.seated) return
       const now = Date.now()
-      if (player.hidden) {
-        const moved = Math.hypot(payload.position[0] - player.position[0], payload.position[2] - player.position[2])
-        if (moved > 0.2) {
-          player.hidden = false
-          tryHide(room, playerId, false, now)
-          emitPlayerHidden(room, io, playerId)
-        }
-      }
+      if (player.hidden) return
       const ok = acceptMove(room, player, payload, now)
       if (!ok) {
         io.to(playerId).emit('player:moved', {
@@ -658,6 +684,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       io.to(room.roomId).emit('voice:peer-left', { id: ctx.playerId })
       scheduleLeave(room, ctx.playerId, io)
       maybeRerollGhosts(room, io, Date.now())
+      settleTag(room, io, Date.now())
       emitState(room, io)
       currentRoomId = null
     })

@@ -49,8 +49,8 @@ function FollowLight() {
 
   useFrame(() => {
     const p = selfId ? players[selfId] : null
-    const x = p?.position[0] ?? SPAWN.x
-    const z = p?.position[2] ?? SPAWN.z
+    const x = p?.position?.[0] ?? SPAWN.x
+    const z = p?.position?.[2] ?? SPAWN.z
     if (light.current) {
       light.current.position.set(x + 10, 16, z + 8)
       target.position.set(x, 0, z)

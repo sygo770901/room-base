@@ -141,6 +141,11 @@ input {
   cursor: pointer;
 }
 
+.restart-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .time-low {
   color: #e07a5f;
   font-weight: 700;

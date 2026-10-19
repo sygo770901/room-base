@@ -36,6 +36,8 @@ interface AppState {
   settings: RoomSettings
   timeLeftMs: number | null
   startInMs: number
+  started: boolean
+  joinError: string | null
   tagHud: TagHud | null
   poseSync: number
   hitStopUntil: number
@@ -90,6 +92,7 @@ interface AppState {
   triggerHitFeel: (kind: 'hit' | 'hurt' | 'slam') => void
   setSfxOn: (on: boolean) => void
   setConnection: (status: ConnectionStatus) => void
+  setJoinError: (msg: string | null) => void
   leaveToLobby: () => void
 }
 
@@ -104,6 +107,8 @@ export const useAppStore = create<AppState>((set) => ({
   settings: defaultSettings(),
   timeLeftMs: null,
   startInMs: 0,
+  started: false,
+  joinError: null,
   tagHud: null,
   poseSync: 0,
   hitStopUntil: 0,
@@ -141,6 +146,8 @@ export const useAppStore = create<AppState>((set) => ({
       settings: snapshot.settings ?? defaultSettings(),
       timeLeftMs: snapshot.timeLeftMs ?? null,
       startInMs: snapshot.startInMs ?? 0,
+      started: snapshot.started ?? false,
+      joinError: null,
       tagHud: snapshot.tagHud ?? null,
       players: snapshot.players,
       notes: snapshot.notes,
@@ -164,6 +171,7 @@ export const useAppStore = create<AppState>((set) => ({
       settings: snapshot.settings ?? s.settings,
       timeLeftMs: snapshot.timeLeftMs ?? s.timeLeftMs,
       startInMs: snapshot.startInMs ?? s.startInMs,
+      started: snapshot.started ?? s.started,
       tagHud: snapshot.tagHud ?? s.tagHud,
     })),
   upsertPlayer: (player) =>
@@ -227,6 +235,7 @@ export const useAppStore = create<AppState>((set) => ({
     set({ sfxOn: on, shakeAmp: on ? 0.07 : 0, shakeUntil: on ? 0 : 0 })
   },
   setConnection: (status) => set({ connection: status }),
+  setJoinError: (msg) => set({ joinError: msg }),
   leaveToLobby: () =>
     set({
       phase: 'lobby',
@@ -241,6 +250,8 @@ export const useAppStore = create<AppState>((set) => ({
       settings: defaultSettings(),
       timeLeftMs: null,
       startInMs: 0,
+      started: false,
+      joinError: null,
       tagHud: null,
       hitStopUntil: 0,
       shakeUntil: 0,

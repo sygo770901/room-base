@@ -32,6 +32,7 @@ export function Lobby() {
   const [mode, setMode] = useState<GameMode>(savedMode)
   const [timed, setTimed] = useState(localStorage.getItem('rb-timed') === '1')
   const [busy, setBusy] = useState(false)
+  const joinError = useAppStore((s) => s.joinError)
   const [error, setError] = useState('')
 
   async function enter(wantHost: boolean) {
@@ -116,7 +117,7 @@ export function Lobby() {
           房間 ID
           <input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="home" maxLength={32} />
         </label>
-        {error && <div style={{ color: '#e07a5f' }}>{error}</div>}
+        {(error || joinError) && <div style={{ color: '#e07a5f' }}>{error || joinError}</div>}
         <div className="lobby-actions">
           <button type="button" className="ghost" disabled={busy} onClick={() => void enter(true)}>
             我是房主

@@ -48,7 +48,7 @@ export function LocalController({
 
   useEffect(() => {
     const p = useAppStore.getState().players[player.id]
-    if (!p) return
+    if (!p?.position) return
     pos.current.set(p.position[0], 0, p.position[2])
     rotY.current = p.rotationY
   }, [respawnToken, poseSync, player.id])

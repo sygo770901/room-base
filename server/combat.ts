@@ -100,6 +100,7 @@ export interface CombatRoom {
   matchDeadline?: number | null
   startAt?: number
   hpScaled?: boolean
+  started?: boolean
   tag?: TagState
   lastMoveAt?: Record<string, number>
 }
@@ -183,6 +184,7 @@ function nearestVisible(
   let best = sight
   for (const p of Object.values(room.players)) {
     if (p.hidden) continue
+    if (p.team === 'spectator') continue
     if (room.awayUntil?.[p.id]) continue
     const d = Math.hypot(p.position[0] - mx, p.position[2] - mz)
     if (d > sight || d >= best) continue
@@ -230,6 +232,7 @@ function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: numb
     amount: dmg,
     x,
     z,
+    by: null,
   })
   if (player.hp <= 0) {
     const sp = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)]
@@ -302,10 +305,11 @@ function tickHunt(room: CombatRoom, io: Server, now: number, dt: number) {
   }
 }
 
-function scaleBossHealth(room: CombatRoom) {
+export function scaleBossHealth(room: CombatRoom) {
   if (room.hpScaled) return
   room.hpScaled = true
-  const n = Object.values(room.players).filter((p) => !room.awayUntil?.[p.id]).length || 1
+  const n =
+    Object.values(room.players).filter((p) => !room.awayUntil?.[p.id] && p.team !== 'spectator').length || 1
   const duckHp = duckKingHp(n)
   const petHp = dispenserHp(n)
   for (const m of room.monsters) {
@@ -335,6 +339,7 @@ function maybeRage(room: CombatRoom, io: Server, now: number) {
 
 function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
   if (room.matchOver) return
+  if (!room.started) return
   if (room.startAt && now < room.startAt) return
   if (room.startAt && now >= room.startAt) scaleBossHealth(room)
   const extraWalls = room.scene === 'kaykit' ? KAYKIT_EXTRA_WALLS : []
@@ -354,14 +359,14 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
     if (duck.windupUntil && !duck.slamResolved && now >= duck.windupUntil) {
       duck.slamResolved = true
       for (const p of Object.values(room.players)) {
-        if (room.awayUntil?.[p.id]) continue
+        if (room.awayUntil?.[p.id] || p.team === 'spectator') continue
         const dist = Math.hypot(p.position[0] - duck.x, p.position[2] - duck.z)
         if (dist <= duck.slamRadius) hurtPlayer(room, io, p, SLAM_DAMAGE, now)
       }
     }
     let nearSlam = false
     for (const p of Object.values(room.players)) {
-      if (room.awayUntil?.[p.id]) continue
+      if (room.awayUntil?.[p.id] || p.team === 'spectator') continue
       if (Math.hypot(p.position[0] - duck.x, p.position[2] - duck.z) <= SLAM_RANGE) nearSlam = true
     }
     if (!pausing && (!duck.windupUntil || now >= duck.windupUntil) && nearSlam && now >= duck.nextSlam) {
@@ -452,7 +457,7 @@ export function rankingOf(room: CombatRoom): DamageRank[] {
 }
 
 export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) {
-  if (room.mode === 'boss' && !room.matchOver && room.matchDeadline && now >= room.matchDeadline) {
+  if (room.mode === 'boss' && room.started && !room.matchOver && room.matchDeadline && now >= room.matchDeadline) {
     const duck = room.monsters.find((m) => m.kind === 'duck-king')
     if (duck?.alive) {
       room.matchOver = { teamWin: false, reason: 'timeout', ranking: rankingOf(room) }
@@ -484,8 +489,9 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
     return
   }
   const player = room.players[playerId]
-  if (!player || player.seated || player.hidden) return
+  if (!player || player.seated || player.hidden || player.team === 'spectator') return
   if (room.matchOver) return
+  if (room.mode === 'boss' && !room.started) return
   if (room.startAt && now < room.startAt) return
   if (room.awayUntil?.[playerId]) return
   if ((room.nextAttack[playerId] ?? 0) > now) return
@@ -523,6 +529,7 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
     amount: dealt,
     x: best.x,
     z: best.z,
+    by: playerId,
   })
   best.hp -= dealt
   best.lastHitBy = playerId
