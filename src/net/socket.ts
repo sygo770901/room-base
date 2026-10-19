@@ -350,7 +350,25 @@ function bindListeners(s: Socket) {
   })
 
   s.on('smoke:sync', (smokes: SmokeCloud[]) => {
-    useAppStore.getState().setSmokes(smokes)
+    const st = useAppStore.getState()
+    const selfId = st.selfId
+    for (const c of smokes) {
+      const prev = st.smokes.find((p) => p.id === c.id)
+      if (selfId && c.hits?.includes(selfId) && !prev?.hits?.includes(selfId)) {
+        st.markPoopHit()
+        st.setToast('💩 中招！')
+        window.setTimeout(() => {
+          if (useAppStore.getState().toast === '💩 中招！') useAppStore.getState().setToast(null)
+        }, 1600)
+      }
+      if (c.ox != null && c.oz != null && (!prev || !prev.thrownAt)) {
+        for (const p of Object.values(st.players)) {
+          if (!p.position) continue
+          if (Math.hypot(p.position[0] - c.ox, p.position[2] - c.oz) < 1.4) st.setThrowAt(p.id, Date.now())
+        }
+      }
+    }
+    st.setSmokes(smokes)
   })
 
   s.on('smoke:result', (payload: { ok: boolean; nextAt?: number }) => {

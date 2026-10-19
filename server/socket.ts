@@ -30,6 +30,7 @@ import {
   type MoveGrant,
 } from '../shared/movement.ts'
 import {
+  POOP_FLIGHT_MS,
   SMOKE_DURATION_MS,
   SMOKE_RADIUS,
   SMOKE_RANGE,
@@ -811,12 +812,27 @@ export function attachSocketServer(httpServer: HttpServer) {
         tx = ox + (dx / dist) * SMOKE_RANGE
         tz = oz + (dz / dist) * SMOKE_RANGE
       }
+      const landAt = now + POOP_FLIGHT_MS
+      const hits: string[] = []
+      for (const p of Object.values(room.players)) {
+        if (room.awayUntil[p.id] || p.team === 'spectator' || isDowned(p, now)) continue
+        if (Math.hypot((p.position?.[0] ?? 0) - tx, (p.position?.[2] ?? 0) - tz) <= SMOKE_RADIUS) hits.push(p.id)
+      }
+      for (const m of room.monsters ?? []) {
+        if (!m.alive) continue
+        if (Math.hypot(m.x - tx, m.z - tz) <= SMOKE_RADIUS) hits.push(m.id)
+      }
       const cloud: SmokeCloud = {
         id: anonSmokeId(now),
         x: tx,
         z: tz,
         r: SMOKE_RADIUS,
         until: now + SMOKE_DURATION_MS,
+        ox,
+        oz,
+        thrownAt: now,
+        landAt,
+        hits,
       }
       room.smokes.push(cloud)
       room.nextSmoke[playerId] = now + smokeCooldownMs(player.team)

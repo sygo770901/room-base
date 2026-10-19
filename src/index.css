@@ -782,6 +782,14 @@ input {
   color: #1a120c;
 }
 
+.poop-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 17;
+  pointer-events: none;
+  box-shadow: inset 0 0 80px 28px rgba(90, 140, 50, 0.35);
+}
+
 .door-hint {
   position: absolute;
   left: 50%;

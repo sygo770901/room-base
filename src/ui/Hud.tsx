@@ -70,6 +70,7 @@ export function Hud() {
   const mapLoadFailed = useAppStore((s) => s.mapLoadFailed)
   const localX = useAppStore((s) => s.localX)
   const localZ = useAppStore((s) => s.localZ)
+  const poopVignetteUntil = useAppStore((s) => s.poopVignetteUntil)
   const doorNear = self && nearestDoor(localX || self.position?.[0] || 0, localZ || self.position?.[2] || 0, doorsOf(scene), DOOR_RANGE)
 
   useEffect(() => {
@@ -275,6 +276,7 @@ export function Hud() {
       </div>
 
       {toast && <div className="toast">{toast}</div>}
+      {poopVignetteUntil > nowMs && <div className="poop-vignette" aria-hidden />}
 
       <div className="objective-banner" aria-live="polite">
         {mode === 'boss'
@@ -485,7 +487,7 @@ export function Hud() {
           disabled={smokeLeft > 0}
           onClick={() => requestSmoke()}
         >
-          {smokeLeft > 0 ? `${Math.ceil(smokeLeft / 1000)}` : '技'}
+          {smokeLeft > 0 ? `${Math.ceil(smokeLeft / 1000)}` : '💩'}
           {!isMobileDevice() && smokeLeft <= 0 && <span className="key-hint">右鍵</span>}
         </button>
       )}

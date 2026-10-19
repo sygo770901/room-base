@@ -165,6 +165,8 @@ export function KayKitHero({
   hidden,
   compact,
   heldWeapon,
+  throwAt = 0,
+  downed,
 }: {
   classId: ClassId
   moving: boolean
@@ -180,6 +182,8 @@ export function KayKitHero({
   hidden?: boolean
   compact?: boolean
   heldWeapon?: HeldWeapon
+  throwAt?: number
+  downed?: boolean
 }) {
   const char = useGLTF(CHAR[classId])
   const moveGltf = useGLTF(MOVE_URL)
@@ -250,6 +254,7 @@ export function KayKitHero({
   const current = useRef<THREE.AnimationAction | null>(null)
   const lastAttack = useRef(0)
   const lastHit = useRef(0)
+  const lastThrow = useRef(0)
   const lastJump = useRef<JumpPhase | null>(null)
   const locoRef = useRef({ moving, running, dashing, dashUntil, seated, jumpPhase })
   locoRef.current = { moving, running, dashing, dashUntil, seated, jumpPhase }
@@ -309,10 +314,21 @@ export function KayKitHero({
   )
 
   useFrame((_, dt) => {
+    if (downed) {
+      if (actions.death) {
+        actions.death.clampWhenFinished = true
+        play(actions.death, 0.06)
+      }
+      mixer.update(dt)
+      return
+    }
     if (hitAt > lastHit.current && hitKind) {
       lastHit.current = hitAt
       if (hitKind === 'death') play(actions.death, 0.05)
       else play(hitKind === 'B' ? actions.hitB ?? actions.hitA : actions.hitA ?? actions.hitB, 0.05)
+    } else if (throwAt > lastThrow.current) {
+      lastThrow.current = throwAt
+      play(actions.combo[1] ?? actions.combo[0], 0.05)
     } else if (attackAt > lastAttack.current) {
       lastAttack.current = attackAt
       const clip = actions.combo[combo] ?? actions.combo[0]

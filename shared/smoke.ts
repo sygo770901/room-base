@@ -2,9 +2,15 @@
 export const SMOKE_RANGE = 8
 export const SMOKE_RANGE_MOBILE = 6
 export const SMOKE_RADIUS = 3
-export const SMOKE_DURATION_MS = 4000
+export const SMOKE_DURATION_MS = 8000
 export const SMOKE_CD_MS = 15000
 export const SMOKE_CD_GHOST_MS = 20000
+/** 扔大便飛行／中招（先定，昱豪可改） */
+export const POOP_FLIGHT_MS = 560
+export const POOP_SLOW_MS = 1500
+export const POOP_SLOW_MUL = 0.62
+export const POOP_VIGNETTE_MS = 2000
+export const POOP_FLIES_MS = 3000
 
 export type SmokeCloud = {
   id: string
@@ -12,6 +18,11 @@ export type SmokeCloud = {
   z: number
   r: number
   until: number
+  ox?: number
+  oz?: number
+  thrownAt?: number
+  landAt?: number
+  hits?: string[]
 }
 
 export function smokeCooldownMs(team?: string | null) {
@@ -31,8 +42,12 @@ export function liveSmokes(clouds: SmokeCloud[] | undefined, now: number) {
   return (clouds ?? []).filter((c) => c.until > now)
 }
 
+export function landedSmokes(clouds: SmokeCloud[] | undefined, now: number) {
+  return liveSmokes(clouds, now).filter((c) => !c.landAt || now >= c.landAt)
+}
+
 export function inSmoke(clouds: SmokeCloud[] | undefined, x: number, z: number, now: number) {
-  return liveSmokes(clouds, now).some((c) => Math.hypot(c.x - x, c.z - z) <= c.r)
+  return landedSmokes(clouds, now).some((c) => Math.hypot(c.x - x, c.z - z) <= c.r)
 }
 
 function segHitsCircle(ax: number, az: number, bx: number, bz: number, cx: number, cz: number, r: number) {

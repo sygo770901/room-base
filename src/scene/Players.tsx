@@ -26,6 +26,8 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
   const jumpPhase = storedJump ?? (y > 0.4 ? 'idle' : y > 0.12 ? 'start' : null)
   const dashUntil = useAppStore((s) => s.dashUntil[player.id] ?? 0)
   const hurtUntil = useAppStore((s) => s.hurtFlashUntil[player.id] ?? 0)
+  const throwAt = useAppStore((s) => s.throwAt[player.id] ?? 0)
+  const poopMarked = useAppStore((s) => s.smokes.some((c) => c.hits?.includes(player.id) && (!c.landAt || Date.now() < c.landAt + 3000)))
 
   useFrame((_, dt) => {
     const g = group.current
@@ -83,6 +85,12 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
         <ringGeometry args={[0.34, 0.5, 22]} />
         <meshBasicMaterial color={player.color} transparent opacity={0.82} depthWrite={false} />
       </mesh>
+      {poopMarked && (
+        <mesh position={[0, 2.05, 0]}>
+          <sphereGeometry args={[0.08, 6, 5]} />
+          <meshBasicMaterial color="#7d9a4a" transparent opacity={0.55} />
+        </mesh>
+      )}
       <KayKitHero
         classId={PLAYER_CLASS}
         moving={moving}
@@ -99,6 +107,8 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
         seated={Boolean(player.seated)}
         hidden={player.hidden}
         compact
+        throwAt={throwAt}
+        downed={Boolean(player.downedUntil && player.downedUntil > Date.now()) || player.hp <= 0}
       />
       {player.phrase && player.phrase.until > Date.now() && (
         <Billboard position={[0, labelY + 0.32, 0]}>

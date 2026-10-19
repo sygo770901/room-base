@@ -7,7 +7,7 @@ import { WEAPON_STATS } from '../../shared/barrels'
 import { DASH_DISTANCE, DASH_DURATION_MS, JUMP_CEILING, dashCooldownMs } from '../../shared/movement'
 import { GRAVITY, HIDE_MAX_Y, JUMP_SPEED, platformsFor, supportY } from '../../shared/platforms'
 import { PLAYER_RADIUS } from '../../shared/furniture'
-import { SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
+import { POOP_SLOW_MUL, SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
 import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitRescueHold, emitSit, emitSmoke, performAttack } from '../net/socket'
 import { isDowned, nearestDowned } from '../../shared/downed'
 import { DOOR_RANGE, closedDoorAabbs, nearestDoor } from '../../shared/doors'
@@ -169,6 +169,7 @@ export function LocalController({
     const x = pos.current.x + (lastDir.current.x / len) * range
     const z = pos.current.z + (lastDir.current.z / len) * range
     state.setSmokeReadyAt(now + smokeCooldownMs(me.team))
+    state.setThrowAt(player.id, now)
     emitSmoke(x, z)
   }
 
@@ -319,7 +320,8 @@ export function LocalController({
       const held =
         player.weapon && (player.weaponUntil ?? 0) > Date.now() ? player.weapon : 'sword'
       const speedMul = WEAPON_STATS[held].speed
-      const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * speedMul * dt
+      const poopSlow = Date.now() < useAppStore.getState().poopSlowUntil ? POOP_SLOW_MUL : 1
+      const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * speedMul * poopSlow * dt
       const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * dt
 
       const sceneId = useAppStore.getState().scene
