@@ -19,6 +19,7 @@ import { typingInField } from './inputLock'
 import { NotePlacementPlane, StickyNotes3D } from './Furniture'
 import { Dungeon } from './Dungeon'
 import { JungleFoliage } from './JungleFoliage'
+import { SceneDecor } from './Decor'
 import { HitEffects } from './HitEffects'
 import { Telegraph } from './Telegraph'
 import { Projectiles } from './Projectiles'
@@ -352,6 +353,7 @@ function SceneContent() {
       <Suspense fallback={null}>
         <Dungeon focusX={displaySelf?.position?.[0] ?? SPAWN.x} focusZ={displaySelf?.position?.[2] ?? SPAWN.z} />
         {sceneId === 'jungle' ? <JungleFoliage /> : null}
+        <SceneDecor />
         <Monsters />
       </Suspense>
 

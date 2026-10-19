@@ -63,9 +63,20 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
 
   const moving = !player.seated && speed.current > 0.28
   const labelY = player.hidden ? 1.15 : 1.95
+  const whiteFlash = hurtUntil > Date.now() && hurtUntil - Date.now() > 500
 
   return (
     <group ref={group}>
+      {whiteFlash && (
+        <mesh position={[0, 1.05, 0]}>
+          <sphereGeometry args={[0.55, 10, 8]} />
+          <meshBasicMaterial color="#ffffff" transparent opacity={0.55} depthWrite={false} />
+        </mesh>
+      )}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}>
+        <ringGeometry args={[0.34, 0.5, 22]} />
+        <meshBasicMaterial color={player.color} transparent opacity={0.82} depthWrite={false} />
+      </mesh>
       <KayKitHero
         classId={PLAYER_CLASS}
         moving={moving}
