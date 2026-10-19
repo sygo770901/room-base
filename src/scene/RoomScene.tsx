@@ -226,6 +226,14 @@ function CameraGuard() {
         }
       }
     }
+    const feel = useAppStore.getState()
+    if (feel.sfxOn && performance.now() < feel.shakeUntil) {
+      const t = (feel.shakeUntil - performance.now()) / 180
+      const amp = feel.shakeAmp * Math.max(0, t)
+      camera.position.x += (Math.random() - 0.5) * amp
+      camera.position.y += (Math.random() - 0.5) * amp * 0.7
+      camera.position.z += (Math.random() - 0.5) * amp
+    }
     gl.render(scene, camera)
   }, 1)
   return null

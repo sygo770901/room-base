@@ -4,6 +4,7 @@ import { Hud } from './ui/Hud'
 import { ReconnectBanner } from './ui/ReconnectBanner'
 import { RoomScene } from './scene/RoomScene'
 import { resumeSessionIfNeeded } from './net/socket'
+import { unlockSfx } from './audio/sfx'
 import { useAppStore } from './store'
 
 export default function App() {
@@ -11,6 +12,9 @@ export default function App() {
 
   useEffect(() => {
     resumeSessionIfNeeded()
+    const unlock = () => unlockSfx()
+    window.addEventListener('pointerdown', unlock, { once: true })
+    return () => window.removeEventListener('pointerdown', unlock)
   }, [])
 
   if (phase === 'lobby') return <Lobby />

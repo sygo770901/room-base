@@ -7,6 +7,7 @@ import type { MatchOver } from '../../shared/combat'
 import type { TagHud } from '../../shared/tag'
 import type { GameMode } from '../../shared/modes'
 import type { SceneId } from '../../shared/scenes'
+import { playSfx, unlockSfx } from '../audio/sfx'
 import { useAppStore } from '../store'
 import { clearSession, getPlayerId, loadSession, saveSession, type RoomSession } from './session'
 import { restartVoiceSession, startVoiceSession, stopVoiceSession } from './voice'
@@ -126,6 +127,7 @@ function bindWatchers() {
     void resumeRoom({ force: true })
   }
 
+  document.addEventListener('pointerdown', () => unlockSfx(), { once: true })
   document.addEventListener('visibilitychange', wake)
   window.addEventListener('pageshow', wake)
   window.addEventListener('online', wake)
@@ -243,6 +245,8 @@ function bindListeners(s: Socket) {
     useAppStore.getState().setTelegraph(payload)
     useAppStore.getState().setToast('鴨大王要震地了！')
     setTimeout(() => useAppStore.getState().setToast(null), payload.ms)
+    playSfx('slam')
+    useAppStore.getState().triggerHitFeel('slam')
     if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
       navigator.vibrate(100)
     }
@@ -257,6 +261,14 @@ function bindListeners(s: Socket) {
     'combat:hit',
     (payload: { id: string; kind: 'player' | 'monster'; amount: number; x: number; z: number }) => {
       useAppStore.getState().pushHit(payload)
+      if (payload.kind === 'monster') {
+        playSfx('hit')
+        useAppStore.getState().triggerHitFeel('hit')
+      } else {
+        playSfx('hurt')
+        const selfId = useAppStore.getState().selfId
+        if (payload.id === selfId) useAppStore.getState().triggerHitFeel('hurt')
+      }
     },
   )
 
@@ -512,6 +524,7 @@ export function performAttack() {
   if (now - lastAttackAt < ATTACK_COOLDOWN_MS) return
   lastAttackAt = now
   if (state.selfId) state.setSwing(state.selfId, now)
+  playSfx('attack', 0.96 + Math.random() * 0.08)
   socket?.emit('attack')
 }
 

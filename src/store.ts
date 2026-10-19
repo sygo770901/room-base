@@ -38,6 +38,10 @@ interface AppState {
   startInMs: number
   tagHud: TagHud | null
   poseSync: number
+  hitStopUntil: number
+  shakeUntil: number
+  shakeAmp: number
+  sfxOn: boolean
   displayName: string
   players: Record<string, PlayerState>
   notes: StickyNote[]
@@ -83,6 +87,8 @@ interface AppState {
   bumpRespawn: () => void
   bumpPoseSync: () => void
   setTagHud: (hud: TagHud | null) => void
+  triggerHitFeel: (kind: 'hit' | 'hurt' | 'slam') => void
+  setSfxOn: (on: boolean) => void
   setConnection: (status: ConnectionStatus) => void
   leaveToLobby: () => void
 }
@@ -100,6 +106,10 @@ export const useAppStore = create<AppState>((set) => ({
   startInMs: 0,
   tagHud: null,
   poseSync: 0,
+  hitStopUntil: 0,
+  shakeUntil: 0,
+  shakeAmp: 0,
+  sfxOn: typeof localStorage === 'undefined' ? true : localStorage.getItem('rb-sfx') !== '0',
   displayName: boot?.name ?? '',
   players: {},
   notes: [],
@@ -203,6 +213,19 @@ export const useAppStore = create<AppState>((set) => ({
   bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
   bumpPoseSync: () => set((s) => ({ poseSync: s.poseSync + 1 })),
   setTagHud: (hud) => set({ tagHud: hud }),
+  triggerHitFeel: (kind) => {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('rb-sfx') === '0') return
+    const mobile = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
+    const now = performance.now()
+    const stop = kind === 'slam' ? 70 : 42
+    const shake = kind === 'slam' ? 280 : 140
+    const amp = (kind === 'slam' ? 0.16 : 0.07) * (mobile ? 0.45 : 1)
+    set({ hitStopUntil: now + stop, shakeUntil: now + shake, shakeAmp: amp })
+  },
+  setSfxOn: (on) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('rb-sfx', on ? '1' : '0')
+    set({ sfxOn: on, shakeAmp: on ? 0.07 : 0, shakeUntil: on ? 0 : 0 })
+  },
   setConnection: (status) => set({ connection: status }),
   leaveToLobby: () =>
     set({
@@ -219,6 +242,9 @@ export const useAppStore = create<AppState>((set) => ({
       timeLeftMs: null,
       startInMs: 0,
       tagHud: null,
+      hitStopUntil: 0,
+      shakeUntil: 0,
+      shakeAmp: 0,
       hostId: null,
       micOn: false,
       pendingNote: null,

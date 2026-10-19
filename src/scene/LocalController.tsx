@@ -135,6 +135,12 @@ export function LocalController({
       target.set(x, 0.9, z)
     }
 
+    if (performance.now() < useAppStore.getState().hitStopUntil) {
+      stickCamera(pos.current.x, pos.current.z)
+      onPose([pos.current.x, 0, pos.current.z], rotY.current)
+      return
+    }
+
     if (player.seated && player.position) {
       stickCamera(player.position[0], player.position[2])
       onPose(player.position, player.rotationY)

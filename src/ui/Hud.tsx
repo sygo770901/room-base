@@ -14,6 +14,8 @@ export function Hud() {
   const noteAsk = useAppStore((s) => s.noteAsk)
   const notes = useAppStore((s) => s.notes)
   const setMicOn = useAppStore((s) => s.setMicOn)
+  const sfxOn = useAppStore((s) => s.sfxOn)
+  const setSfxOn = useAppStore((s) => s.setSfxOn)
   const setToast = useAppStore((s) => s.setToast)
   const setPendingNote = useAppStore((s) => s.setPendingNote)
   const setNoteAsk = useAppStore((s) => s.setNoteAsk)
@@ -263,6 +265,9 @@ export function Hud() {
       <div className="dock">
         <button type="button" className="hud-btn" onClick={() => void toggleMic()} disabled={busyMic}>
           {micOn ? '語音開' : '語音關'}
+        </button>
+        <button type="button" className="hud-btn" onClick={() => setSfxOn(!sfxOn)}>
+          {sfxOn ? '手感開' : '手感關'}
         </button>
         <button type="button" className="hud-btn" onClick={() => disconnectSocket()}>
           離開
