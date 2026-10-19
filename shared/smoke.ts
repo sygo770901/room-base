@@ -18,6 +18,15 @@ export function smokeCooldownMs(team?: string | null) {
   return team === 'ghost' ? SMOKE_CD_GHOST_MS : SMOKE_CD_MS
 }
 
+let smokeSeq = 0
+
+/** 煙霧編號不含丟擲者身分。 */
+export function anonSmokeId(now = Date.now()) {
+  smokeSeq = (smokeSeq + 1) % 1_000_000
+  const rand = Math.floor(Math.random() * 36 ** 4).toString(36).padStart(4, '0')
+  return `smoke-${now.toString(36)}-${smokeSeq.toString(36)}-${rand}`
+}
+
 export function liveSmokes(clouds: SmokeCloud[] | undefined, now: number) {
   return (clouds ?? []).filter((c) => c.until > now)
 }

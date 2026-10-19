@@ -35,6 +35,7 @@ import {
   SMOKE_RANGE,
   liveSmokes,
   smokeCooldownMs,
+  anonSmokeId,
   type SmokeCloud,
 } from '../shared/smoke.ts'
 import { createBarrels, type BarrelState, type LootDrop } from '../shared/barrels.ts'
@@ -684,7 +685,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         tz = oz + (dz / dist) * SMOKE_RANGE
       }
       const cloud: SmokeCloud = {
-        id: `smoke-${now}-${playerId.slice(0, 6)}`,
+        id: anonSmokeId(now),
         x: tx,
         z: tz,
         r: SMOKE_RADIUS,
