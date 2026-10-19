@@ -38,16 +38,19 @@ function clipOf(gltf: { animations: THREE.AnimationClip[] }, name: string) {
   return THREE.AnimationClip.findByName(gltf.animations, name)
 }
 
-function findBone(root: THREE.Object3D, name: string) {
+function findBone(root: THREE.Object3D, names: string[]) {
   let found: THREE.Object3D | undefined
   root.traverse((o) => {
     if (found) return
     const skinned = o as THREE.SkinnedMesh
-    if (skinned.isSkinnedMesh && skinned.skeleton) {
+    if (!skinned.isSkinnedMesh || !skinned.skeleton) return
+    for (const name of names) {
       const bone = skinned.skeleton.bones.find((b) => b.name === name)
-      if (bone) found = bone
+      if (bone) {
+        found = bone
+        return
+      }
     }
-    if (o.name === name) found = o
   })
   return found
 }
@@ -62,22 +65,47 @@ function cloneWeapon(src: THREE.Object3D) {
     m.frustumCulled = false
     if (m.material) m.material = (m.material as THREE.Material).clone()
   })
+  mesh.position.set(0, 0, 0)
+  mesh.rotation.set(0, 0, 0)
+  mesh.scale.setScalar(1)
   return mesh
 }
 
-function makeHeldSword() {
+function makeFallbackWeapon(kind: 'sword' | 'axe' | 'dagger' | 'staff' | 'shield') {
   const g = new THREE.Group()
-  const steel = new THREE.MeshStandardMaterial({ color: '#e8eef4', metalness: 0.7, roughness: 0.22 })
+  const steel = new THREE.MeshStandardMaterial({ color: '#e8eef4', metalness: 0.72, roughness: 0.22 })
   const leather = new THREE.MeshStandardMaterial({ color: '#6b3f2a', roughness: 0.7 })
   const gold = new THREE.MeshStandardMaterial({ color: '#d4b44a', metalness: 0.5, roughness: 0.4 })
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.12, 0.03), steel)
-  blade.position.y = 0.58
-  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.05, 0.08), gold)
-  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.034, 0.2, 8), leather)
-  grip.position.y = -0.12
-  const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), gold)
-  pommel.position.y = -0.24
-  g.add(blade, guard, grip, pommel)
+  const wood = new THREE.MeshStandardMaterial({ color: '#8a5a32', roughness: 0.65 })
+  if (kind === 'shield') {
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.06, 16), steel)
+    disc.rotation.x = Math.PI / 2
+    g.add(disc)
+  } else if (kind === 'axe') {
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.7, 8), wood)
+    grip.position.y = 0.2
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.22, 0.06), steel)
+    head.position.set(0.12, 0.52, 0)
+    g.add(grip, head)
+  } else if (kind === 'dagger') {
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 0.02), steel)
+    blade.position.y = 0.26
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.03, 0.05), gold)
+    g.add(blade, guard)
+  } else if (kind === 'staff') {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.032, 1.35, 8), wood)
+    pole.position.y = 0.35
+    const gem = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 10), gold)
+    gem.position.y = 1.05
+    g.add(pole, gem)
+  } else {
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.95, 0.028), steel)
+    blade.position.y = 0.5
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.045, 0.07), gold)
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.032, 0.16, 8), leather)
+    grip.position.y = -0.1
+    g.add(blade, guard, grip)
+  }
   g.traverse((o) => {
     const m = o as THREE.Mesh
     if (m.isMesh) {
@@ -88,20 +116,12 @@ function makeHeldSword() {
   return g
 }
 
-const _worldPos = new THREE.Vector3()
-const _worldQuat = new THREE.Quaternion()
-const _parentQuat = new THREE.Quaternion()
-
-function snapToBone(obj: THREE.Object3D, bone: THREE.Object3D) {
-  const parent = obj.parent
-  if (!parent) return
-  bone.updateWorldMatrix(true, false)
-  bone.getWorldPosition(_worldPos)
-  parent.worldToLocal(_worldPos)
-  obj.position.copy(_worldPos)
-  bone.getWorldQuaternion(_worldQuat)
-  parent.getWorldQuaternion(_parentQuat)
-  obj.quaternion.copy(_parentQuat.invert().multiply(_worldQuat))
+const FALLBACK: Record<ClassId, { right: 'sword' | 'axe' | 'dagger' | 'staff'; left?: 'shield' }> = {
+  knight: { right: 'sword', left: 'shield' },
+  barbarian: { right: 'axe' },
+  rogue: { right: 'dagger' },
+  mage: { right: 'staff' },
+  ranger: { right: 'sword' },
 }
 
 export function KayKitHero({
@@ -128,8 +148,6 @@ export function KayKitHero({
   const load = LOADOUT[classId]
   const rightGltf = useGLTF(load.right ? `${WEAPON_ROOT}/${load.right}` : MOVE_URL)
   const leftGltf = useGLTF(load.left ? `${WEAPON_ROOT}/${load.left}` : MOVE_URL)
-  const rightRef = useRef<THREE.Group>(null)
-  const leftRef = useRef<THREE.Group>(null)
 
   const root = useMemo(() => {
     const clone = cloneSkinned(char.scene) as THREE.Object3D
@@ -144,21 +162,35 @@ export function KayKitHero({
 
   const rightWeapon = useMemo(() => {
     const g = new THREE.Group()
-    g.add(makeHeldSword())
+    g.name = 'held-right'
+    let meshes = 0
     if (load.right) {
-      const kaykit = cloneWeapon(rightGltf.scene)
-      kaykit.rotation.set(0, 0, 0)
-      kaykit.scale.setScalar(1.05)
-      g.add(kaykit)
+      const cloned = cloneWeapon(rightGltf.scene)
+      cloned.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh) meshes += 1
+      })
+      if (meshes) g.add(cloned)
     }
+    if (!meshes) g.add(makeFallbackWeapon(FALLBACK[classId].right))
+    g.rotation.set(Math.PI / 2, 0, 0)
     return g
-  }, [load.right, rightGltf.scene])
+  }, [classId, load.right, rightGltf.scene])
 
   const leftWeapon = useMemo(() => {
     const g = new THREE.Group()
-    if (load.left) g.add(cloneWeapon(leftGltf.scene))
+    g.name = 'held-left'
+    let meshes = 0
+    if (load.left) {
+      const cloned = cloneWeapon(leftGltf.scene)
+      cloned.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh) meshes += 1
+      })
+      if (meshes) g.add(cloned)
+    }
+    if (!meshes && FALLBACK[classId].left) g.add(makeFallbackWeapon(FALLBACK[classId].left!))
+    g.rotation.set(Math.PI / 2, 0, 0)
     return g
-  }, [load.left, leftGltf.scene])
+  }, [classId, load.left, leftGltf.scene])
 
   const mixer = useMemo(() => new THREE.AnimationMixer(root), [root])
   const actions = useMemo(() => {
@@ -216,29 +248,32 @@ export function KayKitHero({
       }
     }
     mixer.update(dt)
-    const right = findBone(root, 'handslot.r') ?? findBone(root, 'hand.r')
-    const left = findBone(root, 'handslot.l') ?? findBone(root, 'hand.l')
-    if (right && rightRef.current) snapToBone(rightRef.current, right)
-    if (left && leftRef.current) snapToBone(leftRef.current, left)
   })
+
+  useLayoutEffect(() => {
+    const rightBone = findBone(root, ['handslot.r', 'hand.r'])
+    const leftBone = findBone(root, ['handslot.l', 'hand.l'])
+    if (rightBone) {
+      rightBone.add(rightWeapon)
+      rightWeapon.position.set(0, 0, 0)
+      rightWeapon.scale.setScalar(1)
+    }
+    if (leftBone && leftWeapon.children.length) {
+      leftBone.add(leftWeapon)
+      leftWeapon.position.set(0, 0, 0)
+      leftWeapon.scale.setScalar(1)
+    }
+    return () => {
+      rightWeapon.removeFromParent()
+      leftWeapon.removeFromParent()
+    }
+  }, [root, rightWeapon, leftWeapon])
 
   const s = (compact ? 0.86 : 1) * (hidden ? 0.72 : 1)
 
   return (
     <group scale={s}>
       <primitive object={root} />
-      {load.right && (
-        <group ref={rightRef} position={[0.46, 0.82, 0.14]}>
-          <group rotation={[Math.PI / 2, 0, 0.15]}>
-            <primitive object={rightWeapon} />
-          </group>
-        </group>
-      )}
-      {load.left && (
-        <group ref={leftRef} position={[-0.34, 0.74, 0.1]}>
-          <primitive object={leftWeapon} />
-        </group>
-      )}
     </group>
   )
 }
