@@ -37,15 +37,14 @@ import type { PlayerState, Vec3 } from '../types'
 const SPAWN = SPAWN_POINTS[0] ?? { x: 80, z: 22 }
 // Three.js 預設 minPolarAngle 是 0（頭頂正上方）、rotateSpeed 是 1（拖滿一整個螢幕等於轉 360°）。
 // 這裡把垂直角鎖在斜上方到接近水平，旋轉改慢，避免短距離拖曳就被甩到頭頂。
-const MIN_PHI = 0.85
-const MAX_PHI = 1.35
-const MIN_RADIUS = 4.2
-const MAX_RADIUS = 14
+const MIN_PHI = 1.05
+const MAX_PHI = 1.55
+const MIN_RADIUS = 1.5
+const MAX_RADIUS = 2.5
 const ROTATE_SPEED = 0.3
-// 天花板底在 y=4。鏡頭若沿斜上方向被牆擋檢測拉近，會貼進天花板裡。
-// KayKit 改把俯角放平、距離縮到天花板底下，不把鏡頭推進石磚。
-const KAYKIT_CAM_Y = 3.2
-const KAYKIT_MAX_RADIUS = 10.5
+const SHOULDER_DIST = 2.05
+const SHOULDER_RIGHT = 0.42
+const LOOK_Y = 1.42
 const rigOffset = new THREE.Vector3()
 const rigSpherical = new THREE.Spherical()
 
@@ -149,7 +148,7 @@ function FollowLight({ mobile }: { mobile: boolean }) {
 
 function CameraRig() {
   const { camera, controls, gl } = useThree()
-  const saved = useRef({ theta: 0.8, phi: 1.05, radius: 12, ready: false })
+  const saved = useRef({ theta: 0.8, phi: 1.28, radius: SHOULDER_DIST, ready: false })
   const drag = useRef<{ id: number; x: number; y: number; mode: 'look' | 'zoom' } | null>(null)
   const touches = useRef(new Map<number, { x: number; y: number }>())
   const pinchDist = useRef(0)
@@ -159,8 +158,7 @@ function CameraRig() {
     const unwatch = bindPointerLockWatch(el)
     const arm = (scale: number) => {
       const next = saved.current
-      const maxR = usesKaykitKit(useAppStore.getState().scene) ? KAYKIT_MAX_RADIUS : MAX_RADIUS
-      next.radius = THREE.MathUtils.clamp(next.radius * scale, MIN_RADIUS, maxR)
+      next.radius = THREE.MathUtils.clamp(next.radius * scale, MIN_RADIUS, MAX_RADIUS)
     }
     const down = (e: PointerEvent) => {
       if (e.pointerType === 'touch') {
@@ -275,19 +273,17 @@ function CameraRig() {
         shot.ready = true
       }
     }
-    if (usesKaykitKit(useAppStore.getState().scene)) {
-      const maxR = KAYKIT_MAX_RADIUS
-      shot.radius = THREE.MathUtils.clamp(shot.radius, MIN_RADIUS, maxR)
-      const rise = KAYKIT_CAM_Y - target.y
-      const flattest = Math.cos(MAX_PHI)
-      if (shot.radius * flattest > rise) shot.radius = rise / flattest
-      const phiFloor = Math.acos(THREE.MathUtils.clamp(rise / shot.radius, -1, 1))
-      if (shot.phi < phiFloor) shot.phi = phiFloor
-      shot.phi = THREE.MathUtils.clamp(shot.phi, MIN_PHI, MAX_PHI)
-    }
+    shot.radius = THREE.MathUtils.clamp(shot.radius, MIN_RADIUS, MAX_RADIUS)
+    shot.phi = THREE.MathUtils.clamp(shot.phi, MIN_PHI, MAX_PHI)
     rigSpherical.set(shot.radius, shot.phi, shot.theta)
     rigOffset.setFromSpherical(rigSpherical)
     camera.position.copy(target).add(rigOffset)
+    const fwd = new THREE.Vector3().subVectors(target, camera.position).setY(0)
+    if (fwd.lengthSq() > 1e-6) {
+      fwd.normalize()
+      const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize()
+      camera.position.addScaledVector(right, SHOULDER_RIGHT)
+    }
     camera.up.set(0, 1, 0)
     camera.lookAt(target)
   }, 0)
@@ -354,7 +350,7 @@ function SceneContent() {
   }, [self, localPose])
 
   const isHost = !!selfId && hostId === selfId
-  const lookAt = useMemo(() => new THREE.Vector3(SPAWN.x, 0.9, SPAWN.z), [])
+  const lookAt = useMemo(() => new THREE.Vector3(SPAWN.x, LOOK_Y, SPAWN.z), [])
 
   return (
     <>
@@ -424,11 +420,8 @@ function SceneContent() {
 }
 
 export function RoomScene() {
-  const kaykit = usesKaykitKit(useAppStore((s) => s.scene))
   const mobile = isMobileDevice()
-  const cameraPos: [number, number, number] = kaykit
-    ? [SPAWN.x + 5.5, KAYKIT_CAM_Y, SPAWN.z + 6.8]
-    : [SPAWN.x + 7, 9, SPAWN.z + 9]
+  const cameraPos: [number, number, number] = [SPAWN.x + 1.2, 1.7, SPAWN.z + 1.8]
   return (
     <Canvas
       shadows={!mobile}
@@ -438,7 +431,7 @@ export function RoomScene() {
         powerPreference: 'high-performance',
         antialias: !mobile,
       }}
-      camera={{ position: cameraPos, fov: 48, near: 0.1, far: 180 }}
+      camera={{ position: cameraPos, fov: 58, near: 0.08, far: 180 }}
       style={{ width: '100%', height: '100%', touchAction: 'none' }}
     >
       <SceneContent />

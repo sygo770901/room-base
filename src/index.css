@@ -974,6 +974,20 @@ input {
   font-size: 0.85rem;
 }
 
+.crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  z-index: 8;
+  pointer-events: none;
+  border: 2px solid rgba(255, 244, 214, 0.85);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+
 .map-load {
   position: absolute;
   left: 50%;

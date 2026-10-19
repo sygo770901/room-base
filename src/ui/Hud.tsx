@@ -201,6 +201,7 @@ export function Hud() {
 
   return (
     <div className="hud">
+      {!matchOver && started && <div className="crosshair" aria-hidden />}
       {mapLoadActive && (
         <div className="map-load">
           <p>載入地圖中… {Math.round(mapLoadProgress)}%</p>

@@ -245,7 +245,7 @@ export function LocalController({
     const stickCamera = (x: number, y: number, z: number) => {
       const target = orbit?.target
       if (!target) return
-      const lookY = 0.9 + y
+      const lookY = 1.42 + y * 0.15
       camera.position.x += x - target.x
       camera.position.y += lookY - target.y
       camera.position.z += z - target.z
