@@ -137,7 +137,6 @@ function applyResume(
     | {
         position?: Vec3
         rotationY?: number
-        hp?: number
         hidden?: boolean
         seated?: SeatId | null
       }
@@ -154,10 +153,14 @@ function applyResume(
   if (typeof resume.rotationY === 'number' && Number.isFinite(resume.rotationY)) {
     player.rotationY = resume.rotationY
   }
-  if (typeof resume.hp === 'number' && Number.isFinite(resume.hp)) {
-    player.hp = Math.max(0, Math.min(PLAYER_MAX_HP, resume.hp))
-  }
   if (typeof resume.hidden === 'boolean') player.hidden = resume.hidden
+}
+
+function removeFromOtherRooms(playerId: string, keepRoomId: string, io: Server) {
+  for (const room of [...rooms.values()]) {
+    if (room.roomId === keepRoomId) continue
+    if (room.players[playerId]) removePlayer(room, playerId, io)
+  }
 }
 
 function removePlayer(room: RoomState, playerId: string, io: Server) {
@@ -224,7 +227,6 @@ export function attachSocketServer(httpServer: HttpServer) {
           resume?: {
             position?: Vec3
             rotationY?: number
-            hp?: number
             hidden?: boolean
             seated?: SeatId | null
           }
@@ -251,12 +253,19 @@ export function attachSocketServer(httpServer: HttpServer) {
         socket.data.playerId = playerId
         socket.data.replaced = false
 
+        removeFromOtherRooms(playerId, roomId, io)
+
         const prevSid = playerSockets.get(playerId)
         if (prevSid && prevSid !== socket.id) {
           const prev = io.sockets.sockets.get(prevSid)
           if (prev) {
             prev.data.replaced = true
-            io.to(roomId).emit('voice:peer-left', { id: playerId })
+            const prevRoomId = typeof prev.data.roomId === 'string' ? prev.data.roomId : null
+            if (prevRoomId && prevRoomId !== roomId) {
+              const prevRoom = rooms.get(prevRoomId)
+              if (prevRoom?.players[playerId]) removePlayer(prevRoom, playerId, io)
+            }
+            io.to(prevRoomId || roomId).emit('voice:peer-left', { id: playerId })
             prev.disconnect(true)
           }
         }
@@ -299,6 +308,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         cancelLeave(room, playerId)
         playerSockets.set(playerId, socket.id)
         currentRoomId = roomId
+        socket.data.roomId = roomId
         socket.join(roomId)
         socket.join(playerId)
 
@@ -514,13 +524,27 @@ export function attachSocketServer(httpServer: HttpServer) {
     })
 
     socket.on('disconnect', () => {
-      if (socket.data.replaced) return
-      const ctx = inRoom(socket, currentRoomId)
+      const playerId = playerIdOf(socket)
+      const roomId = currentRoomId || (typeof socket.data.roomId === 'string' ? socket.data.roomId : null)
+      if (socket.data.replaced) {
+        if (playerId && roomId && playerSockets.get(playerId) !== socket.id) {
+          const room = rooms.get(roomId)
+          const ownerSid = playerSockets.get(playerId)
+          const owner = ownerSid ? io.sockets.sockets.get(ownerSid) : undefined
+          const ownerRoom = typeof owner?.data.roomId === 'string' ? owner.data.roomId : null
+          if (room?.players[playerId] && ownerRoom !== room.roomId) {
+            removePlayer(room, playerId, io)
+          }
+        }
+        currentRoomId = null
+        return
+      }
+      const ctx = inRoom(socket, roomId)
       if (!ctx) return
-      const { room, playerId } = ctx
-      if (playerSockets.get(playerId) === socket.id) playerSockets.delete(playerId)
-      io.to(room.roomId).emit('voice:peer-left', { id: playerId })
-      scheduleLeave(room, playerId, io)
+      const { room } = ctx
+      if (playerId && playerSockets.get(playerId) === socket.id) playerSockets.delete(playerId)
+      io.to(room.roomId).emit('voice:peer-left', { id: ctx.playerId })
+      scheduleLeave(room, ctx.playerId, io)
       currentRoomId = null
     })
   })

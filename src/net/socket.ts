@@ -14,6 +14,7 @@ let socket: Socket | null = null
 let listenersBound = false
 let watchersBound = false
 let joinInFlight: Promise<RoomSnapshot> | null = null
+let joinSeq = 0
 let lastVoiceSocketId: string | null = null
 let lastPose: { position: Vec3; rotationY: number } | null = null
 let bootTimer: ReturnType<typeof setTimeout> | null = null
@@ -40,22 +41,31 @@ function sessionFromStore(wantHost = false): RoomSession | null {
   }
 }
 
+function networkOffline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
 function markDisconnected() {
   if (leaving || useAppStore.getState().phase !== 'room') return
-  if (useAppStore.getState().connection === 'online') {
+  if (networkOffline() || useAppStore.getState().connection !== 'booting') {
     useAppStore.getState().setConnection('reconnecting')
   }
   if (bootTimer) clearTimeout(bootTimer)
   bootTimer = setTimeout(() => {
-    void (async () => {
-      if (leaving || socket?.connected) return
-      const ok = await pingHealth()
-      if (!ok && useAppStore.getState().phase === 'room') {
-        useAppStore.getState().setConnection('booting')
-      }
-    })()
-  }, 5000)
+    void refreshConnectionBanner()
+  }, 4000)
   startHealthWatch()
+}
+
+async function refreshConnectionBanner() {
+  if (leaving || socket?.connected || useAppStore.getState().phase !== 'room') return
+  if (networkOffline()) {
+    useAppStore.getState().setConnection('reconnecting')
+    return
+  }
+  const health = await pingHealth()
+  if (leaving || socket?.connected) return
+  useAppStore.getState().setConnection(health === 'down' ? 'booting' : 'reconnecting')
 }
 
 function markOnline() {
@@ -67,25 +77,26 @@ function markOnline() {
   useAppStore.getState().setConnection('online')
 }
 
-async function pingHealth() {
+async function pingHealth(): Promise<'ok' | 'down' | 'offline'> {
+  if (networkOffline()) return 'offline'
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 2500)
   try {
-    const res = await fetch('/health', { cache: 'no-store' })
-    return res.ok
+    const res = await fetch('/health', { cache: 'no-store', signal: ctrl.signal })
+    if (res.ok) return 'ok'
+    if (res.status >= 500) return 'down'
+    return 'down'
   } catch {
-    return false
+    return networkOffline() ? 'offline' : 'down'
+  } finally {
+    clearTimeout(timer)
   }
 }
 
 function startHealthWatch() {
   if (healthTimer) return
   const tick = async () => {
-    if (leaving || useAppStore.getState().phase !== 'room') return
-    if (socket?.connected) return
-    const ok = await pingHealth()
-    if (!ok) useAppStore.getState().setConnection('booting')
-    else if (useAppStore.getState().connection === 'booting') {
-      useAppStore.getState().setConnection('reconnecting')
-    }
+    await refreshConnectionBanner()
   }
   void tick()
   healthTimer = setInterval(() => void tick(), 2500)
@@ -110,12 +121,17 @@ function bindWatchers() {
       s.connect()
       return
     }
-    void resumeRoom()
+    void resumeRoom({ force: true })
   }
 
   document.addEventListener('visibilitychange', wake)
   window.addEventListener('pageshow', wake)
   window.addEventListener('online', wake)
+  window.addEventListener('offline', () => {
+    if (!leaving && useAppStore.getState().phase === 'room') {
+      useAppStore.getState().setConnection('reconnecting')
+    }
+  })
   window.addEventListener('focus', wake)
 }
 
@@ -126,7 +142,7 @@ function bindListeners(s: Socket) {
   s.on('connect', () => {
     if (leaving) return
     if (loadSession() && useAppStore.getState().phase === 'room') {
-      void resumeRoom()
+      void resumeRoom({ force: true })
     }
   })
 
@@ -136,25 +152,14 @@ function bindListeners(s: Socket) {
     markDisconnected()
   })
 
-  s.io.on('reconnect_attempt', (attempt) => {
+  s.io.on('reconnect_attempt', () => {
     if (leaving || useAppStore.getState().phase !== 'room') return
-    if (useAppStore.getState().connection === 'online') {
-      useAppStore.getState().setConnection('reconnecting')
-    }
-    if (attempt >= 3) {
-      void pingHealth().then((ok) => {
-        if (!ok && !socket?.connected && useAppStore.getState().phase === 'room') {
-          useAppStore.getState().setConnection('booting')
-        }
-      })
-    }
+    void refreshConnectionBanner()
   })
 
   s.io.on('reconnect_error', () => {
     if (leaving || useAppStore.getState().phase !== 'room') return
-    void pingHealth().then((ok) => {
-      if (!ok && !socket?.connected) useAppStore.getState().setConnection('booting')
-    })
+    void refreshConnectionBanner()
   })
 
   s.on('connect_error', () => {
@@ -276,20 +281,23 @@ function emitJoin(session: RoomSession) {
   const playerId = session.playerId || getPlayerId()
   const state = useAppStore.getState()
   const me = state.selfId ? state.players[state.selfId] : null
+  const seq = ++joinSeq
   const resume = lastPose
-    ? { ...lastPose, hp: me?.hp, hidden: me?.hidden, seated: me?.seated }
+    ? { position: lastPose.position, rotationY: lastPose.rotationY, hidden: me?.hidden, seated: me?.seated }
     : me
       ? {
           position: me.position,
           rotationY: me.rotationY,
-          hp: me.hp,
           hidden: me.hidden,
           seated: me.seated,
         }
       : undefined
 
   return new Promise<RoomSnapshot>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('加入逾時')), 15000)
+    const timer = setTimeout(() => {
+      if (seq !== joinSeq) return
+      reject(new Error('加入逾時'))
+    }, 8000)
     s.emit(
       'join',
       {
@@ -303,6 +311,7 @@ function emitJoin(session: RoomSession) {
       },
       (snapshot: RoomSnapshot) => {
         clearTimeout(timer)
+        if (seq !== joinSeq) return
         if (!snapshot) {
           reject(new Error('加入失敗'))
           return
@@ -326,16 +335,15 @@ function emitJoin(session: RoomSession) {
 }
 
 async function joinWithRetry(session: RoomSession) {
-  if (joinInFlight) return joinInFlight
   connectSocket()
   const task = emitJoin(session).finally(() => {
-    joinInFlight = null
+    if (joinInFlight === task) joinInFlight = null
   })
   joinInFlight = task
   return task
 }
 
-export async function resumeRoom() {
+export async function resumeRoom(opts?: { force?: boolean }) {
   if (leaving) return null
   const session = sessionFromStore()
   if (!session) return null
@@ -345,10 +353,22 @@ export async function resumeRoom() {
       useAppStore.getState().setConnection('reconnecting')
     }
   }
+  if (joinInFlight && opts?.force) {
+    joinSeq += 1
+    joinInFlight = null
+  }
   try {
     return await joinWithRetry(session)
   } catch {
-    markDisconnected()
+    if (socket?.connected && opts?.force) {
+      try {
+        return await joinWithRetry(session)
+      } catch {
+        /* fall through */
+      }
+    }
+    if (!socket?.connected) markDisconnected()
+    else void joinWithRetry(session).catch(() => markDisconnected())
     return null
   }
 }
@@ -373,7 +393,7 @@ export function resumeSessionIfNeeded() {
     })
     state.setConnection('reconnecting')
   }
-  void resumeRoom()
+  void resumeRoom({ force: true })
 }
 
 export function joinRoom(
@@ -462,6 +482,7 @@ export function disconnectSocket() {
   lastPose = null
   lastVoiceSocketId = null
   joinInFlight = null
+  joinSeq += 1
   clearSession()
   markOnline()
   stopVoiceSession()
