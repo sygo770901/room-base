@@ -31,6 +31,7 @@ import { LocalController } from './LocalController'
 import { SmokeClouds } from './SmokeClouds'
 import { Barrels } from './Barrels'
 import { Doors } from './Doors'
+import { bindMapLoadWatchdog, preloadSceneModels, reportMapProgress } from '../load/mapLoad'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
@@ -49,15 +50,15 @@ const rigOffset = new THREE.Vector3()
 const rigSpherical = new THREE.Spherical()
 
 function MapProgressBridge() {
-  const { active, progress, errors } = useProgress()
+  const sceneId = useAppStore((s) => s.scene)
+  const { active, progress, errors, loaded, total } = useProgress()
   useEffect(() => {
-    const shown = active && progress < 99.5
-    useAppStore.getState().setMapLoadProgress(progress, shown)
-    if (errors.length > 0) useAppStore.getState().setMapLoadFailed(true)
-    if (progress < 95) return
-    const t = window.setTimeout(() => useAppStore.getState().setMapLoadProgress(100, false), 600)
-    return () => window.clearTimeout(t)
-  }, [active, progress, errors])
+    preloadSceneModels(sceneId)
+    return bindMapLoadWatchdog()
+  }, [sceneId])
+  useEffect(() => {
+    reportMapProgress(progress, loaded, total, active, errors.length)
+  }, [active, progress, errors, loaded, total])
   return null
 }
 
