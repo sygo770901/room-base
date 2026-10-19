@@ -1,5 +1,6 @@
 import type { Server } from 'socket.io'
 import { ATTACK_COS, ATTACK_COOLDOWN_MS, ATTACK_RANGE, PLAYER_MAX_HP, type MatchOver } from '../shared/combat.ts'
+import { nextComboStep } from '../shared/anim.ts'
 import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
 import { moveAllowance, type MoveGrant } from '../shared/movement.ts'
@@ -35,6 +36,8 @@ export interface TagRoom {
   startAt?: number
   awayUntil?: Record<string, number>
   nextAttack?: Record<string, number>
+  comboStep?: Record<string, number>
+  lastSwingAt?: Record<string, number>
   tag?: TagState
   lastMoveAt?: Record<string, number>
   moveGrant?: Record<string, MoveGrant>
@@ -422,8 +425,13 @@ export function handleTagAttack(room: TagRoom, io: Server, playerId: string, now
   if ((room.nextAttack?.[playerId] ?? 0) > now) return
   if (!room.nextAttack) room.nextAttack = {}
   room.nextAttack[playerId] = now + ATTACK_COOLDOWN_MS
+  if (!room.comboStep) room.comboStep = {}
+  if (!room.lastSwingAt) room.lastSwingAt = {}
+  const combo = nextComboStep(room.comboStep[playerId] ?? 0, room.lastSwingAt[playerId] ?? 0, now)
+  room.comboStep[playerId] = combo
+  room.lastSwingAt[playerId] = now
   const swing = attackerSocketId ? io.to(room.roomId).except(attackerSocketId) : io.to(room.roomId).except(playerId)
-  swing.emit('player:swing', { id: playerId })
+  swing.emit('player:swing', { id: playerId, combo })
   if (room.mode !== 'tag' || player.team !== 'ghost' || !room.tag?.roundActive) return
   if (now < room.tag.hideUntil) return
   const fx = Math.sin(player.rotationY)

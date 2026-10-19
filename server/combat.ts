@@ -84,6 +84,7 @@ import {
   type LootDrop,
 } from '../shared/barrels.ts'
 import { inSmoke, type SmokeCloud } from '../shared/smoke.ts'
+import { nextComboStep, type HitAnim } from '../shared/anim.ts'
 import type { TagState } from '../shared/tag.ts'
 import { handleTagAttack, tickTag } from './tag.ts'
 import type { PlayerState } from './types.ts'
@@ -145,6 +146,8 @@ export interface CombatRoom {
   barrels?: BarrelState[]
   drops?: LootDrop[]
   projectiles?: ProjectileState[]
+  comboStep?: Record<string, number>
+  lastSwingAt?: Record<string, number>
 }
 
 function fromDef(d: MonsterDef): ServerMonster {
@@ -275,6 +278,8 @@ function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: numb
   if (now < (room.hurtUntil[player.id] ?? 0)) return
   const x = player.position[0]
   const z = player.position[2]
+  const lethal = (player.hp ?? PLAYER_MAX_HP) - dmg <= 0
+  const hitAnim: HitAnim = lethal ? 'death' : Math.random() < 0.5 ? 'A' : 'B'
   player.hp = Math.max(0, (player.hp ?? PLAYER_MAX_HP) - dmg)
   io.to(room.roomId).emit('combat:hit', {
     id: player.id,
@@ -283,6 +288,7 @@ function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: numb
     x,
     z,
     by: null,
+    hitAnim,
   })
   if (player.hp <= 0) {
     const sp = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)]
@@ -807,10 +813,15 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
   const stats = weaponOf(player)
   if ((room.nextAttack[playerId] ?? 0) > now) return
   room.nextAttack[playerId] = now + stats.cooldown
+  if (!room.comboStep) room.comboStep = {}
+  if (!room.lastSwingAt) room.lastSwingAt = {}
+  const combo = nextComboStep(room.comboStep[playerId] ?? 0, room.lastSwingAt[playerId] ?? 0, now)
+  room.comboStep[playerId] = combo
+  room.lastSwingAt[playerId] = now
   const swing = attackerSocketId
     ? io.to(room.roomId).except(attackerSocketId)
     : io.to(room.roomId).except(playerId)
-  swing.emit('player:swing', { id: playerId })
+  swing.emit('player:swing', { id: playerId, combo })
 
   const fx = Math.sin(player.rotationY)
   const fz = Math.cos(player.rotationY)

@@ -19,6 +19,9 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
   const speed = useRef(0)
   const ready = useRef(false)
   const swingAt = useAppStore((s) => s.swings[player.id] ?? 0)
+  const combo = useAppStore((s) => s.swingCombo[player.id] ?? 0)
+  const hit = useAppStore((s) => s.hitAnim[player.id])
+  const jumpPhase = useAppStore((s) => s.jumpPhase[player.id] ?? null)
   const dashUntil = useAppStore((s) => s.dashUntil[player.id] ?? 0)
   const hurtUntil = useAppStore((s) => s.hurtFlashUntil[player.id] ?? 0)
 
@@ -64,6 +67,10 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
         running={speed.current > 3.6}
         dashUntil={dashUntil}
         attackAt={swingAt}
+        combo={combo}
+        hitAt={hit?.at ?? 0}
+        hitKind={hit?.kind}
+        jumpPhase={jumpPhase}
         heldWeapon={
           player.weapon && (player.weaponUntil ?? 0) > Date.now() ? player.weapon : 'sword'
         }

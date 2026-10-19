@@ -1,6 +1,7 @@
 import { io, Socket } from 'socket.io-client'
 import { WEAPON_STATS } from '../../shared/barrels'
 import { ATTACK_COOLDOWN_MS, PLAYER_HURT_IFRAME_MS, type ProjectileState } from '../../shared/combat'
+import { nextComboStep, type HitAnim } from '../../shared/anim'
 import type { FurnitureItem } from '../../shared/furniture'
 import { attackBlocked } from '../scene/inputLock'
 import type { MonsterState, PlayerState, RoomSnapshot, SeatId, StickyNote, Vec3 } from '../types'
@@ -271,6 +272,7 @@ function bindListeners(s: Socket) {
       x: number
       z: number
       by?: string | null
+      hitAnim?: HitAnim
     }) => {
       useAppStore.getState().pushHit(payload)
       const selfId = useAppStore.getState().selfId
@@ -285,6 +287,7 @@ function bindListeners(s: Socket) {
       }
       if (payload.kind === 'player') {
         useAppStore.getState().setHurtFlash(payload.id, Date.now() + PLAYER_HURT_IFRAME_MS)
+        if (payload.hitAnim) useAppStore.getState().setHitAnim(payload.id, payload.hitAnim)
       }
     },
   )
@@ -309,8 +312,8 @@ function bindListeners(s: Socket) {
     useAppStore.getState().patchNote(note)
   })
 
-  s.on('player:swing', ({ id }: { id: string }) => {
-    useAppStore.getState().setSwing(id, performance.now())
+  s.on('player:swing', ({ id, combo }: { id: string; combo?: number }) => {
+    useAppStore.getState().setSwing(id, performance.now(), combo ?? 0)
   })
 
   s.on('player:dash', (payload: { id: string; until: number; dirX: number; dirZ: number }) => {
@@ -607,6 +610,8 @@ export function emitCheck() {
 }
 
 let lastAttackAt = 0
+let localCombo = 0
+let localComboAt = 0
 export function performAttack() {
   const now = performance.now()
   if (attackBlocked()) return
@@ -624,7 +629,10 @@ export function performAttack() {
   const cd = WEAPON_STATS[held]?.cooldown ?? ATTACK_COOLDOWN_MS
   if (now - lastAttackAt < cd) return
   lastAttackAt = now
-  if (state.selfId) state.setSwing(state.selfId, now)
+  const wall = Date.now()
+  localCombo = nextComboStep(localCombo, localComboAt, wall)
+  localComboAt = wall
+  if (state.selfId) state.setSwing(state.selfId, now, localCombo)
   playSfx('attack', 0.96 + Math.random() * 0.08)
   socket?.emit('attack')
 }

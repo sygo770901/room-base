@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { type MatchOver, type MonsterState, type ProjectileState } from '../shared/combat'
+import type { HitAnim, JumpPhase } from '../shared/anim'
 import { DEFAULT_FURNITURE, type FurnitureItem } from '../shared/furniture'
 import type { PlayerState, RoomSnapshot, StickyNote, Vec3 } from './types'
 import { defaultSettings, type GameMode, type RoomSettings } from '../shared/modes'
@@ -73,6 +74,9 @@ interface AppState {
   pendingNote: { text: string; fontSize: number } | null
   noteAsk: NoteAsk | null
   swings: Record<string, number>
+  swingCombo: Record<string, number>
+  hitAnim: Record<string, { at: number; kind: HitAnim }>
+  jumpPhase: Record<string, JumpPhase | null>
   hits: HitFx[]
   hitSeq: number
   telegraph: { x: number; z: number; r: number; ms: number; until: number } | null
@@ -104,7 +108,9 @@ interface AppState {
   setJoy: (x: number, y: number) => void
   setPendingNote: (note: { text: string; fontSize: number } | null) => void
   setNoteAsk: (ask: NoteAsk | null) => void
-  setSwing: (id: string, at: number) => void
+  setSwing: (id: string, at: number, combo?: number) => void
+  setHitAnim: (id: string, kind: HitAnim) => void
+  setJumpPhase: (id: string, phase: JumpPhase | null) => void
   pushHit: (hit: Omit<HitFx, 'key' | 'at'>) => void
   setMonsters: (monsters: MonsterState[]) => void
   setMatchOver: (over: MatchOver | null) => void
@@ -168,6 +174,9 @@ export const useAppStore = create<AppState>((set) => ({
   pendingNote: null,
   noteAsk: null,
   swings: {},
+  swingCombo: {},
+  hitAnim: {},
+  jumpPhase: {},
   hits: [],
   hitSeq: 1,
   telegraph: null,
@@ -261,7 +270,11 @@ export const useAppStore = create<AppState>((set) => ({
   setJoy: (x, y) => set({ joy: { x, y } }),
   setPendingNote: (note) => set({ pendingNote: note, noteAsk: null }),
   setNoteAsk: (ask) => set({ noteAsk: ask }),
-  setSwing: (id, at) => set((s) => ({ swings: { ...s.swings, [id]: at } })),
+  setSwing: (id, at, combo = 0) =>
+    set((s) => ({ swings: { ...s.swings, [id]: at }, swingCombo: { ...s.swingCombo, [id]: combo } })),
+  setHitAnim: (id, kind) =>
+    set((s) => ({ hitAnim: { ...s.hitAnim, [id]: { at: performance.now(), kind } } })),
+  setJumpPhase: (id, phase) => set((s) => ({ jumpPhase: { ...s.jumpPhase, [id]: phase } })),
   pushHit: (hit) =>
     set((s) => {
       const now = performance.now()
@@ -341,6 +354,9 @@ export const useAppStore = create<AppState>((set) => ({
       pendingNote: null,
       noteAsk: null,
       swings: {},
+      swingCombo: {},
+      hitAnim: {},
+      jumpPhase: {},
       hits: [],
       hitSeq: 1,
       telegraph: null,
