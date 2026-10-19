@@ -1,5 +1,6 @@
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
+import type { Socket } from 'socket.io'
 import { PLAYER_MAX_HP } from '../shared/combat.ts'
 import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
@@ -24,10 +25,14 @@ export interface RoomState {
   hurtUntil: Record<string, number>
   nextAttack: Record<string, number>
   matchOver: MatchOver | null
+  awayUntil: Record<string, number>
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
+const RECONNECT_GRACE_MS = 30_000
 const rooms = new Map<string, RoomState>()
+const leaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const playerSockets = new Map<string, string>()
 
 function createRoom(roomId: string): RoomState {
   const persisted = loadPersistedRoom(roomId)
@@ -44,6 +49,7 @@ function createRoom(roomId: string): RoomState {
     hurtUntil: {},
     nextAttack: {},
     matchOver: null,
+    awayUntil: {},
   }
 }
 
@@ -92,9 +98,114 @@ function clampFurniturePos(item: FurnitureItem, pos: Vec3): Vec3 {
   ]
 }
 
+function normalizePlayerId(raw: unknown, fallback: string) {
+  if (typeof raw !== 'string') return fallback
+  const id = raw.trim().slice(0, 64)
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(id)) return fallback
+  return id
+}
+
+function leaveKey(roomId: string, playerId: string) {
+  return `${roomId}:${playerId}`
+}
+
+function cancelLeave(room: RoomState, playerId: string) {
+  const key = leaveKey(room.roomId, playerId)
+  const timer = leaveTimers.get(key)
+  if (timer) clearTimeout(timer)
+  leaveTimers.delete(key)
+  delete room.awayUntil[playerId]
+}
+
+function playerIdOf(socket: Socket) {
+  return typeof socket.data.playerId === 'string' ? (socket.data.playerId as string) : null
+}
+
+function inRoom(socket: Socket, currentRoomId: string | null) {
+  if (!currentRoomId) return null
+  const room = rooms.get(currentRoomId)
+  const playerId = playerIdOf(socket)
+  if (!room || !playerId) return null
+  const player = room.players[playerId]
+  if (!player) return null
+  return { room, player, playerId }
+}
+
+function applyResume(
+  player: PlayerState,
+  resume:
+    | {
+        position?: Vec3
+        rotationY?: number
+        hp?: number
+        hidden?: boolean
+        seated?: SeatId | null
+      }
+    | undefined,
+) {
+  if (!resume) return
+  if (
+    Array.isArray(resume.position) &&
+    resume.position.length >= 3 &&
+    resume.position.slice(0, 3).every((n) => typeof n === 'number' && Number.isFinite(n))
+  ) {
+    player.position = [resume.position[0], 0, resume.position[2]]
+  }
+  if (typeof resume.rotationY === 'number' && Number.isFinite(resume.rotationY)) {
+    player.rotationY = resume.rotationY
+  }
+  if (typeof resume.hp === 'number' && Number.isFinite(resume.hp)) {
+    player.hp = Math.max(0, Math.min(PLAYER_MAX_HP, resume.hp))
+  }
+  if (typeof resume.hidden === 'boolean') player.hidden = resume.hidden
+}
+
+function removePlayer(room: RoomState, playerId: string, io: Server) {
+  const player = room.players[playerId]
+  if (!player) return
+  cancelLeave(room, playerId)
+  if (player.seated) room.seats[player.seated] = null
+  delete room.players[playerId]
+  delete room.hurtUntil[playerId]
+  delete room.nextAttack[playerId]
+  playerSockets.delete(playerId)
+
+  if (room.hostId === playerId) {
+    const next = Object.values(room.players)[0]
+    room.hostId = next?.id ?? null
+    if (next) next.role = 'host'
+  }
+
+  persist(room)
+  io.to(room.roomId).emit('player:left', { id: playerId })
+  io.to(room.roomId).emit('voice:peer-left', { id: playerId })
+  io.to(room.roomId).emit('room:state', publicRoom(room))
+
+  if (Object.keys(room.players).length === 0) {
+    rooms.delete(room.roomId)
+  }
+}
+
+function scheduleLeave(room: RoomState, playerId: string, io: Server) {
+  cancelLeave(room, playerId)
+  room.awayUntil[playerId] = Date.now() + RECONNECT_GRACE_MS
+  const key = leaveKey(room.roomId, playerId)
+  leaveTimers.set(
+    key,
+    setTimeout(() => {
+      leaveTimers.delete(key)
+      const current = rooms.get(room.roomId)
+      if (!current?.players[playerId] || !current.awayUntil[playerId]) return
+      removePlayer(current, playerId, io)
+    }, RECONNECT_GRACE_MS),
+  )
+}
+
 export function attachSocketServer(httpServer: HttpServer) {
   const io = new Server(httpServer, {
     cors: { origin: '*' },
+    pingInterval: 25000,
+    pingTimeout: 20000,
   })
 
   io.on('connection', (socket) => {
@@ -102,12 +213,53 @@ export function attachSocketServer(httpServer: HttpServer) {
 
     socket.on(
       'join',
-      (payload: { roomId: string; name: string; wantHost?: boolean; scene?: string; mode?: string }, ack?: (data: unknown) => void) => {
+      (
+        payload: {
+          roomId: string
+          name: string
+          wantHost?: boolean
+          scene?: string
+          mode?: string
+          playerId?: string
+          resume?: {
+            position?: Vec3
+            rotationY?: number
+            hp?: number
+            hidden?: boolean
+            seated?: SeatId | null
+          }
+        },
+        ack?: (data: unknown) => void,
+      ) => {
         const roomId = (payload.roomId || 'home').trim().slice(0, 32) || 'home'
         const name = (payload.name || '訪客').trim().slice(0, 16) || '訪客'
+        const playerId = normalizePlayerId(payload.playerId ?? socket.handshake.auth?.playerId, socket.id)
         const room = getOrCreateRoom(roomId)
+        const existing = room.players[playerId]
+        const sameSocket = existing && playerSockets.get(playerId) === socket.id && currentRoomId === roomId
 
-        if (currentRoomId) socket.leave(currentRoomId)
+        if (sameSocket && !room.awayUntil[playerId]) {
+          ack?.(publicRoom(room))
+          return
+        }
+
+        if (currentRoomId && currentRoomId !== roomId) {
+          socket.leave(currentRoomId)
+          socket.leave(playerIdOf(socket) ?? '')
+        }
+
+        socket.data.playerId = playerId
+        socket.data.replaced = false
+
+        const prevSid = playerSockets.get(playerId)
+        if (prevSid && prevSid !== socket.id) {
+          const prev = io.sockets.sockets.get(prevSid)
+          if (prev) {
+            prev.data.replaced = true
+            io.to(roomId).emit('voice:peer-left', { id: playerId })
+            prev.disconnect(true)
+          }
+        }
 
         const isFirst = Object.keys(room.players).length === 0
         if (isFirst && isSceneId(payload.scene)) room.scene = payload.scene
@@ -116,66 +268,85 @@ export function attachSocketServer(httpServer: HttpServer) {
           room.monsters = payload.mode === 'boss' ? createBossMonsters() : createMonsters()
           room.matchOver = null
         }
-        const role: 'host' | 'guest' =
-          isFirst || (payload.wantHost && !room.hostId) ? 'host' : 'guest'
-        if (role === 'host') room.hostId = socket.id
 
-        const color = COLORS[Object.keys(room.players).length % COLORS.length]
-        const spawnIndex = Object.keys(room.players).length
-        const sp = SPAWN_POINTS[spawnIndex % SPAWN_POINTS.length]
-        const player: PlayerState = {
-          id: socket.id,
-          name,
-          color,
-          classId: PLAYER_CLASS,
-          position: [sp.x, 0, sp.z],
-          rotationY: 0,
-          seated: null,
-          role,
-          hp: PLAYER_MAX_HP,
-          hidden: false,
+        let player = existing
+        let resumed = Boolean(existing)
+        if (!player) {
+          const role: 'host' | 'guest' =
+            isFirst || (payload.wantHost && !room.hostId) ? 'host' : 'guest'
+          if (role === 'host') room.hostId = playerId
+          const color = COLORS[Object.keys(room.players).length % COLORS.length]
+          const spawnIndex = Object.keys(room.players).length
+          const sp = SPAWN_POINTS[spawnIndex % SPAWN_POINTS.length]
+          player = {
+            id: playerId,
+            name,
+            color,
+            classId: PLAYER_CLASS,
+            position: [sp.x, 0, sp.z],
+            rotationY: 0,
+            seated: null,
+            role,
+            hp: PLAYER_MAX_HP,
+            hidden: false,
+          }
+          room.players[playerId] = player
+          resumed = false
+        } else {
+          applyResume(player, payload.resume)
         }
 
-        room.players[socket.id] = player
+        cancelLeave(room, playerId)
+        playerSockets.set(playerId, socket.id)
         currentRoomId = roomId
         socket.join(roomId)
+        socket.join(playerId)
 
         const snapshot = publicRoom(room)
         ack?.(snapshot)
-        socket.to(roomId).emit('player:joined', player)
-        socket.to(roomId).emit('voice:peer-joined', { id: socket.id })
+        if (!resumed) {
+          socket.to(roomId).emit('player:joined', player)
+        }
+        socket.to(roomId).emit('voice:peer-joined', { id: playerId })
         io.to(roomId).emit('room:state', snapshot)
       },
     )
 
+    socket.on('leave', () => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      removePlayer(ctx.room, ctx.playerId, io)
+      socket.leave(ctx.room.roomId)
+      socket.leave(ctx.playerId)
+      currentRoomId = null
+      socket.data.playerId = undefined
+    })
+
     socket.on('move', (payload: { position: Vec3; rotationY: number }) => {
-      if (!currentRoomId) return
-      const room = rooms.get(currentRoomId)
-      if (!room) return
-      const player = room.players[socket.id]
-      if (!player || player.seated) return
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
+      if (player.seated) return
       if (player.hidden) {
         const moved = Math.hypot(payload.position[0] - player.position[0], payload.position[2] - player.position[2])
         if (moved > 0.2) {
           player.hidden = false
-          io.to(currentRoomId).emit('player:hidden', { id: socket.id, hidden: false })
+          io.to(currentRoomId!).emit('player:hidden', { id: playerId, hidden: false })
         }
       }
       player.position = payload.position
       player.rotationY = payload.rotationY
-      socket.to(currentRoomId).emit('player:moved', {
-        id: socket.id,
+      socket.to(currentRoomId!).emit('player:moved', {
+        id: playerId,
         position: player.position,
         rotationY: player.rotationY,
       })
     })
 
     socket.on('sit', (payload: { seatId: SeatId | null }, ack?: (ok: boolean, reason?: string) => void) => {
-      if (!currentRoomId) return
-      const room = rooms.get(currentRoomId)
-      if (!room) return
-      const player = room.players[socket.id]
-      if (!player) return
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
 
       if (payload.seatId === null) {
         if (player.seated) {
@@ -183,24 +354,24 @@ export function attachSocketServer(httpServer: HttpServer) {
           player.seated = null
         }
         ack?.(true)
-        io.to(currentRoomId).emit('room:state', publicRoom(room))
+        io.to(currentRoomId!).emit('room:state', publicRoom(room))
         return
       }
 
       const seatId = payload.seatId
-      if (room.seats[seatId] && room.seats[seatId] !== socket.id) {
+      if (room.seats[seatId] && room.seats[seatId] !== playerId) {
         ack?.(false, '座位已被佔用')
         return
       }
 
       if (player.seated) room.seats[player.seated] = null
-      room.seats[seatId] = socket.id
+      room.seats[seatId] = playerId
       player.seated = seatId
       player.position = seatWorldPos(room, seatId)
       player.rotationY = seatId.startsWith('bed') ? 0 : Math.PI
 
       ack?.(true)
-      io.to(currentRoomId).emit('room:state', publicRoom(room))
+      io.to(currentRoomId!).emit('room:state', publicRoom(room))
     })
 
     socket.on(
@@ -209,11 +380,9 @@ export function attachSocketServer(httpServer: HttpServer) {
         payload: { text: string; position?: Vec3; color?: string; fontSize?: number },
         ack?: (note: StickyNote | null) => void,
       ) => {
-        if (!currentRoomId) return
-        const room = rooms.get(currentRoomId)
-        if (!room) return
-        const player = room.players[socket.id]
-        if (!player) return
+        const ctx = inRoom(socket, currentRoomId)
+        if (!ctx) return
+        const { room, player, playerId } = ctx
 
         const text = (payload.text || '').trim().slice(0, 80)
         if (!text) {
@@ -226,7 +395,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           text,
           author: player.name,
-          authorId: socket.id,
+          authorId: playerId,
           position: payload.position || [-4, 1.2, 1],
           color: payload.color || '#ffe566',
           fontSize,
@@ -237,39 +406,36 @@ export function attachSocketServer(httpServer: HttpServer) {
         persist(room)
 
         ack?.(note)
-        io.to(currentRoomId).emit('note:added', note)
+        io.to(currentRoomId!).emit('note:added', note)
       },
     )
 
     socket.on('note:update', (payload: { id: string; text: string; fontSize?: number }) => {
-      if (!currentRoomId) return
-      const room = rooms.get(currentRoomId)
-      if (!room) return
-      const player = room.players[socket.id]
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, playerId } = ctx
       const note = room.notes.find((n) => n.id === payload.id)
-      if (!player || !note || note.authorId !== socket.id) return
+      if (!note || note.authorId !== playerId) return
       const text = (payload.text || '').trim().slice(0, 80)
       if (!text) return
       note.text = text
       if (typeof payload.fontSize === 'number') note.fontSize = Math.max(0.06, Math.min(0.4, payload.fontSize))
       persist(room)
-      io.to(currentRoomId).emit('note:updated', note)
+      io.to(currentRoomId!).emit('note:updated', note)
     })
 
     socket.on('note:remove', (payload: { id: string }) => {
-      if (!currentRoomId) return
-      const room = rooms.get(currentRoomId)
-      if (!room) return
-      const player = room.players[socket.id]
-      if (!player) return
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
 
       const note = room.notes.find((n) => n.id === payload.id)
       if (!note) return
-      if (note.authorId !== socket.id && player.role !== 'host') return
+      if (note.authorId !== playerId && player.role !== 'host') return
 
       room.notes = room.notes.filter((n) => n.id !== payload.id)
       persist(room)
-      io.to(currentRoomId).emit('note:removed', { id: payload.id })
+      io.to(currentRoomId!).emit('note:removed', { id: payload.id })
     })
 
     socket.on(
@@ -278,14 +444,12 @@ export function attachSocketServer(httpServer: HttpServer) {
         payload: { id: string; position: Vec3; rotationY?: number },
         ack?: (ok: boolean, reason?: string) => void,
       ) => {
-        if (!currentRoomId) return
-        const room = rooms.get(currentRoomId)
-        if (!room) return
-        const player = room.players[socket.id]
-        if (!player) {
+        const ctx = inRoom(socket, currentRoomId)
+        if (!ctx) {
           ack?.(false, '尚未加入房間')
           return
         }
+        const { room } = ctx
 
         const item = room.furniture.find((f) => f.id === payload.id)
         if (!item || !item.draggable) {
@@ -297,7 +461,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         if (typeof payload.rotationY === 'number') item.rotationY = payload.rotationY
         persist(room)
         ack?.(true)
-        io.to(currentRoomId).emit('furniture:updated', {
+        io.to(currentRoomId!).emit('furniture:updated', {
           id: item.id,
           position: item.position,
           rotationY: item.rotationY,
@@ -305,19 +469,17 @@ export function attachSocketServer(httpServer: HttpServer) {
       },
     )
 
-    /** 任何人走路推動家具 */
     socket.on('furniture:push', (payload: { id: string; position: Vec3 }) => {
-      if (!currentRoomId) return
-      const room = rooms.get(currentRoomId)
-      if (!room) return
-      if (!room.players[socket.id]) return
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room } = ctx
 
       const item = room.furniture.find((f) => f.id === payload.id)
       if (!item || !item.pushable) return
 
       item.position = clampFurniturePos(item, payload.position)
       persist(room)
-      io.to(currentRoomId).emit('furniture:updated', {
+      io.to(currentRoomId!).emit('furniture:updated', {
         id: item.id,
         position: item.position,
         rotationY: item.rotationY,
@@ -325,11 +487,9 @@ export function attachSocketServer(httpServer: HttpServer) {
     })
 
     socket.on('hide', (payload: { hidden: boolean }) => {
-      if (!currentRoomId) return
-      const room = rooms.get(currentRoomId)
-      if (!room) return
-      const player = room.players[socket.id]
-      if (!player) return
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { player, playerId } = ctx
       const want = !!payload?.hidden
       if (want) {
         const near = HIDE_SPOTS.some(
@@ -338,45 +498,30 @@ export function attachSocketServer(httpServer: HttpServer) {
         if (!near) return
       }
       player.hidden = want
-      io.to(currentRoomId).emit('player:hidden', { id: socket.id, hidden: want })
+      io.to(currentRoomId!).emit('player:hidden', { id: playerId, hidden: want })
     })
 
     socket.on('attack', () => {
-      if (!currentRoomId) return
-      const room = rooms.get(currentRoomId)
-      if (!room) return
-      handleAttack(room, socket.id, io, Date.now())
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      handleAttack(ctx.room, ctx.playerId, io, Date.now(), socket.id)
     })
 
     socket.on('voice:signal', (payload: { to: string; data: unknown }) => {
-      if (!currentRoomId || !payload?.to) return
-      io.to(payload.to).emit('voice:signal', { from: socket.id, data: payload.data })
+      const from = playerIdOf(socket)
+      if (!currentRoomId || !payload?.to || !from) return
+      io.to(payload.to).emit('voice:signal', { from, data: payload.data })
     })
 
     socket.on('disconnect', () => {
-      if (!currentRoomId) return
-      const room = rooms.get(currentRoomId)
-      if (!room) return
-
-      const player = room.players[socket.id]
-      if (player?.seated) room.seats[player.seated] = null
-      delete room.players[socket.id]
-
-      if (room.hostId === socket.id) {
-        const next = Object.values(room.players)[0]
-        room.hostId = next?.id ?? null
-        if (next) next.role = 'host'
-      }
-
-      persist(room)
-
-      socket.to(currentRoomId).emit('player:left', { id: socket.id })
-      socket.to(currentRoomId).emit('voice:peer-left', { id: socket.id })
-      io.to(currentRoomId).emit('room:state', publicRoom(room))
-
-      if (Object.keys(room.players).length === 0) {
-        rooms.delete(currentRoomId)
-      }
+      if (socket.data.replaced) return
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, playerId } = ctx
+      if (playerSockets.get(playerId) === socket.id) playerSockets.delete(playerId)
+      io.to(room.roomId).emit('voice:peer-left', { id: playerId })
+      scheduleLeave(room, playerId, io)
+      currentRoomId = null
     })
   })
 

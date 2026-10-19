@@ -1,6 +1,7 @@
 /**
  * 房間內 mesh 語音：用 Socket.io 當信令，WebRTC 直連（免費、免第三方帳號）
  */
+import type { Socket } from 'socket.io-client'
 import { getSocket } from './socket'
 
 type SignalPayload =
@@ -13,7 +14,7 @@ const remoteAudio = new Map<string, HTMLAudioElement>()
 let localStream: MediaStream | null = null
 let micEnabled = false
 let selfId: string | null = null
-let started = false
+let boundSocket: Socket | null = null
 
 const ICE: RTCConfiguration = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
@@ -54,7 +55,13 @@ function attachLocalTracks(pc: RTCPeerConnection) {
 
 function createPc(peerId: string) {
   const existing = peers.get(peerId)
-  if (existing) return existing
+  if (existing) {
+    if (existing.connectionState === 'failed' || existing.connectionState === 'closed' || existing.connectionState === 'disconnected') {
+      cleanupPeer(peerId)
+    } else {
+      return existing
+    }
+  }
 
   const pc = new RTCPeerConnection(ICE)
   peers.set(peerId, pc)
@@ -98,6 +105,12 @@ async function callPeer(peerId: string) {
 async function handleSignal(from: string, data: SignalPayload) {
   const pc = createPc(from)
   if (data.type === 'offer') {
+    if (pc.signalingState !== 'stable' && pc.signalingState !== 'have-local-offer') {
+      return
+    }
+    if (pc.signalingState === 'have-local-offer') {
+      await pc.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit).catch(() => {})
+    }
     await pc.setRemoteDescription(data.sdp)
     const answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
@@ -119,37 +132,61 @@ async function handleSignal(from: string, data: SignalPayload) {
 }
 
 function cleanupPeer(peerId: string) {
-  peers.get(peerId)?.close()
+  const pc = peers.get(peerId)
+  if (pc) {
+    pc.onicecandidate = null
+    pc.ontrack = null
+    pc.onconnectionstatechange = null
+    pc.close()
+  }
   peers.delete(peerId)
   const el = remoteAudio.get(peerId)
   if (el) {
+    el.pause()
     el.srcObject = null
     remoteAudio.delete(peerId)
   }
 }
 
-export function startVoiceSession(myId: string, peerIds: string[]) {
-  selfId = myId
-  const socket = getSocket()
-  if (!socket || started) {
-    // 對已在房內的人發起連線
-    for (const id of peerIds) void callPeer(id)
-    return
-  }
-  started = true
-
+function bindSocket(socket: Socket) {
+  if (boundSocket === socket) return
+  unbindSocket()
+  boundSocket = socket
   socket.on('voice:signal', (payload: { from: string; data: SignalPayload }) => {
     void handleSignal(payload.from, payload.data)
   })
   socket.on('voice:peer-joined', ({ id }: { id: string }) => {
-    // 只有 id 較小的一方主動 call，避免雙方同時 offer 撞車
     if (selfId && selfId < id) void callPeer(id)
   })
   socket.on('voice:peer-left', ({ id }: { id: string }) => cleanupPeer(id))
+}
+
+function unbindSocket() {
+  if (!boundSocket) return
+  boundSocket.off('voice:signal')
+  boundSocket.off('voice:peer-joined')
+  boundSocket.off('voice:peer-left')
+  boundSocket = null
+}
+
+export function startVoiceSession(myId: string, peerIds: string[]) {
+  selfId = myId
+  const socket = getSocket()
+  if (socket) bindSocket(socket)
+
+  for (const id of [...peers.keys()]) {
+    if (id === myId || !peerIds.includes(id)) cleanupPeer(id)
+  }
 
   for (const id of peerIds) {
-    if (selfId && selfId < id) void callPeer(id)
+    if (selfId && selfId < id && !peers.has(id)) void callPeer(id)
   }
+}
+
+/** 連線身分沒變、但 WebRTC 已死時，清掉舊 peer 再打一次。 */
+export function restartVoiceSession(myId: string, peerIds: string[]) {
+  for (const id of [...peers.keys()]) cleanupPeer(id)
+  startVoiceSession(myId, peerIds)
 }
 
 export async function setMicEnabled(on: boolean) {
@@ -169,12 +206,12 @@ export function isMicEnabled() {
 }
 
 export function stopVoiceSession() {
+  unbindSocket()
   for (const id of [...peers.keys()]) cleanupPeer(id)
   if (localStream) {
     for (const t of localStream.getTracks()) t.stop()
     localStream = null
   }
   micEnabled = false
-  started = false
   selfId = null
 }

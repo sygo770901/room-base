@@ -71,6 +71,7 @@ export interface CombatRoom {
   hurtUntil: Record<string, number>
   nextAttack: Record<string, number>
   matchOver?: MatchOver | null
+  awayUntil?: Record<string, number>
 }
 
 function fromDef(d: MonsterDef): ServerMonster {
@@ -145,6 +146,7 @@ function nearestVisible(
   let best = sight
   for (const p of Object.values(room.players)) {
     if (p.hidden) continue
+    if (room.awayUntil?.[p.id]) continue
     const d = Math.hypot(p.position[0] - mx, p.position[2] - mz)
     if (d > sight || d >= best) continue
     if (!hasLineOfSight(mx, mz, p.position[0], p.position[2], extraWalls)) continue
@@ -358,12 +360,16 @@ function maybeWin(room: CombatRoom, io: Server, killerId: string) {
   io.to(room.roomId).emit('match:over', room.matchOver)
 }
 
-export function handleAttack(room: CombatRoom, playerId: string, io: Server, now: number) {
+export function handleAttack(room: CombatRoom, playerId: string, io: Server, now: number, attackerSocketId?: string) {
   const player = room.players[playerId]
   if (!player || player.seated) return
+  if (room.awayUntil?.[playerId]) return
   if ((room.nextAttack[playerId] ?? 0) > now) return
   room.nextAttack[playerId] = now + ATTACK_COOLDOWN_MS
-  io.to(room.roomId).except(playerId).emit('player:swing', { id: playerId })
+  const swing = attackerSocketId
+    ? io.to(room.roomId).except(attackerSocketId)
+    : io.to(room.roomId).except(playerId)
+  swing.emit('player:swing', { id: playerId })
 
   const fx = Math.sin(player.rotationY)
   const fz = Math.cos(player.rotationY)
