@@ -131,6 +131,33 @@ input {
   font-weight: 700;
 }
 
+.award-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 0 0 12px;
+}
+
+.award-card {
+  min-width: 110px;
+  max-width: 160px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(242, 204, 143, 0.14);
+  text-align: center;
+}
+
+.award-card strong {
+  display: block;
+  font-size: 13px;
+}
+
+.award-card span {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
 .restart-btn {
   border: 0;
   border-radius: 10px;
@@ -823,6 +850,18 @@ input {
   .duck-speech-hud {
     top: 30%;
     max-width: 90vw;
+  }
+
+  .match-over {
+    top: 12%;
+    max-height: min(62vh, 480px);
+    padding-bottom: 8px;
+  }
+
+  .award-card {
+    min-width: 96px;
+    max-width: 46vw;
+    padding: 6px 8px;
   }
 }
 

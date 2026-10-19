@@ -327,6 +327,16 @@ export function Hud() {
               </li>
             ))}
           </ol>
+          {(matchOver.awards ?? []).length > 0 && (
+            <div className="award-row">
+              {matchOver.awards!.map((a) => (
+                <div className="award-card" key={a.id}>
+                  <strong>{a.title}</strong>
+                  <span>{a.names.join('、')}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {selfId && hostId === selfId ? (
             <button type="button" className="restart-btn" onClick={() => emitRestart()}>
               再來一局

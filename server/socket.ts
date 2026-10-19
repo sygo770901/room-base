@@ -93,6 +93,10 @@ export interface RoomState {
   speechNextAt?: number
   /** 私密識別碼，不進 snapshot。 */
   secrets: Record<string, string>
+  taken: Record<string, number>
+  dispenserKills: Record<string, number>
+  rescues: Record<string, number>
+  hideMs: Record<string, number>
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -133,6 +137,10 @@ function createRoom(roomId: string): RoomState {
     projectiles: [],
     doors: createDoors(doorsOf('kenney')),
     secrets: {},
+    taken: {},
+    dispenserKills: {},
+    rescues: {},
+    hideMs: {},
   }
 }
 
@@ -501,6 +509,10 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.hurtUntil = {}
       room.nextAttack = {}
       room.damage = {}
+      room.taken = {}
+      room.dispenserKills = {}
+      room.rescues = {}
+      room.hideMs = {}
       room.startAt = 0
       room.matchDeadline = null
       if (room.mode === 'boss') {

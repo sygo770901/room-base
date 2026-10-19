@@ -1,3 +1,5 @@
+import type { AwardCard } from './awards'
+
 export type MonsterKind = 'grunt' | 'duck-king' | 'dispenser'
 
 export type MonsterModel = 'knight' | 'barbarian' | 'rogue' | 'mage' | 'ranger'
@@ -51,6 +53,7 @@ export interface MatchOver {
   reason?: 'timeout' | 'cleared'
   ranking: DamageRank[]
   winner?: 'hiders' | 'ghosts'
+  awards?: AwardCard[]
 }
 
 export interface DuckSpeech {

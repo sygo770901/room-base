@@ -19,6 +19,7 @@ import {
   type TagHud,
   type TagState,
 } from '../shared/tag.ts'
+import { computeAwards } from '../shared/awards.ts'
 import type { PlayerState, Vec3 } from './types.ts'
 
 export type { TagState }
@@ -47,6 +48,10 @@ export interface TagRoom {
   smokes?: SmokeCloud[]
   doors?: DoorState[]
   scene?: string | null
+  hideMs?: Record<string, number>
+  taken?: Record<string, number>
+  dispenserKills?: Record<string, number>
+  rescues?: Record<string, number>
 }
 
 export function emptyTag(): TagState {
@@ -300,10 +305,22 @@ function rankingOf(room: TagRoom, now: number): MatchOver['ranking'] {
 
 function endTag(room: TagRoom, io: Server, winner: 'hiders' | 'ghosts', now: number) {
   if (room.matchOver) return
+  const ranking = rankingOf(room, now)
+  const hideMs = { ...(room.hideMs ?? {}) }
+  for (const [id, at] of Object.entries(room.tag?.hideEnteredAt ?? {})) {
+    hideMs[id] = (hideMs[id] ?? 0) + Math.max(0, now - at)
+  }
   const over: MatchOver = {
     teamWin: winner === 'hiders',
     winner,
-    ranking: rankingOf(room, now),
+    ranking,
+    awards: computeAwards({
+      mode: 'tag',
+      names: Object.fromEntries(Object.values(room.players).map((p) => [p.id, p.name])),
+      catches: Object.fromEntries(ranking.map((r) => [r.id, r.catches ?? 0])),
+      surviveSec: Object.fromEntries(ranking.map((r) => [r.id, r.surviveSec ?? 0])),
+      hideMs,
+    }),
   }
   room.matchOver = over
   if (room.tag) room.tag.roundActive = false
@@ -319,6 +336,7 @@ export function catchHider(room: TagRoom, io: Server, ghostId: string, victimId:
   if (ghost.team !== 'ghost' || victim.team !== 'hider') return
   victim.team = 'ghost'
   victim.hidden = false
+  creditHide(room, victimId, now)
   delete tag.hideEnteredAt[victimId]
   delete tag.hideSpot[victimId]
   tag.caughtAt[victimId] = now
@@ -385,6 +403,13 @@ export function nearestHideSpot(x: number, z: number, range: number) {
   return best
 }
 
+function creditHide(room: TagRoom, playerId: string, now: number) {
+  const at = room.tag?.hideEnteredAt[playerId]
+  if (!at) return
+  if (!room.hideMs) room.hideMs = {}
+  room.hideMs[playerId] = (room.hideMs[playerId] ?? 0) + Math.max(0, now - at)
+}
+
 export function tryHide(room: TagRoom, playerId: string, want: boolean, now: number) {
   const player = room.players[playerId]
   const tag = room.tag
@@ -393,6 +418,7 @@ export function tryHide(room: TagRoom, playerId: string, want: boolean, now: num
   if (!want) {
     player.hidden = false
     if (tag) {
+      creditHide(room, playerId, now)
       delete tag.hideEnteredAt[playerId]
       delete tag.hideSpot[playerId]
     }
@@ -478,6 +504,7 @@ export function tickTag(room: TagRoom, io: Server, now: number) {
     if (now - at < TAG_BOX_MAX_MS) continue
     const spotId = tag.hideSpot[id]
     p.hidden = false
+    creditHide(room, id, now)
     tag.hideCooldown[id] = { spotId, until: now + TAG_BOX_REENTER_MS }
     delete tag.hideEnteredAt[id]
     delete tag.hideSpot[id]
