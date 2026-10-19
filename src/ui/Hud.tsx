@@ -532,7 +532,7 @@ export function Hud() {
 
       <div className="hud-bottom">
         <div className="help">
-          WASD／搖桿移動 · 電腦點畫面鎖定滑鼠轉視角（Esc 解除{pointerLocked ? ' · 已鎖定' : ''}）· 手機單指拖曳 · 滾輪／雙指縮放
+          WASD／搖桿移動 · 按住 Alt 顯示游標點 UI（放開回到鎖定視角{pointerLocked ? ' · 已鎖定' : ''}）· 手機單指拖曳 · 滾輪／雙指縮放
           <br />
           鎖定後左鍵、F 或攻擊鈕揮劍 · 右鍵留給技能 · E 靠近門 1.5 內優先開關門，否則躲藏
           {pendingNote ? ' · 移動滑鼠看虛影，點地面後確認' : ''}

@@ -14,7 +14,7 @@ import {
 } from '../../shared/perf'
 import { POINTER_LOOK_SCALE } from '../../shared/input'
 import { canvasDpr, isMobileDevice } from '../perf/device'
-import { bindPointerLockWatch, exitGameLock, requestGameLock } from './pointerLock'
+import { bindPointerLockWatch, exitGameLock, isAltHeld, isPointerInWindow, requestGameLock, setPointerInWindow } from './pointerLock'
 import { typingInField } from './inputLock'
 import { NotePlacementPlane, StickyNotes3D } from './Furniture'
 import { Dungeon } from './Dungeon'
@@ -155,7 +155,7 @@ function CameraRig() {
 
   useEffect(() => {
     const el = gl.domElement
-    const unwatch = bindPointerLockWatch()
+    const unwatch = bindPointerLockWatch(el)
     const arm = (scale: number) => {
       const next = saved.current
       const maxR = usesKaykitKit(useAppStore.getState().scene) ? KAYKIT_MAX_RADIUS : MAX_RADIUS
@@ -178,6 +178,7 @@ function CameraRig() {
     }
     const lookLocked = (e: MouseEvent) => {
       if (!document.pointerLockElement) return
+      if (isAltHeld() || !isPointerInWindow()) return
       if (typingInField()) return
       const sens = useAppStore.getState().lookSensitivity
       const k = POINTER_LOOK_SCALE * sens
@@ -228,7 +229,8 @@ function CameraRig() {
       e.preventDefault()
       arm(e.deltaY > 0 ? 1.08 : 0.92)
     }
-    const onBlur = () => exitGameLock()
+    const onBlur = () => setPointerInWindow(false)
+    const onFocus = () => setPointerInWindow(true)
     el.addEventListener('pointerdown', down)
     el.addEventListener('click', click)
     el.addEventListener('wheel', wheel, { passive: false })
@@ -236,8 +238,12 @@ function CameraRig() {
     window.addEventListener('mousemove', lookLocked)
     window.addEventListener('pointerup', up)
     window.addEventListener('pointercancel', up)
+    const onVis = () => {
+      if (document.hidden) setPointerInWindow(false)
+    }
     window.addEventListener('blur', onBlur)
-    document.addEventListener('visibilitychange', onBlur)
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVis)
     return () => {
       unwatch()
       el.removeEventListener('pointerdown', down)
@@ -248,7 +254,8 @@ function CameraRig() {
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', up)
       window.removeEventListener('blur', onBlur)
-      document.removeEventListener('visibilitychange', onBlur)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVis)
     }
   }, [gl])
 
