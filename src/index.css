@@ -611,6 +611,15 @@ input {
   z-index: 41;
 }
 
+.key-hint {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.85;
+  line-height: 1.1;
+  margin-top: 2px;
+}
+
 .attack-btn {
   position: absolute;
   right: 16px;

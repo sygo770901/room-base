@@ -420,6 +420,7 @@ export function Hud() {
       {!matchOver && started && self?.team !== 'spectator' && (
         <button type="button" className="attack-btn" onClick={() => performAttack()}>
           攻擊
+          {!isMobileDevice() && <span className="key-hint">F／左鍵</span>}
         </button>
       )}
       {!matchOver && started && self?.team !== 'spectator' && (
@@ -430,11 +431,13 @@ export function Hud() {
           onClick={() => requestDash()}
         >
           {dashLeft > 0 ? `${Math.ceil(dashLeft / 1000)}` : '衝'}
+          {!isMobileDevice() && dashLeft <= 0 && <span className="key-hint">Shift</span>}
         </button>
       )}
       {!matchOver && started && self?.team !== 'spectator' && (
         <button type="button" className="jump-btn" onClick={() => requestJump()}>
           跳
+          {!isMobileDevice() && <span className="key-hint">Space</span>}
         </button>
       )}
       {!matchOver && started && self?.team !== 'spectator' && (
@@ -445,6 +448,7 @@ export function Hud() {
           onClick={() => requestSmoke()}
         >
           {smokeLeft > 0 ? `${Math.ceil(smokeLeft / 1000)}` : '技'}
+          {!isMobileDevice() && smokeLeft <= 0 && <span className="key-hint">右鍵</span>}
         </button>
       )}
       {!matchOver && started && self && self.team !== 'ghost' && self.team !== 'spectator' && (
@@ -454,11 +458,13 @@ export function Hud() {
           onClick={() => emitHide(!self.hidden)}
         >
           {self.hidden ? '出來' : '躲'}
+          {!isMobileDevice() && <span className="key-hint">E</span>}
         </button>
       )}
       {!matchOver && started && self?.team !== 'spectator' && self?.position && nearestDoor(self.position[0], self.position[2], doorsOf(scene), DOOR_RANGE) && (
         <button type="button" className="door-btn" onClick={() => emitDoorToggle()}>
           門
+          {!isMobileDevice() && <span className="key-hint">E</span>}
         </button>
       )}
       {!matchOver && started && self?.team !== 'spectator' && (
