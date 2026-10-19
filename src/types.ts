@@ -60,6 +60,7 @@ export interface RoomSnapshot {
   projectiles?: ProjectileState[]
   doors?: DoorState[]
   duckSpeech?: DuckSpeech | null
+  selfId?: string
   error?: string
 }
 

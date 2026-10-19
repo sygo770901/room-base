@@ -15,7 +15,7 @@ import type { DoorState } from '../../shared/doors'
 import { spawnBarrelShards } from '../scene/Barrels'
 import { playSfx, unlockSfx } from '../audio/sfx'
 import { useAppStore } from '../store'
-import { clearSession, getPlayerId, loadSession, saveSession, type RoomSession } from './session'
+import { clearSession, getPlayerId, getPlayerSecret, loadSession, saveSession, type RoomSession } from './session'
 import { restartVoiceSession, startVoiceSession, stopVoiceSession } from './voice'
 
 let socket: Socket | null = null
@@ -41,6 +41,7 @@ function sessionFromStore(wantHost = false): RoomSession | null {
   if (!roomId || !name) return saved
   return {
     playerId: getPlayerId(),
+    secret: saved?.secret || getPlayerSecret(),
     roomId,
     name,
     scene: state.scene || saved?.scene || 'kenney',
@@ -398,7 +399,7 @@ export function connectSocket() {
     reconnectionDelay: 800,
     reconnectionDelayMax: 4000,
     timeout: 12000,
-    auth: { playerId: getPlayerId() },
+    auth: { playerId: getPlayerId(), secret: getPlayerSecret() },
   })
   bindListeners(socket)
   return socket
@@ -434,6 +435,7 @@ function emitJoin(session: RoomSession) {
         scene: session.scene,
         mode: session.mode,
         playerId,
+        secret: session.secret || getPlayerSecret(),
         timed: session.timed,
         resume,
       },
@@ -444,18 +446,19 @@ function emitJoin(session: RoomSession) {
           reject(new Error(snapshot?.error || '加入失敗'))
           return
         }
-        saveSession({ ...session, playerId })
-        useAppStore.getState().enterRoom(playerId, snapshot)
-        if (snapshot.players[playerId]?.hidden) useAppStore.getState().bumpPoseSync()
-        const peers = Object.keys(snapshot.players).filter((id) => id !== playerId)
+        const assigned = snapshot.selfId && snapshot.players[snapshot.selfId] ? snapshot.selfId : playerId
+        saveSession({ ...session, playerId: assigned, secret: session.secret || getPlayerSecret() })
+        useAppStore.getState().enterRoom(assigned, snapshot)
+        if (snapshot.players[assigned]?.hidden) useAppStore.getState().bumpPoseSync()
+        const peers = Object.keys(snapshot.players).filter((id) => id !== assigned)
         const sid = s.id ?? null
         if (sid && sid === lastVoiceSocketId) {
-          startVoiceSession(playerId, peers)
+          startVoiceSession(assigned, peers)
         } else {
           lastVoiceSocketId = sid
-          restartVoiceSession(playerId, peers)
+          restartVoiceSession(assigned, peers)
         }
-        const hid = snapshot.players[playerId]?.hidden
+        const hid = snapshot.players[assigned]?.hidden
         if (lastPose && !hid) s.emit('move', lastPose)
         markOnline()
         resolve(snapshot)
@@ -570,6 +573,7 @@ export function joinRoom(
   useAppStore.getState().setJoinError(null)
   const session: RoomSession = {
     playerId: getPlayerId(),
+    secret: getPlayerSecret(),
     roomId,
     name,
     scene,

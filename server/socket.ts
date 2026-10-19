@@ -52,6 +52,7 @@ import { defaultSettings, isGameMode, type GameMode, type RoomSettings } from '.
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
 import { canStartJump } from '../shared/platforms.ts'
 import { doorsOf, platformsOf } from '../shared/mapData.ts'
+import { normalizeToken, resolveJoinPlayerId } from '../shared/identity.ts'
 import type { DuckSpeech, MatchOver } from '../shared/combat.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
@@ -89,6 +90,8 @@ export interface RoomState {
   duckSpeech?: DuckSpeech | null
   lastDuckLine?: string
   speechNextAt?: number
+  /** 私密識別碼，不進 snapshot。 */
+  secrets: Record<string, string>
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -128,6 +131,7 @@ function createRoom(roomId: string): RoomState {
     drops: [],
     projectiles: [],
     doors: createDoors(doorsOf('kenney')),
+    secrets: {},
   }
 }
 
@@ -194,10 +198,15 @@ function clampFurniturePos(item: FurnitureItem, pos: Vec3): Vec3 {
 }
 
 function normalizePlayerId(raw: unknown, fallback: string) {
-  if (typeof raw !== 'string') return fallback
-  const id = raw.trim().slice(0, 64)
-  if (!/^[A-Za-z0-9_-]{8,64}$/.test(id)) return fallback
-  return id
+  return normalizeToken(raw, fallback)
+}
+
+function freshPlayerId(room: RoomState) {
+  for (let i = 0; i < 8; i++) {
+    const id = crypto.randomUUID()
+    if (!room.players[id]) return id
+  }
+  return `p${Date.now()}${Math.random().toString(36).slice(2, 10)}`
 }
 
 function leaveKey(roomId: string, playerId: string) {
@@ -264,6 +273,7 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
   cancelLeave(room, playerId)
   if (player.seated) room.seats[player.seated] = null
   delete room.players[playerId]
+  delete room.secrets[playerId]
   delete room.hurtUntil[playerId]
   delete room.nextAttack[playerId]
   delete room.lastMoveAt[playerId]
@@ -325,6 +335,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           scene?: string
           mode?: string
           playerId?: string
+          secret?: string
           timed?: boolean
           resume?: {
             position?: Vec3
@@ -337,8 +348,18 @@ export function attachSocketServer(httpServer: HttpServer) {
       ) => {
         const roomId = (payload.roomId || 'home').trim().slice(0, 32) || 'home'
         const name = (payload.name || '訪客').trim().slice(0, 16) || '訪客'
-        const playerId = normalizePlayerId(payload.playerId ?? socket.handshake.auth?.playerId, socket.id)
+        const claimedId = normalizePlayerId(payload.playerId ?? socket.handshake.auth?.playerId, socket.id)
+        const secret = normalizeToken(payload.secret ?? socket.handshake.auth?.secret, '')
         const room = getOrCreateRoom(roomId)
+        const claimedExisting = Boolean(room.players[claimedId])
+        const resolved = resolveJoinPlayerId({
+          claimedId,
+          secret,
+          storedSecret: room.secrets[claimedId],
+          existing: claimedExisting,
+          fallbackId: freshPlayerId(room),
+        })
+        const playerId = resolved.playerId
         const existing = room.players[playerId]
         if (!existing && Object.keys(room.players).length >= ROOM_MAX_PLAYERS) {
           ack?.({ error: '房間已滿' })
@@ -347,7 +368,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         const sameSocket = existing && playerSockets.get(playerId) === socket.id && currentRoomId === roomId
 
         if (sameSocket && !room.awayUntil[playerId]) {
-          ack?.(snapshotFor(room, playerId))
+          ack?.({ ...snapshotFor(room, playerId), selfId: playerId })
           return
         }
 
@@ -359,20 +380,22 @@ export function attachSocketServer(httpServer: HttpServer) {
         socket.data.playerId = playerId
         socket.data.replaced = false
 
-        removeFromOtherRooms(playerId, roomId, io)
+        if (!resolved.impersonation) {
+          removeFromOtherRooms(playerId, roomId, io)
 
-        const prevSid = playerSockets.get(playerId)
-        if (prevSid && prevSid !== socket.id) {
-          const prev = io.sockets.sockets.get(prevSid)
-          if (prev) {
-            prev.data.replaced = true
-            const prevRoomId = typeof prev.data.roomId === 'string' ? prev.data.roomId : null
-            if (prevRoomId && prevRoomId !== roomId) {
-              const prevRoom = rooms.get(prevRoomId)
-              if (prevRoom?.players[playerId]) removePlayer(prevRoom, playerId, io)
+          const prevSid = playerSockets.get(playerId)
+          if (prevSid && prevSid !== socket.id) {
+            const prev = io.sockets.sockets.get(prevSid)
+            if (prev) {
+              prev.data.replaced = true
+              const prevRoomId = typeof prev.data.roomId === 'string' ? prev.data.roomId : null
+              if (prevRoomId && prevRoomId !== roomId) {
+                const prevRoom = rooms.get(prevRoomId)
+                if (prevRoom?.players[playerId]) removePlayer(prevRoom, playerId, io)
+              }
+              io.to(prevRoomId || roomId).emit('voice:peer-left', { id: playerId })
+              prev.disconnect(true)
             }
-            io.to(prevRoomId || roomId).emit('voice:peer-left', { id: playerId })
-            prev.disconnect(true)
           }
         }
 
@@ -440,6 +463,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           applyResume(player, payload.resume)
         }
         room.lastMoveAt[playerId] = Date.now()
+        if (secret) room.secrets[playerId] = secret
 
         cancelLeave(room, playerId)
         playerSockets.set(playerId, socket.id)
@@ -448,7 +472,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         socket.join(roomId)
         socket.join(playerId)
 
-        ack?.(snapshotFor(room, playerId))
+        ack?.({ ...snapshotFor(room, playerId), selfId: playerId })
         if (!resumed) emitPlayerJoined(room, io, player)
         socket.to(roomId).emit('voice:peer-joined', { id: playerId })
         emitState(room, io)

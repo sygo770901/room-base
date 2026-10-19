@@ -4,10 +4,12 @@ import type { SceneId } from '../../shared/scenes'
 import { isSceneId } from '../../shared/scenes'
 
 const PLAYER_KEY = 'rb-player-id'
+const SECRET_KEY = 'rb-player-secret'
 const SESSION_KEY = 'rb-session'
 
 export interface RoomSession {
   playerId: string
+  secret: string
   roomId: string
   name: string
   scene: SceneId
@@ -36,6 +38,22 @@ export function getPlayerId() {
   return id
 }
 
+export function getPlayerSecret() {
+  try {
+    const existing = localStorage.getItem(SECRET_KEY)
+    if (existing && isUuidLike(existing)) return existing
+  } catch {
+    /* ignore */
+  }
+  const secret = crypto.randomUUID()
+  try {
+    localStorage.setItem(SECRET_KEY, secret)
+  } catch {
+    /* ignore */
+  }
+  return secret
+}
+
 export function loadSession(): RoomSession | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY)
@@ -43,8 +61,10 @@ export function loadSession(): RoomSession | null {
     const parsed = JSON.parse(raw) as Partial<RoomSession>
     if (!parsed || typeof parsed.roomId !== 'string' || typeof parsed.name !== 'string') return null
     const playerId = typeof parsed.playerId === 'string' && isUuidLike(parsed.playerId) ? parsed.playerId : getPlayerId()
+    const secret = typeof parsed.secret === 'string' && isUuidLike(parsed.secret) ? parsed.secret : getPlayerSecret()
     return {
       playerId,
+      secret,
       roomId: parsed.roomId.trim().slice(0, 32) || 'home',
       name: parsed.name.trim().slice(0, 16) || '訪客',
       scene: isSceneId(parsed.scene) ? parsed.scene : 'kenney',
@@ -61,6 +81,7 @@ export function saveSession(session: RoomSession) {
   try {
     localStorage.setItem(SESSION_KEY, JSON.stringify(session))
     localStorage.setItem(PLAYER_KEY, session.playerId)
+    localStorage.setItem(SECRET_KEY, session.secret)
   } catch {
     /* ignore */
   }
