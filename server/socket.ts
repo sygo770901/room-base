@@ -53,6 +53,7 @@ import { isSceneId, type SceneId } from '../shared/scenes.ts'
 import { canStartJump } from '../shared/platforms.ts'
 import { doorsOf, platformsOf } from '../shared/mapData.ts'
 import { normalizeToken, resolveJoinPlayerId } from '../shared/identity.ts'
+import { pickLiveHost } from '../shared/host.ts'
 import type { DuckSpeech, MatchOver } from '../shared/combat.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
@@ -260,6 +261,15 @@ function applyResume(
   }
 }
 
+function applyLiveHost(room: RoomState, prefer?: string) {
+  const next = pickLiveHost(Object.keys(room.players), Object.keys(room.awayUntil), room.hostId, prefer)
+  if (room.hostId && room.players[room.hostId] && room.hostId !== next) {
+    room.players[room.hostId].role = 'guest'
+  }
+  room.hostId = next
+  if (next && room.players[next]) room.players[next].role = 'host'
+}
+
 function removeFromOtherRooms(playerId: string, keepRoomId: string, io: Server) {
   for (const room of [...rooms.values()]) {
     if (room.roomId === keepRoomId) continue
@@ -282,11 +292,7 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
   delete room.nextSmoke[playerId]
   playerSockets.delete(playerId)
 
-  if (room.hostId === playerId) {
-    const next = Object.values(room.players)[0]
-    room.hostId = next?.id ?? null
-    if (next) next.role = 'host'
-  }
+  applyLiveHost(room)
 
   persist(room)
   io.to(room.roomId).emit('player:left', { id: playerId })
@@ -303,6 +309,9 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
 function scheduleLeave(room: RoomState, playerId: string, io: Server) {
   cancelLeave(room, playerId)
   room.awayUntil[playerId] = Date.now() + RECONNECT_GRACE_MS
+  applyLiveHost(room)
+  persist(room)
+  emitState(room, io)
   const key = leaveKey(room.roomId, playerId)
   leaveTimers.set(
     key,
@@ -466,6 +475,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         if (secret) room.secrets[playerId] = secret
 
         cancelLeave(room, playerId)
+        applyLiveHost(room, playerId)
         playerSockets.set(playerId, socket.id)
         currentRoomId = roomId
         socket.data.roomId = roomId
