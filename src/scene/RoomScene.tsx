@@ -38,14 +38,14 @@ import type { PlayerState, Vec3 } from '../types'
 const SPAWN = SPAWN_POINTS[0] ?? { x: 80, z: 22 }
 // Three.js 預設 minPolarAngle 是 0（頭頂正上方）、rotateSpeed 是 1（拖滿一整個螢幕等於轉 360°）。
 // 這裡把垂直角鎖在斜上方到接近水平，旋轉改慢，避免短距離拖曳就被甩到頭頂。
-const MIN_PHI = 1.05
-const MAX_PHI = 1.55
-const MIN_RADIUS = 1.5
-const MAX_RADIUS = 2.5
+const MIN_PHI = 1.12
+const MAX_PHI = 1.48
+const MIN_RADIUS = 1.8
+const MAX_RADIUS = 2.8
 const ROTATE_SPEED = 0.3
-const SHOULDER_DIST = 2.05
-const SHOULDER_RIGHT = 0.42
-const LOOK_Y = 1.42
+const SHOULDER_DIST = 2.25
+const SHOULDER_RIGHT = 0.58
+const LOOK_Y = 1.08
 const rigOffset = new THREE.Vector3()
 const rigSpherical = new THREE.Spherical()
 
@@ -400,8 +400,8 @@ function SceneContent() {
       </Suspense>
       <Suspense fallback={null}>
         <RemotePlayers players={players} selfId={selfId} />
-        {displaySelf?.position && <LocalAvatar player={displaySelf} />}
       </Suspense>
+      {displaySelf?.position && <LocalAvatar player={displaySelf} />}
       {self && (
         <LocalController
           player={self}
@@ -437,7 +437,7 @@ export function RoomScene() {
         powerPreference: 'high-performance',
         antialias: !mobile,
       }}
-      camera={{ position: cameraPos, fov: 58, near: 0.08, far: 180 }}
+      camera={{ position: cameraPos, fov: 58, near: 0.05, far: 180 }}
       style={{ width: '100%', height: '100%', touchAction: 'none' }}
     >
       <SceneContent />

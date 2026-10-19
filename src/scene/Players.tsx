@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { Suspense, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
@@ -150,6 +150,23 @@ export function RemotePlayers({
   )
 }
 
+function LocalStandIn({ player }: { player: PlayerState }) {
+  const p = player.position
+  if (!p) return null
+  return (
+    <group position={[p[0], p[1] ?? 0, p[2]]} rotation-y={player.rotationY}>
+      <mesh position={[0, 1.05, 0]} castShadow>
+        <capsuleGeometry args={[0.22, 0.72, 6, 10]} />
+        <meshStandardMaterial color={player.color || '#c9a27a'} />
+      </mesh>
+    </group>
+  )
+}
+
 export function LocalAvatar({ player }: { player: PlayerState }) {
-  return <Avatar player={player} isSelf />
+  return (
+    <Suspense fallback={<LocalStandIn player={player} />}>
+      <Avatar player={player} isSelf />
+    </Suspense>
+  )
 }
