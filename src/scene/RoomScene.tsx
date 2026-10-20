@@ -31,7 +31,7 @@ import { LocalController } from './LocalController'
 import { SmokeClouds } from './SmokeClouds'
 import { Barrels } from './Barrels'
 import { Doors } from './Doors'
-import { bindMapLoadWatchdog, preloadSceneModels, reportMapProgress } from '../load/mapLoad'
+import { bindLoadErrorWatch, fileLabel, startCriticalPreload } from '../load/mapLoad'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
@@ -51,14 +51,20 @@ const rigSpherical = new THREE.Spherical()
 
 function MapProgressBridge() {
   const sceneId = useAppStore((s) => s.scene)
-  const { active, progress, errors, loaded, total } = useProgress()
+  const { errors } = useProgress()
   useEffect(() => {
-    preloadSceneModels(sceneId)
-    return bindMapLoadWatchdog()
+    const stopWatch = bindLoadErrorWatch()
+    const stopPreload = startCriticalPreload(sceneId)
+    return () => {
+      stopWatch()
+      stopPreload()
+    }
   }, [sceneId])
   useEffect(() => {
-    reportMapProgress(progress, loaded, total, active, errors.length)
-  }, [active, progress, errors, loaded, total])
+    for (const url of errors) {
+      if (url) useAppStore.getState().addMapLoadError(fileLabel(url))
+    }
+  }, [errors])
   return null
 }
 
@@ -179,6 +185,9 @@ function CameraRig() {
         return
       }
       if (e.button === 1) drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, mode: 'zoom' }
+      if (e.button === 0 && !document.pointerLockElement) {
+        drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, mode: 'look' }
+      }
     }
     const lookLocked = (e: MouseEvent) => {
       if (!document.pointerLockElement) return

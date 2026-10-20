@@ -28,13 +28,16 @@ const LOADOUT: Record<ClassId, { right?: string; left?: string }> = {
   ranger: { right: 'sword_1handed.gltf' },
 }
 
-for (const url of [...Object.values(CHAR), MOVE_URL, GENERAL_URL, COMBAT_URL]) {
-  useGLTF.preload(url)
+export function heroModelUrls() {
+  const weapons: string[] = []
+  for (const load of Object.values(LOADOUT)) {
+    if (load.right) weapons.push(`${WEAPON_ROOT}/${load.right}`)
+    if (load.left) weapons.push(`${WEAPON_ROOT}/${load.left}`)
+  }
+  return [...Object.values(CHAR), MOVE_URL, GENERAL_URL, COMBAT_URL, ...new Set(weapons)]
 }
-for (const load of Object.values(LOADOUT)) {
-  if (load.right) useGLTF.preload(`${WEAPON_ROOT}/${load.right}`)
-  if (load.left) useGLTF.preload(`${WEAPON_ROOT}/${load.left}`)
-}
+
+for (const url of heroModelUrls()) useGLTF.preload(url)
 
 function clipOf(gltf: { animations: THREE.AnimationClip[] }, name: string) {
   return THREE.AnimationClip.findByName(gltf.animations, name)

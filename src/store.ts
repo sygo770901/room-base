@@ -107,6 +107,7 @@ interface AppState {
   mapLoadProgress: number
   mapLoadActive: boolean
   mapLoadFailed: boolean
+  mapLoadErrors: string[]
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
@@ -159,6 +160,7 @@ interface AppState {
   setFeed: (feed: FeedItem[]) => void
   setMapLoadProgress: (progress: number, active: boolean) => void
   setMapLoadFailed: (failed: boolean) => void
+  addMapLoadError: (file: string) => void
   setConnection: (status: ConnectionStatus) => void
   setJoinError: (msg: string | null) => void
   leaveToLobby: () => void
@@ -231,6 +233,7 @@ export const useAppStore = create<AppState>((set) => ({
   mapLoadProgress: 0,
   mapLoadActive: false,
   mapLoadFailed: false,
+  mapLoadErrors: [],
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
     set({
@@ -247,6 +250,7 @@ export const useAppStore = create<AppState>((set) => ({
       started: snapshot.started ?? false,
       joinError: null,
       mapLoadFailed: false,
+      mapLoadErrors: [],
       mapLoadActive: true,
       mapLoadProgress: 0,
       tagHud: snapshot.tagHud ?? null,
@@ -391,6 +395,8 @@ export const useAppStore = create<AppState>((set) => ({
   setFeed: (feed) => set({ feed }),
   setMapLoadProgress: (progress, active) => set({ mapLoadProgress: progress, mapLoadActive: active }),
   setMapLoadFailed: (failed) => set({ mapLoadFailed: failed }),
+  addMapLoadError: (file) =>
+    set((s) => (s.mapLoadErrors.includes(file) ? s : { mapLoadErrors: [...s.mapLoadErrors, file], mapLoadFailed: true })),
   setConnection: (status) => set({ connection: status }),
   setJoinError: (msg) => set({ joinError: msg }),
   leaveToLobby: () =>
@@ -407,6 +413,7 @@ export const useAppStore = create<AppState>((set) => ({
       mapLoadProgress: 0,
       mapLoadActive: false,
       mapLoadFailed: false,
+      mapLoadErrors: [],
       matchOver: null,
       settings: defaultSettings(),
       timeLeftMs: null,

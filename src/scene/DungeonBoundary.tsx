@@ -13,8 +13,10 @@ export class DungeonBoundary extends Component<Props, State> {
     return { failed: true }
   }
 
-  componentDidCatch() {
-    useAppStore.getState().setMapLoadFailed(true)
+  componentDidCatch(error: Error) {
+    const store = useAppStore.getState()
+    store.addMapLoadError(error.message || '地城模型解讀失敗')
+    store.setMapLoadFailed(true)
   }
 
   render() {

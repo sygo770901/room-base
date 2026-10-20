@@ -68,6 +68,7 @@ export function Hud() {
   const mapLoadActive = useAppStore((s) => s.mapLoadActive)
   const mapLoadProgress = useAppStore((s) => s.mapLoadProgress)
   const mapLoadFailed = useAppStore((s) => s.mapLoadFailed)
+  const mapLoadErrors = useAppStore((s) => s.mapLoadErrors)
   const localX = useAppStore((s) => s.localX)
   const localZ = useAppStore((s) => s.localZ)
   const poopVignetteUntil = useAppStore((s) => s.poopVignetteUntil)
@@ -98,8 +99,8 @@ export function Hud() {
   }, [])
 
   useEffect(() => {
-    if (matchOver || ((mode === 'boss' || mode === 'tag') && !started)) exitGameLock()
-  }, [matchOver, mode, started])
+    if (matchOver) exitGameLock()
+  }, [matchOver])
 
   useEffect(() => {
     if (!rescuing || !self?.position) return
@@ -215,10 +216,28 @@ export function Hud() {
           <div className="map-load-bar">
             <span style={{ width: `${Math.max(4, Math.min(100, mapLoadProgress))}%` }} />
           </div>
+          {mapLoadErrors.length > 0 && (
+            <ul className="map-load-files">
+              {mapLoadErrors.map((file) => (
+                <li key={file}>載不到：{file}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
       {mapLoadFailed && !mapLoadActive && (
-        <div className="map-load fail">模型載入失敗，已改用簡易地圖</div>
+        <div className="map-load fail">
+          <p>模型載入失敗</p>
+          {mapLoadErrors.length > 0 ? (
+            <ul className="map-load-files">
+              {mapLoadErrors.map((file) => (
+                <li key={file}>{file}</li>
+              ))}
+            </ul>
+          ) : (
+            <p>未知檔案，請看 Console／Network</p>
+          )}
+        </div>
       )}
       <div className="hud-top">
         <div className="pill">
@@ -297,42 +316,45 @@ export function Hud() {
       </div>
 
       {(mode === 'boss' || mode === 'tag') && !started && !matchOver && (
-        <div className="modal match-over wait-modal">
-          <p>等房主開始</p>
-          <p className="modal-preview">
-            {mode === 'tag'
-              ? `至少 2 人才能開局。現在 ${Object.values(players).filter((p) => p.team !== 'spectator').length} 人。`
-              : '按下開始後會倒數 5 秒，鴨王血量依當時人數計算。'}
-          </p>
-          {selfId && hostId === selfId ? (
-            <div className="map-host" role="radiogroup" aria-label="地圖">
-              {SCENE_IDS.map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={scene === id ? 'hud-btn on' : 'hud-btn'}
-                  disabled={scene === id}
-                  onClick={() => emitScene(id)}
-                >
-                  {SCENE_LABELS[id]}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="modal-preview">目前地圖：{SCENE_LABELS[scene] ?? scene}</p>
-          )}
-          {selfId && hostId === selfId ? (
-            <button
-              type="button"
-              className="restart-btn"
-              disabled={mode === 'tag' && Object.values(players).filter((p) => p.team !== 'spectator').length < 2}
-              onClick={() => emitStart()}
-            >
-              開始
-            </button>
-          ) : (
-            <p className="modal-preview">等房主按開始</p>
-          )}
+        <div className="wait-dock">
+          <div className="wait-card">
+            <p>等房主開始</p>
+            <p className="modal-preview">點畫面鎖定滑鼠，可先轉鏡頭。</p>
+            <p className="modal-preview">
+              {mode === 'tag'
+                ? `至少 2 人才能開局。現在 ${Object.values(players).filter((p) => p.team !== 'spectator').length} 人。`
+                : '按下開始後會倒數 5 秒，鴨王血量依當時人數計算。'}
+            </p>
+            {selfId && hostId === selfId ? (
+              <div className="map-host" role="radiogroup" aria-label="地圖">
+                {SCENE_IDS.map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={scene === id ? 'hud-btn on' : 'hud-btn'}
+                    disabled={scene === id}
+                    onClick={() => emitScene(id)}
+                  >
+                    {SCENE_LABELS[id]}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="modal-preview">目前地圖：{SCENE_LABELS[scene] ?? scene}</p>
+            )}
+            {selfId && hostId === selfId ? (
+              <button
+                type="button"
+                className="restart-btn"
+                disabled={mode === 'tag' && Object.values(players).filter((p) => p.team !== 'spectator').length < 2}
+                onClick={() => emitStart()}
+              >
+                開始
+              </button>
+            ) : (
+              <p className="modal-preview">等房主按開始</p>
+            )}
+          </div>
         </div>
       )}
 

@@ -2,6 +2,7 @@ import { Component, useMemo, useRef, type ReactNode } from 'react'
 import { useGLTF } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
+import { useAppStore } from '../store'
 
 export const DUCK_URL = '/assets/duck/Duck.glb'
 /** 鴨王目標身高（先定，昱豪可改） */
@@ -124,6 +125,11 @@ class DuckBoundary extends Component<{ children: ReactNode; fallback: ReactNode 
   state = { failed: false }
   static getDerivedStateFromError() {
     return { failed: true }
+  }
+  componentDidCatch(error: Error) {
+    const store = useAppStore.getState()
+    store.addMapLoadError(error.message ? `${DUCK_URL}（${error.message}）` : DUCK_URL)
+    store.setMapLoadFailed(true)
   }
   render() {
     return this.state.failed ? this.props.fallback : this.props.children

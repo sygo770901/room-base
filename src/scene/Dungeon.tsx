@@ -155,10 +155,6 @@ export function Dungeon(_props: { focusX: number; focusZ: number }) {
 
   for (const [model] of groups) useGLTF.preload(`${root}/${model}`)
 
-  useLayoutEffect(() => {
-    useAppStore.getState().setMapLoadProgress(100, false)
-  }, [scene])
-
   return (
     <group>
       {groups.map(([model, list]) => (
