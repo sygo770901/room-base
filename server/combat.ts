@@ -1,10 +1,10 @@
 import type { Server } from 'socket.io'
 import { resolvePlayerMove } from '../src/physics/collision.ts'
 import {
-  ATTACK_COS,
   ATTACK_COOLDOWN_MS,
   ATTACK_DAMAGE,
   ATTACK_RANGE,
+  meleeHits,
   type DamageRank,
   BARB_DAMAGE,
   BARB_SPEED,
@@ -414,7 +414,8 @@ function tryTouch(
   dmg: number,
 ) {
   const touch = MONSTER_TOUCH + (m.kind === 'dispenser' ? 0.25 : 0)
-  if (dist <= touch && now >= m.nextHit && now >= (room.hurtUntil[target.id] ?? 0)) {
+  const canHit = meleeHits(m.x, m.z, m.rotationY, target.position[0], target.position[2], touch)
+  if (canHit && now >= m.nextHit && now >= (room.hurtUntil[target.id] ?? 0)) {
     m.nextHit = now + MONSTER_HIT_CD
     hurtPlayer(room, io, target, dmg, now)
     return true
@@ -1016,20 +1017,13 @@ function syncBarrels(room: CombatRoom, io: Server) {
 function hitBarrel(room: CombatRoom, io: Server, player: PlayerState, now: number, stats: (typeof WEAPON_STATS)['sword']) {
   if (room.mode === 'tag') return false
   if (!room.barrels) return false
-  const fx = Math.sin(player.rotationY)
-  const fz = Math.cos(player.rotationY)
   let best: BarrelState | null = null
   let bestD = stats.range
   for (const b of room.barrels) {
     if (!b.alive) continue
-    const dx = b.x - player.position[0]
-    const dz = b.z - player.position[2]
-    const dist = Math.hypot(dx, dz)
+    const dist = Math.hypot(b.x - player.position[0], b.z - player.position[2])
     if (dist > bestD) continue
-    if (dist > BARREL_RADIUS + 0.26) {
-      const dot = (dx / (dist || 1)) * fx + (dz / (dist || 1)) * fz
-      if (dot < stats.cos) continue
-    }
+    if (!meleeHits(player.position[0], player.position[2], player.rotationY, b.x, b.z, stats.range)) continue
     best = b
     bestD = dist
   }
@@ -1089,21 +1083,13 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
     : io.to(room.roomId).except(playerId)
   swing.emit('player:swing', { id: playerId, combo })
 
-  const fx = Math.sin(player.rotationY)
-  const fz = Math.cos(player.rotationY)
   let best: ServerMonster | null = null
   let bestD = stats.range
   for (const m of room.monsters) {
     if (!m.alive) continue
-    const dx = m.x - player.position[0]
-    const dz = m.z - player.position[2]
-    const dist = Math.hypot(dx, dz)
-    const embed = 0.26 + monsterRadius(m.kind)
+    const dist = Math.hypot(m.x - player.position[0], m.z - player.position[2])
     if (dist > bestD) continue
-    if (dist >= embed) {
-      const dot = (dx / dist) * fx + (dz / dist) * fz
-      if (dot < stats.cos) continue
-    }
+    if (!meleeHits(player.position[0], player.position[2], player.rotationY, m.x, m.z, stats.range)) continue
     best = m
     bestD = dist
   }

@@ -77,7 +77,29 @@ export function dispenserHp(n: number) {
 export const ATTACK_RANGE = 2.5
 export const ATTACK_DAMAGE = 34
 export const ATTACK_COOLDOWN_MS = 460
-export const ATTACK_COS = Math.cos(1.15)
+export const ATTACK_COS = Math.cos(Math.PI / 3)
+/** 1 格內不看角度；1 格外才看面向 ±60°。 */
+export const MELEE_POINT_BLANK = 1
+export const MELEE_HALF_FOV = Math.PI / 3
+export const MELEE_FOV_COS = Math.cos(MELEE_HALF_FOV)
+
+export function meleeHits(
+  ax: number,
+  az: number,
+  facingY: number,
+  tx: number,
+  tz: number,
+  range = ATTACK_RANGE,
+) {
+  const dx = tx - ax
+  const dz = tz - az
+  const dist = Math.hypot(dx, dz)
+  if (dist > range) return false
+  if (dist <= MELEE_POINT_BLANK) return true
+  const fx = Math.sin(facingY)
+  const fz = Math.cos(facingY)
+  return (dx / dist) * fx + (dz / dist) * fz >= MELEE_FOV_COS
+}
 export const MONSTER_TOUCH = 1.2
 export const MONSTER_DAMAGE = 12
 export const MONSTER_HIT_CD = 850
