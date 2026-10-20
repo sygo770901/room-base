@@ -10,7 +10,7 @@ import { PLAYER_RADIUS } from '../../shared/furniture'
 import { POOP_SLOW_MUL, SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
 import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitRescueHold, emitSit, emitSmoke, performAttack } from '../net/socket'
 import { isDowned, nearestDowned } from '../../shared/downed'
-import { DOOR_AUTO_RANGE, DOOR_PROMPT_RANGE, closedDoorAabbs, nearestDoor } from '../../shared/doors'
+import { DOOR_AUTO_RANGE, DOOR_PROMPT_RANGE, closedDoorAabbs, inspectNearestDoor, nearestDoor } from '../../shared/doors'
 import { OTS_LOOK_Y } from '../../shared/camera'
 import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
 import { resolvePlayerMove } from '../physics/collision'
@@ -209,10 +209,14 @@ export function LocalController({
         const nearDowned = nearestDowned(player.id, pos.current.x, pos.current.z, Object.values(st.players))
         if (nearDowned) return
         if (seatedRef.current) void emitSit(null)
-        else if (nearestDoor(pos.current.x, pos.current.z, doorsOf(st.scene), DOOR_PROMPT_RANGE)) {
-          emitDoorToggle(undefined, pos.current.x, pos.current.z)
+        else {
+          const defs = doorsOf(st.scene)
+          const near = nearestDoor(pos.current.x, pos.current.z, defs, DOOR_PROMPT_RANGE)
+          const inspect = inspectNearestDoor(pos.current.x, pos.current.z, defs)
+          console.log('[door] E', { x: pos.current.x, z: pos.current.z, scene: st.scene, near, inspect })
+          if (near) emitDoorToggle(near.id, pos.current.x, pos.current.z)
+          else tryHide()
         }
-        else tryHide()
       }
     }
     const up = (e: KeyboardEvent) => {
@@ -418,9 +422,10 @@ export function LocalController({
     if (st.autoOpenDoors && st.mode !== 'tag' && !player.seated && player.team !== 'spectator') {
       const auto = nearestDoor(pos.current.x, pos.current.z, doorsOf(st.scene), DOOR_AUTO_RANGE)
       const doorState = auto ? st.doors.find((d) => d.id === auto.id) : null
-      if (auto && doorState && !doorState.open && lastAutoDoor.current !== auto.id) {
+      if (auto && (!doorState || !doorState.open) && lastAutoDoor.current !== auto.id) {
         lastAutoDoor.current = auto.id
-        emitDoorToggle(auto.id, pos.current.x, pos.current.z)
+        console.log('[door] auto', { id: auto.id, x: pos.current.x, z: pos.current.z })
+        emitDoorToggle(auto.id, pos.current.x, pos.current.z, true)
       }
       if (!auto) lastAutoDoor.current = null
     }

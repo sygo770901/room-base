@@ -3,7 +3,7 @@ export const DOOR_RANGE = 1.5
 export const DOOR_PROMPT_RANGE = 2
 export const DOOR_AUTO_RANGE = 1.5
 export const DOOR_AUTO_CLOSE_MS = 3000
-export const DOOR_CLIENT_SLACK = 4
+export const DOOR_CLIENT_SLACK = 12
 export const DOOR_ANIM_MS = 400
 export const DOOR_MONSTER_WAIT_MS = 1000
 export const DOOR_WIDTH = 2.6
@@ -66,6 +66,38 @@ export function occupantInDoor(def: DoorDef, x: number, z: number, r = 0.3) {
   return Math.abs(x - b.cx) <= b.hx + pad + r && Math.abs(z - b.cz) <= b.hz + pad + r
 }
 
+/** 到門板表面的距離，不要只量中心點。 */
+export function doorSurfaceDist(x: number, z: number, def: DoorDef) {
+  const b = doorBox(def)
+  const nx = Math.max(b.cx - b.hx, Math.min(x, b.cx + b.hx))
+  const nz = Math.max(b.cz - b.hz, Math.min(z, b.cz + b.hz))
+  return Math.hypot(x - nx, z - nz)
+}
+
+export function inspectNearestDoor(x: number, z: number, defs: DoorDef[]) {
+  let best: DoorDef | null = null
+  let dist = Infinity
+  let center = Infinity
+  for (const d of defs) {
+    const sd = doorSurfaceDist(x, z, d)
+    if (sd < dist) {
+      best = d
+      dist = sd
+      center = Math.hypot(d.x - x, d.z - z)
+    }
+  }
+  return best ? { id: best.id, x: best.x, z: best.z, dist, center } : null
+}
+
+export type DoorRejectReason =
+  | 'seated'
+  | 'spectator'
+  | 'downed'
+  | 'no-door'
+  | 'busy'
+  | 'blocked'
+  | 'ok'
+
 /** 只拿來判斷距離，不可以改玩家座標。 */
 export function doorToggleAim(
   lastX: number,
@@ -83,7 +115,8 @@ export function doorToggleAim(
     }
   }
   const hinted = typeof payload.id === 'string' ? doorDef(payload.id, defs) : undefined
-  const near = hinted && Math.hypot(hinted.x - px, hinted.z - pz) <= range ? hinted : nearestDoor(px, pz, defs, range)
+  const near =
+    hinted && doorSurfaceDist(px, pz, hinted) <= range ? hinted : nearestDoor(px, pz, defs, range)
   return { x: px, z: pz, door: near ?? null }
 }
 
@@ -99,7 +132,7 @@ export function nearestDoor(x: number, z: number, defs: DoorDef[], range = DOOR_
   let best: DoorDef | null = null
   let bestD = range
   for (const d of defs) {
-    const dist = Math.hypot(d.x - x, d.z - z)
+    const dist = doorSurfaceDist(x, z, d)
     if (dist <= bestD) {
       best = d
       bestD = dist

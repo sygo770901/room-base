@@ -321,6 +321,10 @@ function bindListeners(s: Socket) {
     setTimeout(() => useAppStore.getState().setToast(null), 1600)
   })
 
+  s.on('door:debug', (info: Record<string, unknown>) => {
+    console.log('[door] server', info)
+  })
+
   s.on('note:added', (note: StickyNote) => {
     useAppStore.getState().addNote(note)
   })
@@ -487,6 +491,7 @@ function emitJoin(session: RoomSession) {
         }
         const hid = snapshot.players[assigned]?.hidden
         if (lastPose && !hid) s.emit('move', lastPose)
+        s.emit('door:auto', { on: useAppStore.getState().autoOpenDoors })
         markOnline()
         resolve(snapshot)
       },
@@ -635,8 +640,14 @@ export function emitRescueHold(targetId: string) {
   socket?.emit('rescue:hold', { targetId })
 }
 
-export function emitDoorToggle(id?: string, x?: number, z?: number) {
-  socket?.emit('door:toggle', { id, x, z })
+export function emitDoorToggle(id?: string, x?: number, z?: number, auto = false) {
+  const payload = { id, x, z, auto }
+  console.log('[door] send', payload)
+  socket?.emit('door:toggle', payload)
+}
+
+export function emitDoorAuto(on: boolean) {
+  socket?.emit('door:auto', { on })
 }
 
 export function emitScene(scene: SceneId) {

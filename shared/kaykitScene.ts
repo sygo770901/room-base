@@ -19,7 +19,6 @@ function outward(rotY: number): [number, number] {
 
 function wallModel(x: number, z: number) {
   const n = Math.abs(Math.round(x) * 3 + Math.round(z) * 7)
-  if (n % 9 === 0) return 'wall_doorway.gltf'
   if (n % 7 === 0) return 'wall_gated.gltf'
   return 'wall.gltf'
 }

@@ -49,9 +49,10 @@ import {
   DOOR_AUTO_CLOSE_MS,
   DOOR_AUTO_RANGE,
   DOOR_PROMPT_RANGE,
-  DOOR_RANGE,
   createDoors,
+  doorSurfaceDist,
   doorToggleAim,
+  inspectNearestDoor,
   occupantInDoor,
   type DoorState,
 } from '../shared/doors.ts'
@@ -114,6 +115,7 @@ export interface RoomState {
   poopSlowUntil: Record<string, number>
   poopImmuneUntil: Record<string, number>
   doorNearAt: Record<string, number>
+  doorAuto: Record<string, boolean>
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -164,6 +166,7 @@ function createRoom(roomId: string): RoomState {
     poopSlowUntil: {},
     poopImmuneUntil: {},
     doorNearAt: {},
+    doorAuto: {},
   }
 }
 
@@ -259,12 +262,19 @@ function tickAutoDoors(room: RoomState, io: Server, now: number) {
   for (const door of room.doors) {
     const def = defs.find((d) => d.id === door.id)
     if (!def) continue
-    const near = Object.values(room.players).some((p) => {
+    const nearPlayers = Object.values(room.players).filter((p) => {
       if (room.awayUntil[p.id] || p.team === 'spectator') return false
-      return Math.hypot(p.position[0] - def.x, p.position[2] - def.z) <= DOOR_AUTO_RANGE
+      return doorSurfaceDist(p.position[0], p.position[2], def) <= DOOR_AUTO_RANGE
     })
-    if (near) {
+    const wantAuto = nearPlayers.some((p) => room.doorAuto[p.id] !== false)
+    if (nearPlayers.length) {
       room.doorNearAt[door.id] = now
+      if (wantAuto && !door.open && now >= door.busyUntil) {
+        door.open = true
+        door.busyUntil = now + DOOR_ANIM_MS
+        changed = true
+        console.log('[door] auto-open', { room: room.roomId, id: door.id, near: nearPlayers.map((p) => p.id) })
+      }
       continue
     }
     if (door.open && room.doorNearAt[door.id] && now - room.doorNearAt[door.id] >= DOOR_AUTO_CLOSE_MS) {
@@ -387,6 +397,7 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
   delete room.nextDash[playerId]
   delete room.nextSmoke[playerId]
   delete room.nextPhrase[playerId]
+  delete room.doorAuto[playerId]
   playerSockets.delete(playerId)
 
   applyLiveHost(room)
@@ -565,9 +576,11 @@ export function attachSocketServer(httpServer: HttpServer) {
                   : undefined,
           }
           room.players[playerId] = player
+          room.doorAuto[playerId] = true
           resumed = false
         } else {
           applyResume(player, payload.resume)
+          if (room.doorAuto[playerId] == null) room.doorAuto[playerId] = true
         }
         room.lastMoveAt[playerId] = Date.now()
         if (secret) room.secrets[playerId] = secret
@@ -751,35 +764,84 @@ export function attachSocketServer(httpServer: HttpServer) {
       io.to(playerId).emit('dash:result', { ok: true, nextAt, until })
     })
 
-    socket.on('door:toggle', (payload: { id?: string; x?: number; z?: number } = {}) => {
+    socket.on('door:auto', (payload: { on?: boolean } = {}) => {
       const ctx = inRoom(socket, currentRoomId)
       if (!ctx) return
+      ctx.room.doorAuto[ctx.playerId] = payload.on !== false
+    })
+
+    socket.on('door:toggle', (payload: { id?: string; x?: number; z?: number; auto?: boolean } = {}) => {
+      const ctx = inRoom(socket, currentRoomId)
+      const reply = (info: Record<string, unknown>) => {
+        console.log('[door]', info)
+        if (ctx) io.to(ctx.playerId).emit('door:debug', info)
+      }
+      if (!ctx) {
+        reply({ reason: 'no-room', payload })
+        return
+      }
       const { room, player, playerId } = ctx
-      if (player.seated || player.team === 'spectator' || isDowned(player)) return
-      const now = Date.now()
       const defs = doorsOf(room.scene)
+      const inspect = inspectNearestDoor(player.position[0], player.position[2], defs)
+      const base = {
+        payload,
+        server: { x: player.position[0], z: player.position[2] },
+        scene: room.scene,
+        nearest: inspect,
+      }
+      if (player.seated) {
+        reply({ ...base, reason: 'seated' })
+        return
+      }
+      if (player.team === 'spectator') {
+        reply({ ...base, reason: 'spectator' })
+        return
+      }
+      if (isDowned(player)) {
+        reply({ ...base, reason: 'downed' })
+        return
+      }
+      const now = Date.now()
       const before = player.position.slice() as [number, number, number]
       const aim = doorToggleAim(player.position[0], player.position[2], payload, defs, DOOR_PROMPT_RANGE)
       const near = aim.door
-      if (!near) return
       if (player.position[0] !== before[0] || player.position[2] !== before[2]) {
         player.position[0] = before[0]
         player.position[2] = before[2]
       }
+      if (!near) {
+        reply({ ...base, reason: 'no-door', aim: { x: aim.x, z: aim.z } })
+        return
+      }
       const door = room.doors.find((d) => d.id === near.id)
-      if (!door || now < door.busyUntil) return
-      if (door.open) {
+      if (!door || now < door.busyUntil) {
+        reply({ ...base, reason: 'busy', doorId: near.id, dist: doorSurfaceDist(aim.x, aim.z, near) })
+        return
+      }
+      if (door.open && !payload.auto) {
         for (const p of Object.values(room.players)) {
           if (room.awayUntil[p.id] || p.team === 'spectator') continue
           if (occupantInDoor(near, p.position[0], p.position[2])) {
             io.to(playerId).emit('door:result', { ok: false, reason: 'blocked' })
+            reply({ ...base, reason: 'blocked', doorId: near.id })
             return
           }
         }
       }
-      door.open = !door.open
+      if (payload.auto && door.open) {
+        reply({ ...base, reason: 'already-open', doorId: near.id })
+        return
+      }
+      door.open = payload.auto ? true : !door.open
       door.busyUntil = now + DOOR_ANIM_MS
       io.to(room.roomId).emit('doors:sync', room.doors)
+      reply({
+        ...base,
+        reason: 'ok',
+        doorId: near.id,
+        open: door.open,
+        dist: doorSurfaceDist(aim.x, aim.z, near),
+      })
       if (room.mode === 'tag') {
         for (const id of Object.keys(room.players)) emitPlayerMoved(room, io, id)
       }
