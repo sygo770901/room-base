@@ -1225,7 +1225,10 @@ input {
 
 .map-load.fail {
   min-width: 0;
+  top: auto;
+  bottom: 18%;
   background: rgba(196, 69, 54, 0.9);
+  pointer-events: auto;
 }
 
 .map-load-bar {

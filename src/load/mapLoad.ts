@@ -6,6 +6,7 @@ import { DUCK_URL } from '../scene/DuckKing'
 import { useAppStore } from '../store'
 
 export const MAP_LOAD_SLOW_MS = 8000
+const FILE_TIMEOUT_MS = 10000
 
 export function asMapPercent(progress: number, loaded: number, total: number) {
   const fromRatio = progress > 0 && progress <= 1 ? progress * 100 : progress
@@ -28,6 +29,17 @@ export function criticalModelUrls(scene: string) {
   return [...new Set([...dungeonModelUrls(scene), ...heroModelUrls(), DUCK_URL])]
 }
 
+function fetchWithTimeout(url: string, ms: number) {
+  const ctrl = new AbortController()
+  const timer = window.setTimeout(() => ctrl.abort(), ms)
+  return fetch(url, { signal: ctrl.signal })
+    .then((res) => {
+      if (!res.ok) throw new Error(String(res.status))
+      return res.arrayBuffer()
+    })
+    .finally(() => window.clearTimeout(timer))
+}
+
 let preloadGen = 0
 
 export function startCriticalPreload(scene: string) {
@@ -36,24 +48,31 @@ export function startCriticalPreload(scene: string) {
   const total = Math.max(1, urls.length)
   let finished = 0
   THREE.Cache.enabled = true
-  useAppStore.getState().setMapLoadProgress(0, true)
-  useAppStore.getState().setMapLoadCounts(0, urls.length)
-  useAppStore.getState().setMapLoadSlow(false)
+  const store = useAppStore.getState()
+  store.setMapLoadFailed(false)
+  store.setMapLoadSlow(false)
+  store.setMapLoadCounts(0, urls.length)
+  store.setMapLoadProgress(0, true)
 
   const tick = () => {
     if (gen !== preloadGen) return
-    const pct = (finished / total) * 100
+    const pct = asMapPercent(0, finished, total)
     useAppStore.getState().setMapLoadCounts(finished, urls.length)
     useAppStore.getState().setMapLoadProgress(pct, finished < total)
+    if (finished >= total) useAppStore.getState().setMapLoadProgress(100, false)
   }
 
   for (const url of urls) {
-    useGLTF.preload(url)
-    void fetch(url)
-      .then((res) => {
-        if (!res.ok) throw new Error(String(res.status))
-        return res.arrayBuffer()
-      })
+    if (THREE.Cache.get(url)) {
+      finished += 1
+      continue
+    }
+    try {
+      useGLTF.preload(url)
+    } catch {
+      /* 預載失敗仍走 fetch，最後用簡易模型 */
+    }
+    void fetchWithTimeout(url, FILE_TIMEOUT_MS)
       .then(() => {
         if (gen !== preloadGen) return
         finished += 1
@@ -66,6 +85,7 @@ export function startCriticalPreload(scene: string) {
         tick()
       })
   }
+  tick()
 
   const slowId = window.setTimeout(() => {
     if (gen !== preloadGen) return
