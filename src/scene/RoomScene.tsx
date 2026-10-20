@@ -14,7 +14,18 @@ import {
   TORCH_LIGHT_RANGE,
 } from '../../shared/perf'
 import { POINTER_LOOK_SCALE } from '../../shared/input'
-import { OTS_DIST, OTS_LOOK_Y, OTS_MAX_PHI, OTS_MAX_RADIUS, OTS_MIN_PHI, OTS_MIN_RADIUS, OTS_RIGHT } from '../../shared/camera'
+import {
+  OTS_CEILING_Y,
+  OTS_DIST,
+  OTS_LOOK_Y,
+  OTS_MAX_PHI,
+  OTS_MAX_RADIUS,
+  OTS_MIN_PHI,
+  OTS_MIN_PULL,
+  OTS_MIN_RADIUS,
+  OTS_RIGHT,
+  otsThetaFromFacing,
+} from '../../shared/camera'
 import { minimapYawFromForward } from '../../shared/minimap'
 import { canvasDpr, isMobileDevice } from '../perf/device'
 import { bindPointerLockWatch, exitGameLock, isAltHeld, isPointerInWindow, requestGameLock, setPointerInWindow } from './pointerLock'
@@ -33,7 +44,7 @@ import { LocalController } from './LocalController'
 import { SmokeClouds } from './SmokeClouds'
 import { Barrels } from './Barrels'
 import { Doors } from './Doors'
-import { bindLoadErrorWatch, fileLabel, startCriticalPreload } from '../load/mapLoad'
+import { fileLabel } from '../load/mapLoad'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
@@ -51,17 +62,7 @@ const rigOffset = new THREE.Vector3()
 const rigSpherical = new THREE.Spherical()
 
 function MapProgressBridge() {
-  const sceneId = useAppStore((s) => s.scene)
-  const retry = useAppStore((s) => s.mapLoadRetry)
   const { errors } = useProgress()
-  useEffect(() => {
-    const stopWatch = bindLoadErrorWatch()
-    const stopPreload = startCriticalPreload(sceneId)
-    return () => {
-      stopWatch()
-      stopPreload()
-    }
-  }, [sceneId, retry])
   useEffect(() => {
     for (const url of errors) {
       if (url) useAppStore.getState().addMapLoadError(fileLabel(url))
@@ -161,7 +162,12 @@ function FollowLight({ mobile }: { mobile: boolean }) {
 
 function CameraRig() {
   const { camera, controls, gl } = useThree()
-  const saved = useRef({ theta: 0.8, phi: 1.3, radius: useAppStore.getState().camDist, ready: true })
+  const saved = useRef({
+    theta: otsThetaFromFacing(0),
+    phi: 1.3,
+    radius: useAppStore.getState().camDist,
+    facingReady: false,
+  })
   const drag = useRef<{ id: number; x: number; y: number; mode: 'look' | 'zoom' } | null>(null)
   const touches = useRef(new Map<number, { x: number; y: number }>())
   const pinchDist = useRef(0)
@@ -280,7 +286,15 @@ function CameraRig() {
     const target = (controls as { target?: THREE.Vector3 } | null)?.target
     if (!target) return
     const shot = saved.current
-    shot.radius = THREE.MathUtils.clamp(useAppStore.getState().camDist, MIN_RADIUS, MAX_RADIUS)
+    const st = useAppStore.getState()
+    if (!shot.facingReady) {
+      const me = st.selfId ? st.players[st.selfId] : null
+      if (me) {
+        shot.theta = otsThetaFromFacing(me.rotationY ?? 0)
+        shot.facingReady = true
+      }
+    }
+    shot.radius = THREE.MathUtils.clamp(st.camDist, MIN_RADIUS, MAX_RADIUS)
     shot.phi = THREE.MathUtils.clamp(shot.phi, MIN_PHI, MAX_PHI)
     rigSpherical.set(shot.radius, shot.phi, shot.theta)
     rigOffset.setFromSpherical(rigSpherical)
@@ -319,9 +333,11 @@ function CameraGuard() {
           extraAabbsOf(state.scene).map((b) => ({ ...b, minY: 0, maxY: 4 })),
           closedDoorAabbs(state.doors, doorsOf(state.scene)).map((b) => ({ ...b, minY: 0, maxY: 3.2 })),
         )
-        const hit = rayOcclusion(target.x, target.y, target.z, dirx, diry, dirz, dist, extra)
+        const hit = rayOcclusion(target.x, target.y, target.z, dirx, diry, dirz, dist, extra, {
+          skipCeilingY: OTS_CEILING_Y,
+        })
         if (hit < dist - 0.12) {
-          const desired = Math.max(0.85, hit - 0.28)
+          const desired = Math.max(OTS_MIN_PULL, hit - 0.28)
           if (desired < dist) {
             const nd = THREE.MathUtils.damp(dist, desired, 10, dt)
             camera.position.set(target.x + dirx * nd, target.y + diry * nd, target.z + dirz * nd)
@@ -429,7 +445,7 @@ function SceneContent() {
 
 export function RoomScene() {
   const mobile = isMobileDevice()
-  const cameraPos: [number, number, number] = [SPAWN.x + OTS_RIGHT, OTS_LOOK_Y + 1.2, SPAWN.z + OTS_DIST]
+  const cameraPos: [number, number, number] = [SPAWN.x + OTS_RIGHT, OTS_LOOK_Y + 1.2, SPAWN.z - OTS_DIST]
   return (
     <Canvas
       shadows={!mobile}
