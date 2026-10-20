@@ -6,6 +6,7 @@ import {
   type Place,
   type WallBox,
 } from './dungeon'
+import { DOORWAY_DEFS } from './doorways'
 
 /** 牆中心往走道外側挪 0.5m，內側面才會貼在 4m 格子邊上。 */
 const OUT = 0.5
@@ -53,6 +54,10 @@ for (const wall of WALL_PLACES) {
 
 for (const prop of PROP_LIST) {
   places.push({ x: prop.x, y: 0, z: prop.z, rotY: prop.rotY, model: 'pillar.gltf' })
+}
+
+for (const d of DOORWAY_DEFS) {
+  places.push({ x: d.x, y: 0, z: d.z, rotY: d.rotY, model: 'wall_doorway.gltf' })
 }
 
 places.push(

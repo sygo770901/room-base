@@ -19,11 +19,14 @@ export function pointerJustUnlocked(ms = 400) {
   return performance.now() - unlockedAt < ms
 }
 
-export function typingInField() {
-  const el = document.activeElement as HTMLElement | null
+export function gameKeysBlocked(el: { tagName?: string; isContentEditable?: boolean } | null) {
   if (!el) return false
   const tag = el.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable
+  return tag === 'INPUT' || tag === 'TEXTAREA' || Boolean(el.isContentEditable)
+}
+
+export function typingInField() {
+  return gameKeysBlocked(document.activeElement as HTMLElement | null)
 }
 
 export function hudBlocksPointer(target: EventTarget | null) {
