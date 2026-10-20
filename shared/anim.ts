@@ -10,6 +10,16 @@ export const COMBO_LEN = COMBO_CLIP_NAMES.length
 export type HitAnim = 'A' | 'B' | 'death'
 export type JumpPhase = 'start' | 'idle' | 'land'
 
+/** 倒地動畫只在活著→倒地那一刻播一次，之後停在最後一格。 */
+export type DeathAnimPhase = 'play' | 'hold' | 'idle' | 'live'
+
+export function deathAnimTrigger(wasDowned: boolean, downed: boolean): DeathAnimPhase {
+  if (downed && !wasDowned) return 'play'
+  if (!downed && wasDowned) return 'idle'
+  if (downed) return 'hold'
+  return 'live'
+}
+
 export function nextComboStep(prevStep: number, lastAt: number, now: number) {
   if (!lastAt || now - lastAt > COMBO_RESET_MS) return 0
   return (prevStep + 1) % COMBO_LEN

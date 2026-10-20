@@ -5,7 +5,7 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import * as THREE from 'three'
 import { PLAYER_CLASS, type ClassId } from '../../shared/classes'
 import type { HeldWeapon } from '../../shared/barrels'
-import { COMBO_CLIP_NAMES, type HitAnim, type JumpPhase } from '../../shared/anim'
+import { COMBO_CLIP_NAMES, deathAnimTrigger, type HitAnim, type JumpPhase } from '../../shared/anim'
 
 const ROOT = '/assets/kaykit/adventurers'
 const CHAR: Record<ClassId, string> = {
@@ -275,6 +275,7 @@ export function KayKitHero({
   const lastHit = useRef(0)
   const lastThrow = useRef(0)
   const lastJump = useRef<JumpPhase | null>(null)
+  const wasDowned = useRef(false)
   const locoRef = useRef({ moving, running, dashing, dashUntil, seated, jumpPhase })
   locoRef.current = { moving, running, dashing, dashUntil, seated, jumpPhase }
 
@@ -317,7 +318,8 @@ export function KayKitHero({
         play(phase === 'land' ? actions.jumpLand : actions.jumpIdle ?? loco(), 0.08)
         return
       }
-      if (act === actions.jumpLand || act === actions.death || act === actions.hitA || act === actions.hitB || actions.combo.includes(act)) {
+      if (act === actions.death) return
+      if (act === actions.jumpLand || act === actions.hitA || act === actions.hitB || actions.combo.includes(act)) {
         play(loco(), 0.12)
       }
     }
@@ -333,13 +335,23 @@ export function KayKitHero({
   )
 
   useFrame((_, dt) => {
-    if (downed) {
-      if (actions.death) {
-        actions.death.clampWhenFinished = true
-        play(actions.death, 0.06)
-      }
+    const phase = deathAnimTrigger(wasDowned.current, Boolean(downed))
+    wasDowned.current = Boolean(downed)
+    if (phase === 'play' && actions.death) {
+      actions.death.setLoop(THREE.LoopOnce, 1)
+      actions.death.clampWhenFinished = true
+      current.current?.fadeOut(0.06)
+      actions.death.reset().fadeIn(0.06).play()
+      current.current = actions.death
       mixer.update(dt)
       return
+    }
+    if (phase === 'hold') {
+      mixer.update(dt)
+      return
+    }
+    if (phase === 'idle') {
+      play(actions.idle ?? loco(), 0.16)
     }
     if (hitAt > lastHit.current && hitKind) {
       lastHit.current = hitAt
