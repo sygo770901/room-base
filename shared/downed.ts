@@ -1,5 +1,10 @@
 /** 打鴨王倒地救援（先定，昱豪可改）。 */
 export const DOWNED_MS = 15_000
+export const DOWNED_SOLO_MS = 3_000
+export const CORPSE_MS = 3_000
+export const CORPSE_BLOCK_MS = 2_000
+export const MATCH_WIN_DELAY_MS = 2_800
+export const RESPAWN_FADE_MS = 450
 export const RESCUE_RANGE = 1.5
 export const RESCUE_HOLD_MS = 2000
 export const RESCUE_HP = 40

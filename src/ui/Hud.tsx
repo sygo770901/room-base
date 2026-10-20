@@ -71,6 +71,7 @@ export function Hud() {
   const localX = useAppStore((s) => s.localX)
   const localZ = useAppStore((s) => s.localZ)
   const poopVignetteUntil = useAppStore((s) => s.poopVignetteUntil)
+  const respawnFadeUntil = useAppStore((s) => s.respawnFadeUntil)
   const doorNear = self && nearestDoor(localX || self.position?.[0] || 0, localZ || self.position?.[2] || 0, doorsOf(scene), DOOR_RANGE)
 
   useEffect(() => {
@@ -277,6 +278,7 @@ export function Hud() {
 
       {toast && <div className="toast">{toast}</div>}
       {poopVignetteUntil > nowMs && <div className="poop-vignette" aria-hidden />}
+      {typeof performance !== 'undefined' && performance.now() < respawnFadeUntil && <div className="respawn-fade" aria-hidden />}
 
       <div className="objective-banner" aria-live="polite">
         {mode === 'boss'

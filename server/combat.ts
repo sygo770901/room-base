@@ -103,7 +103,7 @@ import {
 import type { TagState } from '../shared/tag.ts'
 import { handleTagAttack, tickTag } from './tag.ts'
 import { computeAwards } from '../shared/awards.ts'
-import { DOWNED_MS, RESCUE_HP, isDowned } from '../shared/downed.ts'
+import { CORPSE_MS, DOWNED_MS, DOWNED_SOLO_MS, MATCH_WIN_DELAY_MS, RESCUE_HP, isDowned } from '../shared/downed.ts'
 import { announce } from './feed.ts'
 import type { PlayerState } from './types.ts'
 
@@ -141,6 +141,7 @@ export interface ServerMonster {
   windupZ: number
   doorWaitUntil: number
   waitingDoorId: string | null
+  diedAt: number
 }
 
 export interface CombatRoom {
@@ -178,6 +179,7 @@ export interface CombatRoom {
   rescues?: Record<string, number>
   hideMs?: Record<string, number>
   feed?: import('../shared/events.ts').FeedItem[]
+  pendingWinAt?: number
 }
 
 function fromDef(d: MonsterDef): ServerMonster {
@@ -193,6 +195,7 @@ function fromDef(d: MonsterDef): ServerMonster {
     z: d.patrol[0]?.z ?? FLOOR_CENTERS[0]?.z ?? 22,
     rotationY: 0,
     alive: true,
+    diedAt: 0,
     patrol: d.patrol,
     patrolI: 0,
     nextHit: 0,
@@ -239,6 +242,7 @@ export function publicMonsters(list: ServerMonster[]): MonsterState[] {
     hp: m.hp,
     maxHp: m.maxHp,
     alive: m.alive,
+    diedAt: m.diedAt || undefined,
     pouncing: m.kind === 'dispenser' && m.pounceUntil > Date.now(),
     phase: m.kind === 'duck-king' ? m.phase : undefined,
     casting: m.model === 'mage' && m.castUntil > Date.now(),
@@ -350,14 +354,16 @@ export function standPlayer(room: CombatRoom, io: Server, player: PlayerState, n
 }
 
 function wipeIfAllDowned(room: CombatRoom, io: Server, now: number) {
-  if (room.mode !== 'boss') return
   const live = Object.values(room.players).filter((p) => !room.awayUntil?.[p.id] && p.team !== 'spectator')
-  if (!live.length || !live.every((p) => isDowned(p, now))) return
-  for (const p of live) respawnPlayer(room, io, p, now)
+  if (!live.length || !live.every((p) => isDowned(p, now) || p.hp <= 0)) return
+  for (const p of live) {
+    p.downedUntil = Math.min(p.downedUntil || now + DOWNED_SOLO_MS, now + DOWNED_SOLO_MS)
+    io.to(room.roomId).emit('player:vitals', { id: p.id, hp: p.hp, downedUntil: p.downedUntil })
+  }
 }
 
 export function tickDowned(room: CombatRoom, io: Server, now: number) {
-  if (room.mode !== 'boss' || room.matchOver) return
+  if (room.matchOver) return
   for (const p of Object.values(room.players)) {
     if (p.downedUntil && now >= p.downedUntil && p.hp <= 0) respawnPlayer(room, io, p, now)
   }
@@ -383,15 +389,15 @@ function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: numb
     hitAnim,
   })
   if (player.hp <= 0) {
-    if (room.mode === 'boss' && room.started && !room.matchOver) {
-      player.hp = 0
-      player.downedUntil = now + DOWNED_MS
-      room.hurtUntil[player.id] = now + PLAYER_HURT_IFRAME_MS
-      io.to(room.roomId).emit('player:vitals', { id: player.id, hp: 0, downedUntil: player.downedUntil })
-      wipeIfAllDowned(room, io, now)
-    } else {
-      respawnPlayer(room, io, player, now)
-    }
+    player.hp = 0
+    const mates = Object.values(room.players).filter(
+      (p) => p.id !== player.id && !room.awayUntil?.[p.id] && p.team !== 'spectator' && p.hp > 0 && !isDowned(p, now),
+    )
+    const canRescue = room.mode === 'boss' && room.started && !room.matchOver && mates.length > 0
+    player.downedUntil = now + (canRescue ? DOWNED_MS : DOWNED_SOLO_MS)
+    room.hurtUntil[player.id] = now + PLAYER_HURT_IFRAME_MS
+    io.to(room.roomId).emit('player:vitals', { id: player.id, hp: 0, downedUntil: player.downedUntil })
+    wipeIfAllDowned(room, io, now)
   } else {
     room.hurtUntil[player.id] = now + PLAYER_HURT_IFRAME_MS
   }
@@ -965,6 +971,7 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
   }
   if (room.matchOver) return
   tickDowned(room, io, now)
+  flushPendingWin(room, io, now)
   if (room.mode === 'tag') {
     tickTag(room, io, now)
     return
@@ -977,11 +984,17 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
 }
 
 function maybeWin(room: CombatRoom, io: Server, _killerId: string) {
-  if (room.mode !== 'boss' || room.matchOver) return
+  if (room.mode !== 'boss' || room.matchOver || room.pendingWinAt) return
   const duck = room.monsters.find((m) => m.kind === 'duck-king')
   if (!duck || duck.alive) return
   if (room.monsters.some((m) => m.kind === 'dispenser' && m.alive)) return
+  room.pendingWinAt = Date.now() + MATCH_WIN_DELAY_MS
+}
+
+function flushPendingWin(room: CombatRoom, io: Server, now: number) {
+  if (!room.pendingWinAt || now < room.pendingWinAt || room.matchOver) return
   room.matchOver = { teamWin: true, reason: 'cleared', ranking: rankingOf(room), awards: bossAwards(room) }
+  room.pendingWinAt = undefined
   emitDuckSpeech(room, io, null)
   io.to(room.roomId).emit('match:over', room.matchOver)
 }
@@ -1118,7 +1131,8 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
   if (best.hp <= 0) {
     best.hp = 0
     best.alive = false
-    best.respawnAt = room.mode === 'boss' ? Number.POSITIVE_INFINITY : now + RESPAWN_MS
+    best.diedAt = now
+    best.respawnAt = room.mode === 'boss' ? Number.POSITIVE_INFINITY : Math.max(now + CORPSE_MS, now + RESPAWN_MS)
     if (best.kind === 'dispenser') {
       if (!room.dispenserKills) room.dispenserKills = {}
       room.dispenserKills[playerId] = (room.dispenserKills[playerId] ?? 0) + 1

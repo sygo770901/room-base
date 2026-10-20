@@ -782,6 +782,20 @@ input {
   color: #1a120c;
 }
 
+.respawn-fade {
+  position: absolute;
+  inset: 0;
+  z-index: 34;
+  pointer-events: none;
+  background: #0c0c10;
+  animation: respawn-fade 0.45s ease;
+}
+
+@keyframes respawn-fade {
+  0% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+
 .poop-vignette {
   position: absolute;
   inset: 0;

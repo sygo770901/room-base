@@ -15,6 +15,7 @@ export interface MonsterState {
   hp: number
   maxHp: number
   alive: boolean
+  diedAt?: number
   /** 飲水機正在衝撞玩家 */
   pouncing?: boolean
   phase?: 1 | 2

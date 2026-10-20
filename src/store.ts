@@ -76,6 +76,7 @@ interface AppState {
   joy: { x: number; y: number }
   /** 被怪物打倒後遞增，讓本地控制器把座標拉回入口 */
   respawnToken: number
+  respawnFadeUntil: number
   pendingNote: { text: string; fontSize: number } | null
   noteAsk: NoteAsk | null
   swings: Record<string, number>
@@ -199,6 +200,7 @@ export const useAppStore = create<AppState>((set) => ({
   followCam: true,
   joy: { x: 0, y: 0 },
   respawnToken: 0,
+  respawnFadeUntil: 0,
   pendingNote: null,
   noteAsk: null,
   swings: {},
@@ -348,7 +350,7 @@ export const useAppStore = create<AppState>((set) => ({
   setDoors: (doors) => set({ doors }),
   setDuckSpeech: (speech) => set({ duckSpeech: speech }),
   setHurtFlash: (id, until) => set((s) => ({ hurtFlashUntil: { ...s.hurtFlashUntil, [id]: until } })),
-  bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
+  bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1, respawnFadeUntil: performance.now() + 450 })),
   bumpPoseSync: () => set((s) => ({ poseSync: s.poseSync + 1 })),
   setTagHud: (hud) => set({ tagHud: hud }),
   triggerHitFeel: (kind) => {
