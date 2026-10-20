@@ -15,6 +15,7 @@ import {
 } from '../../shared/perf'
 import { POINTER_LOOK_SCALE } from '../../shared/input'
 import { OTS_DIST, OTS_LOOK_Y, OTS_MAX_PHI, OTS_MAX_RADIUS, OTS_MIN_PHI, OTS_MIN_RADIUS, OTS_RIGHT } from '../../shared/camera'
+import { minimapYawFromForward } from '../../shared/minimap'
 import { canvasDpr, isMobileDevice } from '../perf/device'
 import { bindPointerLockWatch, exitGameLock, isAltHeld, isPointerInWindow, requestGameLock, setPointerInWindow } from './pointerLock'
 import { typingInField } from './inputLock'
@@ -44,7 +45,6 @@ const MAX_PHI = OTS_MAX_PHI
 const MIN_RADIUS = OTS_MIN_RADIUS
 const MAX_RADIUS = OTS_MAX_RADIUS
 const ROTATE_SPEED = 0.3
-const SHOULDER_DIST = OTS_DIST
 const SHOULDER_RIGHT = OTS_RIGHT
 const LOOK_Y = OTS_LOOK_Y
 const rigOffset = new THREE.Vector3()
@@ -161,7 +161,7 @@ function FollowLight({ mobile }: { mobile: boolean }) {
 
 function CameraRig() {
   const { camera, controls, gl } = useThree()
-  const saved = useRef({ theta: 0.8, phi: 1.28, radius: SHOULDER_DIST, ready: false })
+  const saved = useRef({ theta: 0.8, phi: 1.3, radius: useAppStore.getState().camDist, ready: true })
   const drag = useRef<{ id: number; x: number; y: number; mode: 'look' | 'zoom' } | null>(null)
   const touches = useRef(new Map<number, { x: number; y: number }>())
   const pinchDist = useRef(0)
@@ -170,8 +170,9 @@ function CameraRig() {
     const el = gl.domElement
     const unwatch = bindPointerLockWatch(el)
     const arm = (scale: number) => {
-      const next = saved.current
-      next.radius = THREE.MathUtils.clamp(next.radius * scale, MIN_RADIUS, MAX_RADIUS)
+      const cur = useAppStore.getState().camDist
+      useAppStore.getState().setCamDist(cur * scale)
+      saved.current.radius = useAppStore.getState().camDist
     }
     const down = (e: PointerEvent) => {
       if (e.pointerType === 'touch') {
@@ -279,17 +280,7 @@ function CameraRig() {
     const target = (controls as { target?: THREE.Vector3 } | null)?.target
     if (!target) return
     const shot = saved.current
-    if (!shot.ready) {
-      rigOffset.copy(camera.position).sub(target)
-      if (rigOffset.lengthSq() > 0.01) {
-        rigSpherical.setFromVector3(rigOffset)
-        shot.theta = rigSpherical.theta
-        shot.phi = THREE.MathUtils.clamp(rigSpherical.phi, MIN_PHI, MAX_PHI)
-        shot.radius = THREE.MathUtils.clamp(rigSpherical.radius, MIN_RADIUS, MAX_RADIUS)
-        shot.ready = true
-      }
-    }
-    shot.radius = THREE.MathUtils.clamp(shot.radius, MIN_RADIUS, MAX_RADIUS)
+    shot.radius = THREE.MathUtils.clamp(useAppStore.getState().camDist, MIN_RADIUS, MAX_RADIUS)
     shot.phi = THREE.MathUtils.clamp(shot.phi, MIN_PHI, MAX_PHI)
     rigSpherical.set(shot.radius, shot.phi, shot.theta)
     rigOffset.setFromSpherical(rigSpherical)
@@ -302,7 +293,7 @@ function CameraRig() {
     }
     camera.up.set(0, 1, 0)
     camera.lookAt(target)
-    useAppStore.getState().setLookYaw(Math.atan2(target.x - camera.position.x, target.z - camera.position.z))
+    useAppStore.getState().setLookYaw(minimapYawFromForward(target.x - camera.position.x, target.z - camera.position.z))
   }, 0)
   return null
 }
@@ -438,7 +429,7 @@ function SceneContent() {
 
 export function RoomScene() {
   const mobile = isMobileDevice()
-  const cameraPos: [number, number, number] = [SPAWN.x + 1.2, 1.7, SPAWN.z + 1.8]
+  const cameraPos: [number, number, number] = [SPAWN.x + OTS_RIGHT, OTS_LOOK_Y + 1.2, SPAWN.z + OTS_DIST]
   return (
     <Canvas
       shadows={!mobile}

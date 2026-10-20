@@ -11,6 +11,7 @@ import type { SmokeCloud } from '../shared/smoke'
 import type { DoorState } from '../shared/doors'
 import type { FeedItem } from '../shared/events'
 import { LOOK_SENS_DEFAULT, LOOK_SENS_MAX, LOOK_SENS_MIN } from '../shared/input'
+import { CAM_DIST_KEY, clampCamDist, readCamDist } from '../shared/camera'
 import { loadSession } from './net/session'
 
 function readLookSens() {
@@ -58,6 +59,7 @@ interface AppState {
   shakeAmp: number
   sfxOn: boolean
   lookSensitivity: number
+  camDist: number
   pointerLocked: boolean
   lookYaw: number
   localX: number
@@ -148,6 +150,7 @@ interface AppState {
   triggerHitFeel: (kind: 'hit' | 'hurt' | 'slam') => void
   setSfxOn: (on: boolean) => void
   setLookSensitivity: (n: number) => void
+  setCamDist: (n: number) => void
   setPointerLocked: (on: boolean) => void
   setLookYaw: (yaw: number) => void
   setLocalXZ: (x: number, z: number) => void
@@ -195,6 +198,7 @@ export const useAppStore = create<AppState>((set) => ({
   shakeAmp: 0,
   sfxOn: typeof localStorage === 'undefined' ? true : localStorage.getItem('rb-sfx') !== '0',
   lookSensitivity: readLookSens(),
+  camDist: readCamDist(),
   pointerLocked: false,
   lookYaw: 0,
   localX: 0,
@@ -391,6 +395,11 @@ export const useAppStore = create<AppState>((set) => ({
     const v = Math.min(LOOK_SENS_MAX, Math.max(LOOK_SENS_MIN, n))
     if (typeof localStorage !== 'undefined') localStorage.setItem('rb-look-sens', String(v))
     set({ lookSensitivity: v })
+  },
+  setCamDist: (n) => {
+    const v = clampCamDist(n)
+    if (typeof localStorage !== 'undefined') localStorage.setItem(CAM_DIST_KEY, String(v))
+    set({ camDist: v })
   },
   setPointerLocked: (on) => set({ pointerLocked: on }),
   setLookYaw: (yaw) => set({ lookYaw: yaw }),

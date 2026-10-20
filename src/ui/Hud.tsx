@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
+import { OTS_MAX_RADIUS, OTS_MIN_RADIUS } from '../../shared/camera'
 import { LOOK_SENS_MAX, LOOK_SENS_MIN, LOOK_SENS_STEP } from '../../shared/input'
-import { disconnectSocket, emitAddNote, emitCheck, emitDoorToggle, emitHide, emitPhrase, emitRemoveNote, emitRescueHold, emitRestart, emitScene, emitStart, emitUpdateNote, performAttack } from '../net/socket'
+import { disconnectSocket, emitAddNote, emitCheck, emitDoorAuto, emitDoorToggle, emitHide, emitPhrase, emitRemoveNote, emitRescueHold, emitRestart, emitScene, emitStart, emitUpdateNote, performAttack } from '../net/socket'
 import { QUICK_PHRASES } from '../../shared/phrases'
 import { typingInField } from '../scene/inputLock'
 import { SCENE_IDS, SCENE_LABELS } from '../../shared/scenes'
@@ -43,6 +44,8 @@ export function Hud() {
   const tagHud = useAppStore((s) => s.tagHud)
   const lookSensitivity = useAppStore((s) => s.lookSensitivity)
   const setLookSensitivity = useAppStore((s) => s.setLookSensitivity)
+  const camDist = useAppStore((s) => s.camDist)
+  const setCamDist = useAppStore((s) => s.setCamDist)
   const pointerLocked = useAppStore((s) => s.pointerLocked)
   const dashReadyAt = useAppStore((s) => s.dashReadyAt)
   const requestDash = useAppStore((s) => s.requestDash)
@@ -613,6 +616,18 @@ export function Hud() {
               </label>
             )}
             <label className="sens-row">
+              鏡頭距離 {camDist.toFixed(1)}
+              <input
+                type="range"
+                min={OTS_MIN_RADIUS}
+                max={OTS_MAX_RADIUS}
+                step={0.1}
+                value={camDist}
+                onPointerDown={() => exitGameLock()}
+                onChange={(e) => setCamDist(Number(e.target.value))}
+              />
+            </label>
+            <label className="sens-row">
               字級 {fontSize.toFixed(2)}
               <input
                 type="range"
@@ -628,7 +643,10 @@ export function Hud() {
               <input
                 type="checkbox"
                 checked={autoOpenDoors}
-                onChange={(e) => setAutoOpenDoors(e.target.checked)}
+                onChange={(e) => {
+                  setAutoOpenDoors(e.target.checked)
+                  emitDoorAuto(e.target.checked)
+                }}
               />
               靠近自動開門
             </label>
