@@ -26,6 +26,27 @@ export function minimapYawFromForward(fx: number, fz: number) {
   return Math.atan2(-fz, fx)
 }
 
+/** 北朝上時的扇形中心：π/2 − 世界 yaw（atan2(dx,dz)）。 */
+export function northUpConeYaw(worldYaw: number) {
+  return Math.PI / 2 - worldYaw
+}
+
+export function worldYawFromForward(fx: number, fz: number) {
+  return Math.atan2(fx, fz)
+}
+
+/** 面朝朝上：地圖轉多少，讓目前面向變成畫面上方。 */
+export function headingUpRotation(lookYawCanvas: number) {
+  return -lookYawCanvas - Math.PI / 2
+}
+
+export const MINIMAP_HEADING_KEY = 'rb-minimap-heading'
+
+export function readMinimapHeadingUp() {
+  if (typeof localStorage === 'undefined') return true
+  return localStorage.getItem(MINIMAP_HEADING_KEY) !== '0'
+}
+
 export function minimapStep(fromX: number, fromZ: number, toX: number, toZ: number, size: number, pad: number) {
   const a = worldToMinimap(fromX, fromZ, size, pad)
   const b = worldToMinimap(toX, toZ, size, pad)

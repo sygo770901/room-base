@@ -5,6 +5,7 @@ import {
   MINIMAP_FOV_RAD,
   MINIMAP_FOV_REACH,
   MINIMAP_MOBILE_PX,
+  headingUpRotation,
   worldToMinimap,
 } from '../../shared/minimap'
 import { isMobileDevice } from '../perf/device'
@@ -31,6 +32,18 @@ function drawFloor(ctx: CanvasRenderingContext2D, size: number, pad: number) {
   ctx.strokeRect(room.x + 0.75, room.y + 0.75, rw - 1.5, rh - 1.5)
 }
 
+function drawCone(ctx: CanvasRenderingContext2D, x: number, y: number, start: number, end: number) {
+  ctx.beginPath()
+  ctx.moveTo(x, y)
+  ctx.arc(x, y, MINIMAP_FOV_REACH, start, end)
+  ctx.closePath()
+  ctx.fillStyle = 'rgba(255, 214, 120, 0.28)'
+  ctx.fill()
+  ctx.strokeStyle = '#fff6e8'
+  ctx.lineWidth = 1.4
+  ctx.stroke()
+}
+
 export function Minimap() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const size = isMobileDevice() ? MINIMAP_MOBILE_PX : MINIMAP_DESKTOP_PX
@@ -50,33 +63,40 @@ export function Minimap() {
       ctx.clearRect(0, 0, size, size)
       ctx.fillStyle = 'rgba(12, 10, 12, 0.92)'
       ctx.fillRect(0, 0, size, size)
-      drawFloor(ctx, size, pad)
       const state = useAppStore.getState()
+      const headingUp = state.minimapHeadingUp
       const selfId = state.selfId
+      const self = selfId ? state.players[selfId] : null
+      const sx = self ? state.localX || self.position?.[0] || 0 : 0
+      const sz = self ? state.localZ || self.position?.[2] || 0 : 0
+      const selfMap = worldToMinimap(sx, sz, size, pad)
+      const yaw = state.lookYaw
+      const fov = MINIMAP_FOV_RAD
+
+      ctx.save()
+      if (headingUp) {
+        ctx.translate(size / 2, size / 2)
+        ctx.rotate(headingUpRotation(yaw))
+        ctx.translate(-selfMap.x, -selfMap.y)
+      }
+      drawFloor(ctx, size, pad)
       for (const p of Object.values(state.players)) {
         if (!p.position || p.team === 'spectator') continue
-        const self = p.id === selfId
-        const wx = self ? state.localX : p.position[0]
-        const wz = self ? state.localZ : p.position[2]
+        const isSelf = p.id === selfId
+        const wx = isSelf ? sx : p.position[0]
+        const wz = isSelf ? sz : p.position[2]
         const pos = worldToMinimap(wx, wz, size, pad)
         ctx.fillStyle = p.color || '#fff'
         ctx.beginPath()
-        ctx.arc(pos.x, pos.y, self ? 4.2 : 3.1, 0, Math.PI * 2)
+        ctx.arc(pos.x, pos.y, isSelf ? 4.2 : 3.1, 0, Math.PI * 2)
         ctx.fill()
-        if (self) {
-          const yaw = state.lookYaw
-          const fov = MINIMAP_FOV_RAD
-          const reach = MINIMAP_FOV_REACH
-          ctx.beginPath()
-          ctx.moveTo(pos.x, pos.y)
-          ctx.arc(pos.x, pos.y, reach, yaw - fov / 2, yaw + fov / 2)
-          ctx.closePath()
-          ctx.fillStyle = 'rgba(255, 214, 120, 0.28)'
-          ctx.fill()
-          ctx.strokeStyle = '#fff6e8'
-          ctx.lineWidth = 1.4
-          ctx.stroke()
-        }
+      }
+      if (headingUp) {
+        ctx.restore()
+        drawCone(ctx, size / 2, size / 2, -Math.PI / 2 - fov / 2, -Math.PI / 2 + fov / 2)
+      } else {
+        ctx.restore()
+        drawCone(ctx, selfMap.x, selfMap.y, yaw - fov / 2, yaw + fov / 2)
       }
       raf = requestAnimationFrame(tick)
     }

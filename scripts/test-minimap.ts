@@ -1,4 +1,13 @@
-import { coneAgreesWithMove, minimapStep, minimapYawFromForward, turnRightDelta, worldToMinimap } from '../shared/minimap.ts'
+import {
+  coneAgreesWithMove,
+  headingUpRotation,
+  minimapStep,
+  minimapYawFromForward,
+  northUpConeYaw,
+  turnRightDelta,
+  worldToMinimap,
+  worldYawFromForward,
+} from '../shared/minimap.ts'
 
 const size = 100
 const pad = 0
@@ -32,6 +41,16 @@ if (turnRightDelta(yWest, yNorth) <= 0) throw new Error('鏡頭右轉：西→�
 const a = worldToMinimap(0, 0, size, pad)
 const b = worldToMinimap(0, 10, size, pad)
 if (b.y >= a.y) throw new Error('世界 +Z（北）應畫在小地圖上方')
+
+const eastWorld = worldYawFromForward(1, 0)
+if (Math.abs(northUpConeYaw(eastWorld)) > 1e-6) throw new Error('北朝上：朝東扇形應朝右')
+const heading = headingUpRotation(minimapYawFromForward(0, 1))
+if (Math.abs(heading + Math.PI) > 1e-6 && Math.abs(heading) > 1e-6) {
+  /* 朝北時旋轉後扇形固定朝上即可 */
+}
+if (Math.abs(headingUpRotation(minimapYawFromForward(0, 1)) - (-Math.PI / 2 - minimapYawFromForward(0, 1))) > 1e-9) {
+  throw new Error('面朝朝上旋轉公式不對')
+}
 
 console.log('minimap: ok', {
   north: north.dy < 0 ? 'up' : 'down',

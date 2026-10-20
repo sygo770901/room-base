@@ -12,6 +12,7 @@ import type { DoorState } from '../shared/doors'
 import type { FeedItem } from '../shared/events'
 import { LOOK_SENS_DEFAULT, LOOK_SENS_MAX, LOOK_SENS_MIN } from '../shared/input'
 import { CAM_DIST_KEY, clampCamDist, readCamDist } from '../shared/camera'
+import { MINIMAP_HEADING_KEY, readMinimapHeadingUp } from '../shared/minimap'
 import { loadSession } from './net/session'
 
 function readLookSens() {
@@ -60,6 +61,7 @@ interface AppState {
   sfxOn: boolean
   lookSensitivity: number
   camDist: number
+  minimapHeadingUp: boolean
   pointerLocked: boolean
   lookYaw: number
   localX: number
@@ -151,6 +153,7 @@ interface AppState {
   setSfxOn: (on: boolean) => void
   setLookSensitivity: (n: number) => void
   setCamDist: (n: number) => void
+  setMinimapHeadingUp: (on: boolean) => void
   setPointerLocked: (on: boolean) => void
   setLookYaw: (yaw: number) => void
   setLocalXZ: (x: number, z: number) => void
@@ -199,6 +202,7 @@ export const useAppStore = create<AppState>((set) => ({
   sfxOn: typeof localStorage === 'undefined' ? true : localStorage.getItem('rb-sfx') !== '0',
   lookSensitivity: readLookSens(),
   camDist: readCamDist(),
+  minimapHeadingUp: readMinimapHeadingUp(),
   pointerLocked: false,
   lookYaw: 0,
   localX: 0,
@@ -401,6 +405,10 @@ export const useAppStore = create<AppState>((set) => ({
     if (typeof localStorage !== 'undefined') localStorage.setItem(CAM_DIST_KEY, String(v))
     set({ camDist: v })
   },
+  setMinimapHeadingUp: (on) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(MINIMAP_HEADING_KEY, on ? '1' : '0')
+    set({ minimapHeadingUp: on })
+  },
   setPointerLocked: (on) => set({ pointerLocked: on }),
   setLookYaw: (yaw) => set({ lookYaw: yaw }),
   setLocalXZ: (x, z) => set({ localX: x, localZ: z }),
@@ -422,7 +430,9 @@ export const useAppStore = create<AppState>((set) => ({
   setMapLoadProgress: (progress, active) => set({ mapLoadProgress: progress, mapLoadActive: active }),
   setMapLoadFailed: (failed) => set({ mapLoadFailed: failed }),
   addMapLoadError: (file) =>
-    set((s) => (s.mapLoadErrors.includes(file) ? s : { mapLoadErrors: [...s.mapLoadErrors, file], mapLoadFailed: true })),
+    set((s) =>
+      s.mapLoadErrors.includes(file) ? s : { mapLoadErrors: [...s.mapLoadErrors, file], mapLoadFailed: true },
+    ),
   setMapLoadSlow: (slow) => set({ mapLoadSlow: slow }),
   setMapLoadCounts: (loaded, total) => set({ mapLoadLoaded: loaded, mapLoadTotal: total }),
   requestMapRetry: () =>

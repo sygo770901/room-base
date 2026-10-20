@@ -46,6 +46,8 @@ export function Hud() {
   const setLookSensitivity = useAppStore((s) => s.setLookSensitivity)
   const camDist = useAppStore((s) => s.camDist)
   const setCamDist = useAppStore((s) => s.setCamDist)
+  const minimapHeadingUp = useAppStore((s) => s.minimapHeadingUp)
+  const setMinimapHeadingUp = useAppStore((s) => s.setMinimapHeadingUp)
   const pointerLocked = useAppStore((s) => s.pointerLocked)
   const dashReadyAt = useAppStore((s) => s.dashReadyAt)
   const requestDash = useAppStore((s) => s.requestDash)
@@ -243,15 +245,13 @@ export function Hud() {
       )}
       {mapLoadFailed && (
         <div className="map-load fail">
-          <p>載入失敗</p>
-          {mapLoadErrors.length > 0 ? (
+          <p>載入失敗：{mapLoadErrors[0] || '未知檔案'}</p>
+          {mapLoadErrors.length > 1 && (
             <ul className="map-load-files">
-              {mapLoadErrors.map((file) => (
+              {mapLoadErrors.slice(1).map((file) => (
                 <li key={file}>{file}</li>
               ))}
             </ul>
-          ) : (
-            <p>未知檔案</p>
           )}
           <button type="button" className="hud-btn" onClick={() => requestMapRetry()}>
             重試
@@ -649,6 +649,14 @@ export function Hud() {
                 }}
               />
               靠近自動開門
+            </label>
+            <label className="sens-row">
+              <input
+                type="checkbox"
+                checked={minimapHeadingUp}
+                onChange={(e) => setMinimapHeadingUp(e.target.checked)}
+              />
+              小地圖面朝朝上
             </label>
             {self?.role === 'host' && mode === 'hunt' && (
               <div className="map-host" role="radiogroup" aria-label="地圖">
