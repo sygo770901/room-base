@@ -3,12 +3,14 @@ export const SMOKE_RANGE = 8
 export const SMOKE_RANGE_MOBILE = 6
 export const SMOKE_RADIUS = 3
 export const SMOKE_DURATION_MS = 8000
-export const SMOKE_CD_MS = 15000
-export const SMOKE_CD_GHOST_MS = 20000
+export const SMOKE_DURATION_TAG_MS = 4000
+export const SMOKE_CD_MS = 5000
+export const SMOKE_CD_GHOST_MS = 5000
 /** 扔大便飛行／中招（先定，昱豪可改） */
 export const POOP_FLIGHT_MS = 560
-export const POOP_SLOW_MS = 1500
-export const POOP_SLOW_MUL = 0.62
+export const POOP_SLOW_MS = 1000
+export const POOP_SLOW_MUL = 0.75
+export const POOP_SLOW_IMMUNE_MS = 4000
 export const POOP_VIGNETTE_MS = 2000
 export const POOP_FLIES_MS = 3000
 
@@ -23,6 +25,50 @@ export type SmokeCloud = {
   thrownAt?: number
   landAt?: number
   hits?: string[]
+  throwerId?: string
+  resolved?: boolean
+}
+
+export function smokeDurationMs(mode?: string | null) {
+  return mode === 'tag' ? SMOKE_DURATION_TAG_MS : SMOKE_DURATION_MS
+}
+
+export function publicSmokeForViewer(
+  cloud: SmokeCloud,
+  viewer: { id: string; team?: string | null },
+  mode?: string | null,
+): SmokeCloud {
+  const isGhost = mode === 'tag' && viewer.team === 'ghost'
+  const hideHits = mode === 'tag'
+  const hits = cloud.hits ?? []
+  return {
+    id: cloud.id,
+    x: cloud.x,
+    z: cloud.z,
+    r: cloud.r,
+    until: cloud.until,
+    thrownAt: cloud.thrownAt,
+    landAt: cloud.landAt,
+    ox: isGhost ? undefined : cloud.ox,
+    oz: isGhost ? undefined : cloud.oz,
+    hits: hideHits ? (hits.includes(viewer.id) ? [viewer.id] : []) : hits,
+  }
+}
+
+export function alliesForPoop(throwerTeam: string | null | undefined, mode?: string | null) {
+  if (mode === 'tag') return throwerTeam ?? ''
+  return '__all_players__'
+}
+
+export function shouldPoopHitPlayer(
+  throwerId: string,
+  throwerTeam: string | null | undefined,
+  target: { id: string; team?: string | null },
+  mode?: string | null,
+) {
+  if (target.id === throwerId) return false
+  if (mode === 'tag') return Boolean(target.team && throwerTeam && target.team !== throwerTeam)
+  return false
 }
 
 export function smokeCooldownMs(team?: string | null) {

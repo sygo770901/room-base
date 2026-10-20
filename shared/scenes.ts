@@ -9,9 +9,9 @@ export const SCENE_LABELS: Record<SceneId, string> = {
 }
 
 export const SCENE_BLURBS: Record<SceneId, string> = {
-  kenney: '現在這套。紫色石牆、橙色地板、柱子。',
-  kaykit: '石磚貼圖、門、鐵柵、樓梯、天花板。面數是為手機準備的。',
-  jungle: '平地叢林遺跡：沿用地城牆柱，加上樹木與岩石。高低差只有幾塊石頭平台。',
+  kenney: '橙色地板與紫色石牆。',
+  kaykit: '石磚、鐵柵與樓梯。',
+  jungle: '叢林裡的遺跡通道。',
 }
 
 export function isSceneId(value: unknown): value is SceneId {

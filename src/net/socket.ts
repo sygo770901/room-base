@@ -361,9 +361,9 @@ function bindListeners(s: Socket) {
           if (useAppStore.getState().toast === '💩 中招！') useAppStore.getState().setToast(null)
         }, 1600)
       }
-      if (c.ox != null && c.oz != null && (!prev || !prev.thrownAt)) {
+      if (c.ox != null && c.oz != null && (!prev || !prev.thrownAt) && st.mode !== 'tag') {
         for (const p of Object.values(st.players)) {
-          if (!p.position) continue
+          if (!p.position || p.team === 'ghost') continue
           if (Math.hypot(p.position[0] - c.ox, p.position[2] - c.oz) < 1.4) st.setThrowAt(p.id, Date.now())
         }
       }
@@ -373,6 +373,10 @@ function bindListeners(s: Socket) {
 
   s.on('smoke:result', (payload: { ok: boolean; nextAt?: number }) => {
     if (payload.nextAt) useAppStore.getState().setSmokeReadyAt(payload.nextAt)
+  })
+
+  s.on('poop:slow', (payload: { until?: number }) => {
+    if (payload.until) useAppStore.getState().markPoopHit()
   })
 
   s.on('barrels:sync', (payload: { barrels: BarrelState[]; drops: LootDrop[] }) => {

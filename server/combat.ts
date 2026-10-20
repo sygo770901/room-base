@@ -91,7 +91,7 @@ import {
   type BarrelState,
   type LootDrop,
 } from '../shared/barrels.ts'
-import { inSmoke, type SmokeCloud } from '../shared/smoke.ts'
+import { inSmoke, publicSmokeForViewer, type SmokeCloud } from '../shared/smoke.ts'
 import { nextComboStep, type HitAnim } from '../shared/anim.ts'
 import {
   DOOR_MONSTER_WAIT_MS,
@@ -958,7 +958,12 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
     const next = room.smokes.filter((c) => c.until > now)
     if (next.length !== room.smokes.length) {
       room.smokes = next
-      io.to(room.roomId).emit('smoke:sync', next)
+      for (const id of Object.keys(room.players ?? {})) {
+        io.to(id).emit(
+          'smoke:sync',
+          next.map((c) => publicSmokeForViewer(c, room.players[id] ?? { id }, room.mode)),
+        )
+      }
     }
   }
   if (room.mode === 'boss' && room.started && !room.matchOver && room.matchDeadline && now >= room.matchDeadline) {

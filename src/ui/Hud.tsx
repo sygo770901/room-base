@@ -10,7 +10,7 @@ import { exitGameLock } from '../scene/pointerLock'
 import { useAppStore } from '../store'
 import { VirtualJoystick } from './VirtualJoystick'
 import { Minimap } from './Minimap'
-import { nearestDoor, DOOR_RANGE } from '../../shared/doors'
+import { nearestDoor, DOOR_PROMPT_RANGE } from '../../shared/doors'
 import { isDowned, nearestDowned } from '../../shared/downed'
 import { doorsOf } from '../../shared/mapData'
 import { DUCK_MAX_DISPENSERS } from '../../shared/combat'
@@ -62,7 +62,13 @@ export function Hud() {
   const [fontSize, setFontSize] = useState(0.12)
   const [phraseOpen, setPhraseOpen] = useState(false)
   const [rescuing, setRescuing] = useState(false)
-  const [helpOpen, setHelpOpen] = useState(true)
+  const [helpOpen, setHelpOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 900)
+  const autoOpenDoors = useAppStore((s) => s.autoOpenDoors)
+  const setAutoOpenDoors = useAppStore((s) => s.setAutoOpenDoors)
+  const mapLoadSlow = useAppStore((s) => s.mapLoadSlow)
+  const mapLoadLoaded = useAppStore((s) => s.mapLoadLoaded)
+  const mapLoadTotal = useAppStore((s) => s.mapLoadTotal)
+  const requestMapRetry = useAppStore((s) => s.requestMapRetry)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const feed = useAppStore((s) => s.feed)
   const mapLoadActive = useAppStore((s) => s.mapLoadActive)
@@ -73,7 +79,7 @@ export function Hud() {
   const localZ = useAppStore((s) => s.localZ)
   const poopVignetteUntil = useAppStore((s) => s.poopVignetteUntil)
   const respawnFadeUntil = useAppStore((s) => s.respawnFadeUntil)
-  const doorNear = self && nearestDoor(localX || self.position?.[0] || 0, localZ || self.position?.[2] || 0, doorsOf(scene), DOOR_RANGE)
+  const doorNear = self && nearestDoor(localX || self.position?.[0] || 0, localZ || self.position?.[2] || 0, doorsOf(scene), DOOR_PROMPT_RANGE)
 
   useEffect(() => {
     if (pendingNote || noteAsk) exitGameLock()
@@ -212,10 +218,17 @@ export function Hud() {
       {!matchOver && started && <div className="crosshair" aria-hidden />}
       {mapLoadActive && (
         <div className="map-load">
-          <p>載入地圖中… {Math.round(mapLoadProgress)}%</p>
+          <p>
+            載入地圖中… {mapLoadTotal ? `${mapLoadLoaded}/${mapLoadTotal}` : ''} {Math.round(mapLoadProgress)}%
+          </p>
           <div className="map-load-bar">
-            <span style={{ width: `${Math.max(4, Math.min(100, mapLoadProgress))}%` }} />
+            <span
+              style={{
+                width: `${Math.max(4, Math.min(100, mapLoadProgress || (mapLoadTotal ? (mapLoadLoaded / mapLoadTotal) * 100 : 4)))}%`,
+              }}
+            />
           </div>
+          {mapLoadSlow && <p className="map-load-slow">載入較慢，還在載…</p>}
           {mapLoadErrors.length > 0 && (
             <ul className="map-load-files">
               {mapLoadErrors.map((file) => (
@@ -225,9 +238,9 @@ export function Hud() {
           )}
         </div>
       )}
-      {mapLoadFailed && !mapLoadActive && (
+      {mapLoadFailed && (
         <div className="map-load fail">
-          <p>模型載入失敗</p>
+          <p>載入失敗</p>
           {mapLoadErrors.length > 0 ? (
             <ul className="map-load-files">
               {mapLoadErrors.map((file) => (
@@ -235,8 +248,11 @@ export function Hud() {
               ))}
             </ul>
           ) : (
-            <p>未知檔案，請看 Console／Network</p>
+            <p>未知檔案</p>
           )}
+          <button type="button" className="hud-btn" onClick={() => requestMapRetry()}>
+            重試
+          </button>
         </div>
       )}
       <div className="hud-top">
@@ -525,7 +541,7 @@ export function Hud() {
           {!isMobileDevice() && <span className="key-hint">E</span>}
         </button>
       )}
-      {!matchOver && started && self?.team !== 'spectator' && doorNear && (
+      {!matchOver && self?.team !== 'spectator' && doorNear && (
         <>
           <div className="door-hint">按 E 開門</div>
           <button type="button" className="door-btn" onClick={() => emitDoorToggle(doorNear.id, localX, localZ)}>
@@ -607,6 +623,14 @@ export function Hud() {
                 onPointerDown={() => exitGameLock()}
                 onChange={(e) => setFontSize(Number(e.target.value))}
               />
+            </label>
+            <label className="sens-row">
+              <input
+                type="checkbox"
+                checked={autoOpenDoors}
+                onChange={(e) => setAutoOpenDoors(e.target.checked)}
+              />
+              靠近自動開門
             </label>
             {self?.role === 'host' && mode === 'hunt' && (
               <div className="map-host" role="radiogroup" aria-label="地圖">

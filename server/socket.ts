@@ -31,21 +31,27 @@ import {
 } from '../shared/movement.ts'
 import {
   POOP_FLIGHT_MS,
-  SMOKE_DURATION_MS,
+  POOP_SLOW_IMMUNE_MS,
+  POOP_SLOW_MS,
   SMOKE_RADIUS,
   SMOKE_RANGE,
   liveSmokes,
+  publicSmokeForViewer,
+  shouldPoopHitPlayer,
   smokeCooldownMs,
+  smokeDurationMs,
   anonSmokeId,
   type SmokeCloud,
 } from '../shared/smoke.ts'
 import { createBarrels, type BarrelState, type LootDrop } from '../shared/barrels.ts'
 import {
   DOOR_ANIM_MS,
+  DOOR_AUTO_CLOSE_MS,
+  DOOR_AUTO_RANGE,
+  DOOR_PROMPT_RANGE,
   DOOR_RANGE,
   createDoors,
-  doorDef,
-  nearestDoor,
+  doorToggleAim,
   occupantInDoor,
   type DoorState,
 } from '../shared/doors.ts'
@@ -105,6 +111,9 @@ export interface RoomState {
   nextPhrase: Record<string, number>
   rescueHold: Record<string, { targetId: string; since: number }>
   feed: import('../shared/events.ts').FeedItem[]
+  poopSlowUntil: Record<string, number>
+  poopImmuneUntil: Record<string, number>
+  doorNearAt: Record<string, number>
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -152,6 +161,9 @@ function createRoom(roomId: string): RoomState {
     nextPhrase: {},
     rescueHold: {},
     feed: [],
+    poopSlowUntil: {},
+    poopImmuneUntil: {},
+    doorNearAt: {},
   }
 }
 
@@ -185,7 +197,9 @@ function snapshotFor(room: RoomState, viewerId: string) {
     startInMs: room.startAt ? Math.max(0, room.startAt - Date.now()) : 0,
     started: room.started,
     tagHud: tagHudFor(room, viewerId),
-    smokes: liveSmokes(room.smokes, Date.now()),
+    smokes: liveSmokes(room.smokes, Date.now()).map((c) =>
+      publicSmokeForViewer(c, room.players[viewerId] ?? { id: viewerId }, room.mode),
+    ),
     barrels: room.barrels,
     drops: room.drops,
     projectiles: room.projectiles,
@@ -199,6 +213,68 @@ function emitState(room: RoomState, io: Server) {
   for (const id of Object.keys(room.players)) {
     io.to(id).emit('room:state', snapshotFor(room, id))
   }
+}
+
+function emitSmokes(room: RoomState, io: Server) {
+  const now = Date.now()
+  const live = liveSmokes(room.smokes, now)
+  for (const id of Object.keys(room.players)) {
+    io.to(id).emit(
+      'smoke:sync',
+      live.map((c) => publicSmokeForViewer(c, room.players[id] ?? { id }, room.mode)),
+    )
+  }
+}
+
+function resolveLandedPoop(room: RoomState, io: Server, now: number) {
+  let changed = false
+  for (const cloud of room.smokes) {
+    if (cloud.resolved || !cloud.landAt || now < cloud.landAt) continue
+    cloud.resolved = true
+    cloud.hits = []
+    const thrower = cloud.throwerId ? room.players[cloud.throwerId] : null
+    for (const p of Object.values(room.players)) {
+      if (room.awayUntil[p.id] || p.team === 'spectator' || isDowned(p, now)) continue
+      if (!shouldPoopHitPlayer(cloud.throwerId ?? '', thrower?.team, p, room.mode)) continue
+      if (Math.hypot((p.position?.[0] ?? 0) - cloud.x, (p.position?.[2] ?? 0) - cloud.z) > (cloud.r ?? SMOKE_RADIUS)) continue
+      cloud.hits.push(p.id)
+      if (now < (room.poopImmuneUntil[p.id] ?? 0)) continue
+      room.poopSlowUntil[p.id] = now + POOP_SLOW_MS
+      room.poopImmuneUntil[p.id] = now + POOP_SLOW_IMMUNE_MS
+      io.to(p.id).emit('poop:slow', { until: room.poopSlowUntil[p.id] })
+    }
+    for (const m of room.monsters ?? []) {
+      if (!m.alive) continue
+      if (Math.hypot(m.x - cloud.x, m.z - cloud.z) <= (cloud.r ?? SMOKE_RADIUS)) cloud.hits.push(m.id)
+    }
+    changed = true
+  }
+  if (changed) emitSmokes(room, io)
+}
+
+function tickAutoDoors(room: RoomState, io: Server, now: number) {
+  if (room.mode === 'tag') return
+  const defs = doorsOf(room.scene)
+  let changed = false
+  for (const door of room.doors) {
+    const def = defs.find((d) => d.id === door.id)
+    if (!def) continue
+    const near = Object.values(room.players).some((p) => {
+      if (room.awayUntil[p.id] || p.team === 'spectator') return false
+      return Math.hypot(p.position[0] - def.x, p.position[2] - def.z) <= DOOR_AUTO_RANGE
+    })
+    if (near) {
+      room.doorNearAt[door.id] = now
+      continue
+    }
+    if (door.open && room.doorNearAt[door.id] && now - room.doorNearAt[door.id] >= DOOR_AUTO_CLOSE_MS) {
+      if (now < door.busyUntil) continue
+      door.open = false
+      door.busyUntil = now + DOOR_ANIM_MS
+      changed = true
+    }
+  }
+  if (changed) io.to(room.roomId).emit('doors:sync', room.doors)
 }
 
 function seatWorldPos(room: RoomState, seatId: SeatId): Vec3 {
@@ -682,22 +758,14 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (player.seated || player.team === 'spectator' || isDowned(player)) return
       const now = Date.now()
       const defs = doorsOf(room.scene)
-      let px = player.position[0]
-      let pz = player.position[2]
-      if (typeof payload.x === 'number' && typeof payload.z === 'number' && Number.isFinite(payload.x) && Number.isFinite(payload.z)) {
-        if (Math.hypot(payload.x - px, payload.z - pz) <= 4) {
-          px = payload.x
-          pz = payload.z
-          player.position[0] = px
-          player.position[2] = pz
-        }
-      }
-      const near =
-        (typeof payload.id === 'string' && doorDef(payload.id, defs)
-          ? doorDef(payload.id, defs)
-          : nearestDoor(px, pz, defs, DOOR_RANGE)) ?? null
+      const before = player.position.slice() as [number, number, number]
+      const aim = doorToggleAim(player.position[0], player.position[2], payload, defs, DOOR_PROMPT_RANGE)
+      const near = aim.door
       if (!near) return
-      if (Math.hypot(near.x - px, near.z - pz) > DOOR_RANGE) return
+      if (player.position[0] !== before[0] || player.position[2] !== before[2]) {
+        player.position[0] = before[0]
+        player.position[2] = before[2]
+      }
       const door = room.doors.find((d) => d.id === near.id)
       if (!door || now < door.busyUntil) return
       if (door.open) {
@@ -813,30 +881,23 @@ export function attachSocketServer(httpServer: HttpServer) {
         tz = oz + (dz / dist) * SMOKE_RANGE
       }
       const landAt = now + POOP_FLIGHT_MS
-      const hits: string[] = []
-      for (const p of Object.values(room.players)) {
-        if (room.awayUntil[p.id] || p.team === 'spectator' || isDowned(p, now)) continue
-        if (Math.hypot((p.position?.[0] ?? 0) - tx, (p.position?.[2] ?? 0) - tz) <= SMOKE_RADIUS) hits.push(p.id)
-      }
-      for (const m of room.monsters ?? []) {
-        if (!m.alive) continue
-        if (Math.hypot(m.x - tx, m.z - tz) <= SMOKE_RADIUS) hits.push(m.id)
-      }
       const cloud: SmokeCloud = {
         id: anonSmokeId(now),
         x: tx,
         z: tz,
         r: SMOKE_RADIUS,
-        until: now + SMOKE_DURATION_MS,
+        until: now + smokeDurationMs(room.mode),
         ox,
         oz,
         thrownAt: now,
         landAt,
-        hits,
+        hits: [],
+        throwerId: playerId,
+        resolved: false,
       }
       room.smokes.push(cloud)
       room.nextSmoke[playerId] = now + smokeCooldownMs(player.team)
-      io.to(room.roomId).emit('smoke:sync', liveSmokes(room.smokes, now))
+      emitSmokes(room, io)
       io.to(playerId).emit('smoke:result', { ok: true, nextAt: room.nextSmoke[playerId] })
       emitState(room, io)
     })
@@ -1045,6 +1106,8 @@ export function attachSocketServer(httpServer: HttpServer) {
     for (const room of rooms.values()) {
       if (Object.keys(room.players).length === 0) continue
       tickRoom(room, io, now, 0.1)
+      resolveLandedPoop(room, io, now)
+      tickAutoDoors(room, io, now)
     }
   }, 100)
 

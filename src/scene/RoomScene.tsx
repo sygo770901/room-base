@@ -14,6 +14,7 @@ import {
   TORCH_LIGHT_RANGE,
 } from '../../shared/perf'
 import { POINTER_LOOK_SCALE } from '../../shared/input'
+import { OTS_DIST, OTS_LOOK_Y, OTS_MAX_PHI, OTS_MAX_RADIUS, OTS_MIN_PHI, OTS_MIN_RADIUS, OTS_RIGHT } from '../../shared/camera'
 import { canvasDpr, isMobileDevice } from '../perf/device'
 import { bindPointerLockWatch, exitGameLock, isAltHeld, isPointerInWindow, requestGameLock, setPointerInWindow } from './pointerLock'
 import { typingInField } from './inputLock'
@@ -38,19 +39,20 @@ import type { PlayerState, Vec3 } from '../types'
 const SPAWN = SPAWN_POINTS[0] ?? { x: 80, z: 22 }
 // Three.js 預設 minPolarAngle 是 0（頭頂正上方）、rotateSpeed 是 1（拖滿一整個螢幕等於轉 360°）。
 // 這裡把垂直角鎖在斜上方到接近水平，旋轉改慢，避免短距離拖曳就被甩到頭頂。
-const MIN_PHI = 1.12
-const MAX_PHI = 1.48
-const MIN_RADIUS = 1.8
-const MAX_RADIUS = 2.8
+const MIN_PHI = OTS_MIN_PHI
+const MAX_PHI = OTS_MAX_PHI
+const MIN_RADIUS = OTS_MIN_RADIUS
+const MAX_RADIUS = OTS_MAX_RADIUS
 const ROTATE_SPEED = 0.3
-const SHOULDER_DIST = 2.25
-const SHOULDER_RIGHT = 0.58
-const LOOK_Y = 1.08
+const SHOULDER_DIST = OTS_DIST
+const SHOULDER_RIGHT = OTS_RIGHT
+const LOOK_Y = OTS_LOOK_Y
 const rigOffset = new THREE.Vector3()
 const rigSpherical = new THREE.Spherical()
 
 function MapProgressBridge() {
   const sceneId = useAppStore((s) => s.scene)
+  const retry = useAppStore((s) => s.mapLoadRetry)
   const { errors } = useProgress()
   useEffect(() => {
     const stopWatch = bindLoadErrorWatch()
@@ -59,7 +61,7 @@ function MapProgressBridge() {
       stopWatch()
       stopPreload()
     }
-  }, [sceneId])
+  }, [sceneId, retry])
   useEffect(() => {
     for (const url of errors) {
       if (url) useAppStore.getState().addMapLoadError(fileLabel(url))

@@ -9,9 +9,9 @@ export const MODE_LABELS: Record<GameMode | 'tag', string> = {
 }
 
 export const MODE_BLURBS: Record<GameMode | 'tag', string> = {
-  hunt: '原本的躲貓貓加打怪。地圖上有騎士、蠻族、盜賊、法師。',
-  boss: '全隊一起打倒鴨大王和他的飲水機。',
-  tag: '躲的人藏起來，鬼去抓。被抓到就變成鬼。',
+  hunt: '打怪、躲藏。',
+  boss: '全隊打倒鴨王。',
+  tag: '躲起來，別被抓。',
 }
 
 export type TimeLimit = 0 | 300

@@ -108,6 +108,11 @@ interface AppState {
   mapLoadActive: boolean
   mapLoadFailed: boolean
   mapLoadErrors: string[]
+  mapLoadSlow: boolean
+  mapLoadLoaded: number
+  mapLoadTotal: number
+  mapLoadRetry: number
+  autoOpenDoors: boolean
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
@@ -161,6 +166,10 @@ interface AppState {
   setMapLoadProgress: (progress: number, active: boolean) => void
   setMapLoadFailed: (failed: boolean) => void
   addMapLoadError: (file: string) => void
+  setMapLoadSlow: (slow: boolean) => void
+  setMapLoadCounts: (loaded: number, total: number) => void
+  requestMapRetry: () => void
+  setAutoOpenDoors: (on: boolean) => void
   setConnection: (status: ConnectionStatus) => void
   setJoinError: (msg: string | null) => void
   leaveToLobby: () => void
@@ -234,6 +243,11 @@ export const useAppStore = create<AppState>((set) => ({
   mapLoadActive: false,
   mapLoadFailed: false,
   mapLoadErrors: [],
+  mapLoadSlow: false,
+  mapLoadLoaded: 0,
+  mapLoadTotal: 0,
+  mapLoadRetry: 0,
+  autoOpenDoors: typeof localStorage === 'undefined' ? true : localStorage.getItem('rb-auto-door') !== '0',
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
     set({
@@ -251,6 +265,9 @@ export const useAppStore = create<AppState>((set) => ({
       joinError: null,
       mapLoadFailed: false,
       mapLoadErrors: [],
+      mapLoadSlow: false,
+      mapLoadLoaded: 0,
+      mapLoadTotal: 0,
       mapLoadActive: true,
       mapLoadProgress: 0,
       tagHud: snapshot.tagHud ?? null,
@@ -387,7 +404,7 @@ export const useAppStore = create<AppState>((set) => ({
   requestSmoke: () => set((s) => ({ smokeRequest: s.smokeRequest + 1 })),
   markPoopHit: () => {
     const now = Date.now()
-    set({ poopSlowUntil: now + 1500, poopVignetteUntil: now + 2000 })
+    set({ poopSlowUntil: now + 1000, poopVignetteUntil: now + 2000 })
   },
   setThrowAt: (id, at) => set((s) => ({ throwAt: { ...s.throwAt, [id]: at } })),
   setBarrels: (barrels) => set({ barrels }),
@@ -397,6 +414,22 @@ export const useAppStore = create<AppState>((set) => ({
   setMapLoadFailed: (failed) => set({ mapLoadFailed: failed }),
   addMapLoadError: (file) =>
     set((s) => (s.mapLoadErrors.includes(file) ? s : { mapLoadErrors: [...s.mapLoadErrors, file], mapLoadFailed: true })),
+  setMapLoadSlow: (slow) => set({ mapLoadSlow: slow }),
+  setMapLoadCounts: (loaded, total) => set({ mapLoadLoaded: loaded, mapLoadTotal: total }),
+  requestMapRetry: () =>
+    set((s) => ({
+      mapLoadRetry: s.mapLoadRetry + 1,
+      mapLoadErrors: [],
+      mapLoadFailed: false,
+      mapLoadSlow: false,
+      mapLoadActive: true,
+      mapLoadProgress: 0,
+      mapLoadLoaded: 0,
+    })),
+  setAutoOpenDoors: (on) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('rb-auto-door', on ? '1' : '0')
+    set({ autoOpenDoors: on })
+  },
   setConnection: (status) => set({ connection: status }),
   setJoinError: (msg) => set({ joinError: msg }),
   leaveToLobby: () =>
@@ -414,6 +447,7 @@ export const useAppStore = create<AppState>((set) => ({
       mapLoadActive: false,
       mapLoadFailed: false,
       mapLoadErrors: [],
+      mapLoadSlow: false,
       matchOver: null,
       settings: defaultSettings(),
       timeLeftMs: null,

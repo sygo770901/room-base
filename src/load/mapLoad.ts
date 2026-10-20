@@ -1,10 +1,11 @@
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import * as THREE from 'three'
 import { useGLTF } from '@react-three/drei'
 import { dungeonModelUrls } from '../scene/Dungeon'
 import { heroModelUrls } from '../scene/KayKitHero'
 import { DUCK_URL } from '../scene/DuckKing'
 import { useAppStore } from '../store'
+
+export const MAP_LOAD_SLOW_MS = 8000
 
 export function asMapPercent(progress: number, loaded: number, total: number) {
   const fromRatio = progress > 0 && progress <= 1 ? progress * 100 : progress
@@ -27,55 +28,52 @@ export function criticalModelUrls(scene: string) {
   return [...new Set([...dungeonModelUrls(scene), ...heroModelUrls(), DUCK_URL])]
 }
 
-export function reportMapProgress(progress: number, loaded: number, total: number, active: boolean, errors: string[] = []) {
-  const store = useAppStore.getState()
-  for (const url of errors) {
-    if (url) store.addMapLoadError(fileLabel(url))
-  }
-  if (total <= 0 && progress <= 0) return
-  const pct = asMapPercent(progress, loaded, total)
-  const failed = useAppStore.getState().mapLoadErrors.length > 0
-  if (failed) useAppStore.getState().setMapLoadFailed(true)
-  const done = !active && total > 0 && loaded >= total
-  if (done) {
-    useAppStore.getState().setMapLoadProgress(failed ? pct : 100, false)
-    return
-  }
-  const current = useAppStore.getState().mapLoadProgress
-  if (!useAppStore.getState().mapLoadActive && current >= 99.5) return
-  useAppStore.getState().setMapLoadProgress(Math.max(current, pct), true)
-}
+let preloadGen = 0
 
 export function startCriticalPreload(scene: string) {
+  const gen = ++preloadGen
   const urls = criticalModelUrls(scene)
   const total = Math.max(1, urls.length)
   let finished = 0
-  let cancelled = false
-  const loader = new GLTFLoader()
+  THREE.Cache.enabled = true
+  useAppStore.getState().setMapLoadProgress(0, true)
+  useAppStore.getState().setMapLoadCounts(0, urls.length)
+  useAppStore.getState().setMapLoadSlow(false)
+
   const tick = () => {
-    if (cancelled) return
-    const pct = Math.min(100, (finished / total) * 100)
+    if (gen !== preloadGen) return
+    const pct = (finished / total) * 100
+    useAppStore.getState().setMapLoadCounts(finished, urls.length)
     useAppStore.getState().setMapLoadProgress(pct, finished < total)
   }
-  useAppStore.getState().setMapLoadProgress(1, true)
+
   for (const url of urls) {
     useGLTF.preload(url)
-    loader.load(
-      url,
-      () => {
+    void fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(String(res.status))
+        return res.arrayBuffer()
+      })
+      .then(() => {
+        if (gen !== preloadGen) return
         finished += 1
         tick()
-      },
-      undefined,
-      () => {
+      })
+      .catch(() => {
+        if (gen !== preloadGen) return
         finished += 1
         useAppStore.getState().addMapLoadError(fileLabel(url))
         tick()
-      },
-    )
+      })
   }
+
+  const slowId = window.setTimeout(() => {
+    if (gen !== preloadGen) return
+    if (useAppStore.getState().mapLoadActive) useAppStore.getState().setMapLoadSlow(true)
+  }, MAP_LOAD_SLOW_MS)
+
   return () => {
-    cancelled = true
+    window.clearTimeout(slowId)
   }
 }
 

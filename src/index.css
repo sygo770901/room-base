@@ -23,7 +23,7 @@ input {
   min-height: 100%;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   background:
     radial-gradient(ellipse 80% 60% at 20% 10%, rgba(129, 178, 154, 0.25), transparent 55%),
     radial-gradient(ellipse 70% 50% at 90% 80%, rgba(224, 122, 95, 0.18), transparent 50%),
@@ -32,14 +32,51 @@ input {
 
 .lobby-card {
   width: min(520px, 100%);
+  max-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
+}
+
+.lobby-scroll {
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.lobby-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.lobby-error {
+  color: #e07a5f;
 }
 
 .scene-pick {
   display: grid;
   gap: 8px;
+}
+
+.scene-pick.compact {
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 6px;
+}
+
+.scene-pick.compact button {
+  padding: 8px 8px;
+}
+
+.scene-pick.compact button span {
+  display: block;
+  font-size: 0.75rem;
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lobby .scene-pick button {
@@ -353,7 +390,11 @@ input {
 .lobby-actions {
   display: flex;
   gap: 10px;
-  margin-top: 6px;
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: linear-gradient(180deg, transparent, #1a1c1e 20%);
 }
 
 .lobby button {
@@ -380,6 +421,8 @@ input {
   inset: 0;
   pointer-events: none;
   z-index: 10;
+  font-size: clamp(12px, 1.6vmin, 16px);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 .hud > * {
@@ -636,6 +679,8 @@ input {
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 14px;
   padding: 12px 14px;
+  max-height: min(52vh, 420px);
+  overflow: auto;
 }
 
 .wait-card p {
@@ -659,6 +704,8 @@ input {
   gap: 8px;
   align-items: stretch;
   min-width: 160px;
+  max-height: min(60vh, 420px);
+  overflow: auto;
   padding: 10px;
   border-radius: 12px;
   background: rgba(16, 14, 12, 0.92);
@@ -1193,6 +1240,12 @@ input {
   display: block;
   height: 100%;
   background: #81b29a;
+}
+
+.map-load-slow {
+  margin: 6px 0 0;
+  font-size: 12px;
+  opacity: 0.85;
 }
 
 .map-load-files {

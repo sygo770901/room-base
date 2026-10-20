@@ -1,5 +1,9 @@
 /** 門規則與數值（先定，昱豪可改）。位置改放各地圖資料，不要在這裡寫死座標。 */
 export const DOOR_RANGE = 1.5
+export const DOOR_PROMPT_RANGE = 2
+export const DOOR_AUTO_RANGE = 1.5
+export const DOOR_AUTO_CLOSE_MS = 3000
+export const DOOR_CLIENT_SLACK = 4
 export const DOOR_ANIM_MS = 400
 export const DOOR_MONSTER_WAIT_MS = 1000
 export const DOOR_WIDTH = 2.6
@@ -60,6 +64,35 @@ export function occupantInDoor(def: DoorDef, x: number, z: number, r = 0.3) {
   const b = doorBox(def)
   const pad = 0.35
   return Math.abs(x - b.cx) <= b.hx + pad + r && Math.abs(z - b.cz) <= b.hz + pad + r
+}
+
+/** 只拿來判斷距離，不可以改玩家座標。 */
+export function doorToggleAim(
+  lastX: number,
+  lastZ: number,
+  payload: { id?: string; x?: number; z?: number },
+  defs: DoorDef[],
+  range = DOOR_RANGE,
+) {
+  let px = lastX
+  let pz = lastZ
+  if (typeof payload.x === 'number' && typeof payload.z === 'number' && Number.isFinite(payload.x) && Number.isFinite(payload.z)) {
+    if (Math.hypot(payload.x - lastX, payload.z - lastZ) <= DOOR_CLIENT_SLACK) {
+      px = payload.x
+      pz = payload.z
+    }
+  }
+  const hinted = typeof payload.id === 'string' ? doorDef(payload.id, defs) : undefined
+  const near = hinted && Math.hypot(hinted.x - px, hinted.z - pz) <= range ? hinted : nearestDoor(px, pz, defs, range)
+  return { x: px, z: pz, door: near ?? null }
+}
+
+export function toggleDoorOpen(doors: DoorState[], id: string, now = Date.now()) {
+  const door = doors.find((d) => d.id === id)
+  if (!door || now < door.busyUntil) return null
+  door.open = !door.open
+  door.busyUntil = now + DOOR_ANIM_MS
+  return door
 }
 
 export function nearestDoor(x: number, z: number, defs: DoorDef[], range = DOOR_RANGE) {

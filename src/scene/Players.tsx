@@ -106,7 +106,6 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
         }
         seated={Boolean(player.seated)}
         hidden={player.hidden}
-        compact
         throwAt={throwAt}
         downed={Boolean(player.downedUntil && player.downedUntil > Date.now()) || player.hp <= 0}
       />
@@ -124,20 +123,22 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
           </Text>
         </Billboard>
       )}
-      <Billboard position={[0, labelY, 0]}>
-        <Text
-          fontSize={0.16}
-          color={isSelf ? '#f2cc8f' : '#ffffff'}
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.01}
-          outlineColor="#000000"
-        >
-          {player.away ? '斷線中' : player.downedUntil && player.downedUntil > Date.now() ? `${player.name} · 倒地` : player.name}
-          {player.away ? '' : player.role === 'host' ? ' · 房主' : ''}
-          {player.hidden && !player.away ? ' · 躲藏' : ''}
-        </Text>
-      </Billboard>
+      {!isSelf && (
+        <Billboard position={[0, labelY, 0]}>
+          <Text
+            fontSize={0.16}
+            color="#ffffff"
+            anchorX="center"
+            anchorY="middle"
+            outlineWidth={0.01}
+            outlineColor="#000000"
+          >
+            {player.away ? '斷線中' : player.downedUntil && player.downedUntil > Date.now() ? `${player.name} · 倒地` : player.name}
+            {player.away ? '' : player.role === 'host' ? ' · 房主' : ''}
+            {player.hidden && !player.away ? ' · 躲藏' : ''}
+          </Text>
+        </Billboard>
+      )}
     </group>
   )
 }

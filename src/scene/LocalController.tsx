@@ -10,7 +10,8 @@ import { PLAYER_RADIUS } from '../../shared/furniture'
 import { POOP_SLOW_MUL, SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
 import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitRescueHold, emitSit, emitSmoke, performAttack } from '../net/socket'
 import { isDowned, nearestDowned } from '../../shared/downed'
-import { DOOR_RANGE, closedDoorAabbs, nearestDoor } from '../../shared/doors'
+import { DOOR_AUTO_RANGE, DOOR_PROMPT_RANGE, closedDoorAabbs, nearestDoor } from '../../shared/doors'
+import { OTS_LOOK_Y } from '../../shared/camera'
 import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
 import { resolvePlayerMove } from '../physics/collision'
 import { doorsOf, extraAabbsOf } from '../../shared/mapData'
@@ -58,6 +59,7 @@ export function LocalController({
   const dashRequest = useAppStore((s) => s.dashRequest)
   const jumpRequest = useAppStore((s) => s.jumpRequest)
   const smokeRequest = useAppStore((s) => s.smokeRequest)
+  const lastAutoDoor = useRef<string | null>(null)
 
   seatedRef.current = player.seated
   furnitureRef.current = furniture
@@ -207,7 +209,7 @@ export function LocalController({
         const nearDowned = nearestDowned(player.id, pos.current.x, pos.current.z, Object.values(st.players))
         if (nearDowned) return
         if (seatedRef.current) void emitSit(null)
-        else if (nearestDoor(pos.current.x, pos.current.z, doorsOf(st.scene), DOOR_RANGE)) {
+        else if (nearestDoor(pos.current.x, pos.current.z, doorsOf(st.scene), DOOR_PROMPT_RANGE)) {
           emitDoorToggle(undefined, pos.current.x, pos.current.z)
         }
         else tryHide()
@@ -248,7 +250,7 @@ export function LocalController({
     const stickCamera = (x: number, y: number, z: number) => {
       const target = orbit?.target
       if (!target) return
-      const lookY = 1.08 + y * 0.12
+      const lookY = OTS_LOOK_Y + y * 0.12
       camera.position.x += x - target.x
       camera.position.y += lookY - target.y
       camera.position.z += z - target.z
@@ -322,7 +324,7 @@ export function LocalController({
       const speedMul = WEAPON_STATS[held].speed
       const poopSlow = Date.now() < useAppStore.getState().poopSlowUntil ? POOP_SLOW_MUL : 1
       const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * speedMul * poopSlow * dt
-      const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * dt
+      const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * poopSlow * dt
 
       const sceneId = useAppStore.getState().scene
       const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors, doorsOf(sceneId)))
@@ -410,6 +412,17 @@ export function LocalController({
       grounded.current = false
       if (vy.current > 1.2) setPhase('start')
       else setPhase('idle')
+    }
+
+    const st = useAppStore.getState()
+    if (st.autoOpenDoors && st.mode !== 'tag' && !player.seated && player.team !== 'spectator') {
+      const auto = nearestDoor(pos.current.x, pos.current.z, doorsOf(st.scene), DOOR_AUTO_RANGE)
+      const doorState = auto ? st.doors.find((d) => d.id === auto.id) : null
+      if (auto && doorState && !doorState.open && lastAutoDoor.current !== auto.id) {
+        lastAutoDoor.current = auto.id
+        emitDoorToggle(auto.id, pos.current.x, pos.current.z)
+      }
+      if (!auto) lastAutoDoor.current = null
     }
 
     stickCamera(pos.current.x, pos.current.y, pos.current.z)
