@@ -7,12 +7,14 @@ import { WEAPON_STATS } from '../../shared/barrels'
 import { DASH_DISTANCE, DASH_DURATION_MS, JUMP_CEILING, dashCooldownMs } from '../../shared/movement'
 import { GRAVITY, HIDE_MAX_Y, JUMP_SPEED, platformsFor, supportY } from '../../shared/platforms'
 import { PLAYER_RADIUS } from '../../shared/furniture'
-import { SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
-import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitSit, emitSmoke, performAttack } from '../net/socket'
-import { DOOR_RANGE, closedDoorAabbs, nearestDoor } from '../../shared/doors'
+import { POOP_SLOW_MUL, SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
+import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitRescueHold, emitSit, emitSmoke, performAttack } from '../net/socket'
+import { isDowned, nearestDowned } from '../../shared/downed'
+import { DOOR_AUTO_RANGE, DOOR_PROMPT_RANGE, closedDoorAabbs, inspectNearestDoor, nearestDoor } from '../../shared/doors'
+import { OTS_LOOK_Y } from '../../shared/camera'
 import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
 import { resolvePlayerMove } from '../physics/collision'
-import { extraAabbsOf } from '../../shared/mapData'
+import { doorsOf, extraAabbsOf } from '../../shared/mapData'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
@@ -57,6 +59,7 @@ export function LocalController({
   const dashRequest = useAppStore((s) => s.dashRequest)
   const jumpRequest = useAppStore((s) => s.jumpRequest)
   const smokeRequest = useAppStore((s) => s.smokeRequest)
+  const lastAutoDoor = useRef<string | null>(null)
 
   seatedRef.current = player.seated
   furnitureRef.current = furniture
@@ -116,7 +119,7 @@ export function LocalController({
   function tryDash() {
     const state = useAppStore.getState()
     const me = state.players[player.id]
-    if (!me || me.seated || me.hidden) return
+    if (!me || me.seated || me.hidden || isDowned(me)) return
     if (me.team === 'spectator') return
     if ((state.mode === 'boss' || state.mode === 'tag') && !state.started) return
     if (state.mode === 'tag' && me.team === 'ghost' && (state.tagHud?.hideLeftMs ?? 0) > 0) {
@@ -146,7 +149,7 @@ export function LocalController({
   function tryJump() {
     const state = useAppStore.getState()
     const me = state.players[player.id]
-    if (!me || me.seated || me.hidden) return
+    if (!me || me.seated || me.hidden || isDowned(me)) return
     if (me.team === 'spectator') return
     if (!grounded.current) return
     vy.current = JUMP_SPEED
@@ -158,7 +161,7 @@ export function LocalController({
   function trySmoke() {
     const state = useAppStore.getState()
     const me = state.players[player.id]
-    if (!me || me.seated || me.hidden) return
+    if (!me || me.seated || me.hidden || isDowned(me)) return
     if (me.team === 'spectator') return
     if ((state.mode === 'boss' || state.mode === 'tag') && !state.started) return
     const now = Date.now()
@@ -168,6 +171,7 @@ export function LocalController({
     const x = pos.current.x + (lastDir.current.x / len) * range
     const z = pos.current.z + (lastDir.current.z / len) * range
     state.setSmokeReadyAt(now + smokeCooldownMs(me.team))
+    state.setThrowAt(player.id, now)
     emitSmoke(x, z)
   }
 
@@ -201,9 +205,18 @@ export function LocalController({
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') tryDash()
       if (e.code === 'Space') tryJump()
       if (e.code === 'KeyE') {
+        const st = useAppStore.getState()
+        const nearDowned = nearestDowned(player.id, pos.current.x, pos.current.z, Object.values(st.players))
+        if (nearDowned) return
         if (seatedRef.current) void emitSit(null)
-        else if (nearestDoor(pos.current.x, pos.current.z, DOOR_RANGE)) emitDoorToggle()
-        else tryHide()
+        else {
+          const defs = doorsOf(st.scene)
+          const near = nearestDoor(pos.current.x, pos.current.z, defs, DOOR_PROMPT_RANGE)
+          const inspect = inspectNearestDoor(pos.current.x, pos.current.z, defs)
+          console.log('[door] E', { x: pos.current.x, z: pos.current.z, scene: st.scene, near, inspect })
+          if (near) emitDoorToggle(near.id, pos.current.x, pos.current.z)
+          else tryHide()
+        }
       }
     }
     const up = (e: KeyboardEvent) => {
@@ -241,7 +254,7 @@ export function LocalController({
     const stickCamera = (x: number, y: number, z: number) => {
       const target = orbit?.target
       if (!target) return
-      const lookY = 0.9 + y
+      const lookY = OTS_LOOK_Y + y * 0.12
       camera.position.x += x - target.x
       camera.position.y += lookY - target.y
       camera.position.z += z - target.z
@@ -252,6 +265,7 @@ export function LocalController({
       keys.current = {}
       stickCamera(pos.current.x, pos.current.y, pos.current.z)
       onPose([pos.current.x, pos.current.y, pos.current.z], rotY.current)
+      useAppStore.getState().setLocalXZ(pos.current.x, pos.current.z)
       return
     }
 
@@ -259,6 +273,17 @@ export function LocalController({
       stickCamera(pos.current.x, pos.current.y, pos.current.z)
       onPose([pos.current.x, pos.current.y, pos.current.z], rotY.current)
       return
+    }
+
+    if (isDowned(player)) {
+      stickCamera(pos.current.x, pos.current.y, pos.current.z)
+      onPose([pos.current.x, pos.current.y, pos.current.z], rotY.current)
+      return
+    }
+
+    if (keys.current.KeyE) {
+      const tgt = nearestDowned(player.id, pos.current.x, pos.current.z, Object.values(useAppStore.getState().players))
+      if (tgt) emitRescueHold(tgt.id)
     }
 
     if (player.seated && player.position) {
@@ -301,11 +326,12 @@ export function LocalController({
       const held =
         player.weapon && (player.weaponUntil ?? 0) > Date.now() ? player.weapon : 'sword'
       const speedMul = WEAPON_STATS[held].speed
-      const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * speedMul * dt
-      const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * dt
+      const poopSlow = Date.now() < useAppStore.getState().poopSlowUntil ? POOP_SLOW_MUL : 1
+      const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * speedMul * poopSlow * dt
+      const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * poopSlow * dt
 
       const sceneId = useAppStore.getState().scene
-      const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors))
+      const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors, doorsOf(sceneId)))
       const plats = platformsFor(sceneId)
       const result = resolvePlayerMove(
         pos.current.x,
@@ -344,7 +370,7 @@ export function LocalController({
     if (dashing) {
       const step = (DASH_DISTANCE / (DASH_DURATION_MS / 1000)) * dt
       const sceneId = useAppStore.getState().scene
-      const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors))
+      const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors, doorsOf(sceneId)))
       const result = resolvePlayerMove(
         pos.current.x,
         pos.current.z,
@@ -392,10 +418,23 @@ export function LocalController({
       else setPhase('idle')
     }
 
+    const st = useAppStore.getState()
+    if (st.autoOpenDoors && st.mode !== 'tag' && !player.seated && player.team !== 'spectator') {
+      const auto = nearestDoor(pos.current.x, pos.current.z, doorsOf(st.scene), DOOR_AUTO_RANGE)
+      const doorState = auto ? st.doors.find((d) => d.id === auto.id) : null
+      if (auto && (!doorState || !doorState.open) && lastAutoDoor.current !== auto.id) {
+        lastAutoDoor.current = auto.id
+        console.log('[door] auto', { id: auto.id, x: pos.current.x, z: pos.current.z })
+        emitDoorToggle(auto.id, pos.current.x, pos.current.z, true)
+      }
+      if (!auto) lastAutoDoor.current = null
+    }
+
     stickCamera(pos.current.x, pos.current.y, pos.current.z)
 
     const pose: Vec3 = [pos.current.x, pos.current.y, pos.current.z]
     onPose(pose, rotY.current)
+    useAppStore.getState().setLocalXZ(pose[0], pose[2])
 
     const now = performance.now()
     const moving = fwd !== 0 || strafe !== 0 || dashing || !grounded.current

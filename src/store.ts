@@ -9,7 +9,10 @@ import type { SceneId } from '../shared/scenes'
 import type { BarrelState, LootDrop } from '../shared/barrels'
 import type { SmokeCloud } from '../shared/smoke'
 import type { DoorState } from '../shared/doors'
+import type { FeedItem } from '../shared/events'
 import { LOOK_SENS_DEFAULT, LOOK_SENS_MAX, LOOK_SENS_MIN } from '../shared/input'
+import { CAM_DIST_KEY, clampCamDist, readCamDist } from '../shared/camera'
+import { MINIMAP_HEADING_KEY, readMinimapHeadingUp } from '../shared/minimap'
 import { loadSession } from './net/session'
 
 function readLookSens() {
@@ -57,7 +60,12 @@ interface AppState {
   shakeAmp: number
   sfxOn: boolean
   lookSensitivity: number
+  camDist: number
+  minimapHeadingUp: boolean
   pointerLocked: boolean
+  lookYaw: number
+  localX: number
+  localZ: number
   displayName: string
   players: Record<string, PlayerState>
   notes: StickyNote[]
@@ -72,6 +80,7 @@ interface AppState {
   joy: { x: number; y: number }
   /** 被怪物打倒後遞增，讓本地控制器把座標拉回入口 */
   respawnToken: number
+  respawnFadeUntil: number
   pendingNote: { text: string; fontSize: number } | null
   noteAsk: NoteAsk | null
   swings: Record<string, number>
@@ -93,14 +102,27 @@ interface AppState {
   smokes: SmokeCloud[]
   smokeReadyAt: number
   smokeRequest: number
+  poopSlowUntil: number
+  poopVignetteUntil: number
+  throwAt: Record<string, number>
   barrels: BarrelState[]
   drops: LootDrop[]
+  feed: FeedItem[]
+  mapLoadProgress: number
+  mapLoadActive: boolean
+  mapLoadFailed: boolean
+  mapLoadErrors: string[]
+  mapLoadSlow: boolean
+  mapLoadLoaded: number
+  mapLoadTotal: number
+  mapLoadRetry: number
+  autoOpenDoors: boolean
   setLobby: (name: string, roomId: string) => void
   enterRoom: (selfId: string, snapshot: RoomSnapshot) => void
   applySnapshot: (snapshot: RoomSnapshot) => void
   upsertPlayer: (player: PlayerState) => void
   removePlayer: (id: string) => void
-  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp' | 'hidden' | 'team' | 'weapon' | 'weaponUntil'>>) => void
+  patchPlayer: (id: string, patch: Partial<Pick<PlayerState, 'position' | 'rotationY' | 'seated' | 'hp' | 'hidden' | 'team' | 'weapon' | 'weaponUntil' | 'away' | 'phrase' | 'downedUntil'>>) => void
   addNote: (note: StickyNote) => void
   patchNote: (note: StickyNote) => void
   removeNote: (id: string) => void
@@ -130,7 +152,11 @@ interface AppState {
   triggerHitFeel: (kind: 'hit' | 'hurt' | 'slam') => void
   setSfxOn: (on: boolean) => void
   setLookSensitivity: (n: number) => void
+  setCamDist: (n: number) => void
+  setMinimapHeadingUp: (on: boolean) => void
   setPointerLocked: (on: boolean) => void
+  setLookYaw: (yaw: number) => void
+  setLocalXZ: (x: number, z: number) => void
   setDash: (id: string, until: number) => void
   setDashReadyAt: (at: number) => void
   requestDash: () => void
@@ -138,8 +164,18 @@ interface AppState {
   setSmokes: (smokes: SmokeCloud[]) => void
   setSmokeReadyAt: (at: number) => void
   requestSmoke: () => void
+  markPoopHit: () => void
+  setThrowAt: (id: string, at: number) => void
   setBarrels: (barrels: BarrelState[]) => void
   setDrops: (drops: LootDrop[]) => void
+  setFeed: (feed: FeedItem[]) => void
+  setMapLoadProgress: (progress: number, active: boolean) => void
+  setMapLoadFailed: (failed: boolean) => void
+  addMapLoadError: (file: string) => void
+  setMapLoadSlow: (slow: boolean) => void
+  setMapLoadCounts: (loaded: number, total: number) => void
+  requestMapRetry: () => void
+  setAutoOpenDoors: (on: boolean) => void
   setConnection: (status: ConnectionStatus) => void
   setJoinError: (msg: string | null) => void
   leaveToLobby: () => void
@@ -165,7 +201,12 @@ export const useAppStore = create<AppState>((set) => ({
   shakeAmp: 0,
   sfxOn: typeof localStorage === 'undefined' ? true : localStorage.getItem('rb-sfx') !== '0',
   lookSensitivity: readLookSens(),
+  camDist: readCamDist(),
+  minimapHeadingUp: readMinimapHeadingUp(),
   pointerLocked: false,
+  lookYaw: 0,
+  localX: 0,
+  localZ: 0,
   displayName: boot?.name ?? '',
   players: {},
   notes: [],
@@ -178,6 +219,7 @@ export const useAppStore = create<AppState>((set) => ({
   followCam: true,
   joy: { x: 0, y: 0 },
   respawnToken: 0,
+  respawnFadeUntil: 0,
   pendingNote: null,
   noteAsk: null,
   swings: {},
@@ -199,11 +241,24 @@ export const useAppStore = create<AppState>((set) => ({
   smokes: [],
   smokeReadyAt: 0,
   smokeRequest: 0,
+  poopSlowUntil: 0,
+  poopVignetteUntil: 0,
+  throwAt: {},
   barrels: [],
   drops: [],
+  feed: [],
+  mapLoadProgress: 0,
+  mapLoadActive: false,
+  mapLoadFailed: false,
+  mapLoadErrors: [],
+  mapLoadSlow: false,
+  mapLoadLoaded: 0,
+  mapLoadTotal: 0,
+  mapLoadRetry: 0,
+  autoOpenDoors: typeof localStorage === 'undefined' ? true : localStorage.getItem('rb-auto-door') !== '0',
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
-    set({
+    set((s) => ({
       phase: 'room',
       connection: 'online',
       selfId,
@@ -216,8 +271,15 @@ export const useAppStore = create<AppState>((set) => ({
       startInMs: snapshot.startInMs ?? 0,
       started: snapshot.started ?? false,
       joinError: null,
+      mapLoadFailed: false,
+      mapLoadErrors: [],
+      mapLoadSlow: false,
+      mapLoadActive: true,
+      mapLoadRetry: s.mapLoadRetry + 1,
       tagHud: snapshot.tagHud ?? null,
       players: snapshot.players,
+      localX: snapshot.players[selfId]?.position?.[0] ?? 0,
+      localZ: snapshot.players[selfId]?.position?.[2] ?? 0,
       notes: snapshot.notes,
       seats: snapshot.seats,
       furniture: snapshot.furniture?.length ? snapshot.furniture : DEFAULT_FURNITURE,
@@ -229,7 +291,8 @@ export const useAppStore = create<AppState>((set) => ({
       projectiles: snapshot.projectiles ?? [],
       doors: snapshot.doors ?? [],
       duckSpeech: snapshot.duckSpeech ?? null,
-    }),
+      feed: snapshot.feed ?? [],
+    })),
   applySnapshot: (snapshot) =>
     set((s) => ({
       players: snapshot.players,
@@ -253,6 +316,7 @@ export const useAppStore = create<AppState>((set) => ({
       projectiles: snapshot.projectiles ?? s.projectiles,
       doors: snapshot.doors ?? s.doors,
       duckSpeech: snapshot.duckSpeech ?? null,
+      feed: snapshot.feed ?? s.feed,
     })),
   upsertPlayer: (player) =>
     set((s) => ({ players: { ...s.players, [player.id]: player } })),
@@ -313,7 +377,7 @@ export const useAppStore = create<AppState>((set) => ({
   setDoors: (doors) => set({ doors }),
   setDuckSpeech: (speech) => set({ duckSpeech: speech }),
   setHurtFlash: (id, until) => set((s) => ({ hurtFlashUntil: { ...s.hurtFlashUntil, [id]: until } })),
-  bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1 })),
+  bumpRespawn: () => set((s) => ({ respawnToken: s.respawnToken + 1, respawnFadeUntil: performance.now() + 450 })),
   bumpPoseSync: () => set((s) => ({ poseSync: s.poseSync + 1 })),
   setTagHud: (hud) => set({ tagHud: hud }),
   triggerHitFeel: (kind) => {
@@ -334,7 +398,18 @@ export const useAppStore = create<AppState>((set) => ({
     if (typeof localStorage !== 'undefined') localStorage.setItem('rb-look-sens', String(v))
     set({ lookSensitivity: v })
   },
+  setCamDist: (n) => {
+    const v = clampCamDist(n)
+    if (typeof localStorage !== 'undefined') localStorage.setItem(CAM_DIST_KEY, String(v))
+    set({ camDist: v })
+  },
+  setMinimapHeadingUp: (on) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(MINIMAP_HEADING_KEY, on ? '1' : '0')
+    set({ minimapHeadingUp: on })
+  },
   setPointerLocked: (on) => set({ pointerLocked: on }),
+  setLookYaw: (yaw) => set({ lookYaw: yaw }),
+  setLocalXZ: (x, z) => set({ localX: x, localZ: z }),
   setDash: (id, until) => set((s) => ({ dashUntil: { ...s.dashUntil, [id]: until } })),
   setDashReadyAt: (at) => set({ dashReadyAt: at }),
   requestDash: () => set((s) => ({ dashRequest: s.dashRequest + 1 })),
@@ -342,8 +417,36 @@ export const useAppStore = create<AppState>((set) => ({
   setSmokes: (smokes) => set({ smokes }),
   setSmokeReadyAt: (at) => set({ smokeReadyAt: at }),
   requestSmoke: () => set((s) => ({ smokeRequest: s.smokeRequest + 1 })),
+  markPoopHit: () => {
+    const now = Date.now()
+    set({ poopSlowUntil: now + 1000, poopVignetteUntil: now + 2000 })
+  },
+  setThrowAt: (id, at) => set((s) => ({ throwAt: { ...s.throwAt, [id]: at } })),
   setBarrels: (barrels) => set({ barrels }),
   setDrops: (drops) => set({ drops }),
+  setFeed: (feed) => set({ feed }),
+  setMapLoadProgress: (progress, active) => set({ mapLoadProgress: progress, mapLoadActive: active }),
+  setMapLoadFailed: (failed) => set({ mapLoadFailed: failed }),
+  addMapLoadError: (file) =>
+    set((s) =>
+      s.mapLoadErrors.includes(file) ? s : { mapLoadErrors: [...s.mapLoadErrors, file], mapLoadFailed: true },
+    ),
+  setMapLoadSlow: (slow) => set({ mapLoadSlow: slow }),
+  setMapLoadCounts: (loaded, total) => set({ mapLoadLoaded: loaded, mapLoadTotal: total }),
+  requestMapRetry: () =>
+    set((s) => ({
+      mapLoadRetry: s.mapLoadRetry + 1,
+      mapLoadErrors: [],
+      mapLoadFailed: false,
+      mapLoadSlow: false,
+      mapLoadActive: true,
+      mapLoadProgress: 0,
+      mapLoadLoaded: 0,
+    })),
+  setAutoOpenDoors: (on) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('rb-auto-door', on ? '1' : '0')
+    set({ autoOpenDoors: on })
+  },
   setConnection: (status) => set({ connection: status }),
   setJoinError: (msg) => set({ joinError: msg }),
   leaveToLobby: () =>
@@ -356,6 +459,12 @@ export const useAppStore = create<AppState>((set) => ({
       seats: {},
       furniture: DEFAULT_FURNITURE,
       monsters: [],
+      feed: [],
+      mapLoadProgress: 0,
+      mapLoadActive: false,
+      mapLoadFailed: false,
+      mapLoadErrors: [],
+      mapLoadSlow: false,
       matchOver: null,
       settings: defaultSettings(),
       timeLeftMs: null,
@@ -384,6 +493,9 @@ export const useAppStore = create<AppState>((set) => ({
       hurtFlashUntil: {},
       joy: { x: 0, y: 0 },
       pointerLocked: false,
+      lookYaw: 0,
+      localX: 0,
+      localZ: 0,
       dashUntil: {},
       dashReadyAt: 0,
       dashRequest: 0,
@@ -391,6 +503,9 @@ export const useAppStore = create<AppState>((set) => ({
       smokes: [],
       smokeReadyAt: 0,
       smokeRequest: 0,
+      poopSlowUntil: 0,
+      poopVignetteUntil: 0,
+      throwAt: {},
       barrels: [],
       drops: [],
     }),

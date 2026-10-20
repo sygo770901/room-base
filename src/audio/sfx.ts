@@ -1,10 +1,11 @@
-export type SfxName = 'attack' | 'hit' | 'hurt' | 'slam'
+export type SfxName = 'attack' | 'hit' | 'hurt' | 'slam' | 'poop'
 
 const FILES: Record<SfxName, string> = {
   attack: '/sfx/attack.wav',
   hit: '/sfx/hit.wav',
   hurt: '/sfx/hurt.wav',
   slam: '/sfx/slam.wav',
+  poop: '/sfx/attack.wav',
 }
 
 let ctx: AudioContext | null = null
@@ -45,10 +46,31 @@ export function unlockSfx() {
   if (!loading) loading = loadAll().catch(() => undefined)
 }
 
+function playPoopPop() {
+  const ac = getCtx()
+  if (!ac || !master) return
+  const o = ac.createOscillator()
+  const g = ac.createGain()
+  o.type = 'triangle'
+  o.frequency.setValueAtTime(140, ac.currentTime)
+  o.frequency.exponentialRampToValueAtTime(48, ac.currentTime + 0.12)
+  g.gain.setValueAtTime(0.001, ac.currentTime)
+  g.gain.exponentialRampToValueAtTime(0.28, ac.currentTime + 0.02)
+  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.16)
+  o.connect(g)
+  g.connect(master)
+  o.start()
+  o.stop(ac.currentTime + 0.18)
+}
+
 export function playSfx(name: SfxName, rate = 1) {
   if (typeof window === 'undefined') return
   if (localStorage.getItem('rb-sfx') === '0') return
   unlockSfx()
+  if (name === 'poop') {
+    playPoopPop()
+    return
+  }
   const run = () => {
     const ac = getCtx()
     const buf = buffers.get(name)

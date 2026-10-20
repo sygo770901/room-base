@@ -1,4 +1,5 @@
-import { FLOOR_CENTERS, HIDE_SPOTS, SPAWN_POINTS } from './dungeon.ts'
+import { FLOOR_CENTERS, HIDE_SPOTS, SPAWN_POINTS, isWalkableWorld } from './dungeon.ts'
+import { extraAabbsOf } from './mapData.ts'
 
 /** 木桶與掉寶數值。先定，方便日後調整。 */
 export const BARREL_COUNT = 20
@@ -41,23 +42,32 @@ function far(x: number, z: number, pts: { x: number; z: number }[], d: number) {
   return pts.every((p) => Math.hypot(p.x - x, p.z - z) >= d)
 }
 
-const chosen: { x: number; z: number }[] = []
-for (const c of FLOOR_CENTERS) {
-  if (chosen.length >= BARREL_COUNT) break
-  if (!far(c.x, c.z, HIDE_SPOTS, 2.4)) continue
-  if (!far(c.x, c.z, SPAWN_POINTS, 4)) continue
-  if (!far(c.x, c.z, chosen, 6)) continue
-  chosen.push({ x: c.x + 0.4, z: c.z - 0.35 })
-}
-while (chosen.length < BARREL_COUNT && FLOOR_CENTERS.length) {
-  const c = FLOOR_CENTERS[(chosen.length * 7) % FLOOR_CENTERS.length]
-  chosen.push({ x: c.x, z: c.z })
+function overlapsWall(x: number, z: number, r: number, boxes: { minX: number; maxX: number; minZ: number; maxZ: number }[]) {
+  return boxes.some((b) => x + r > b.minX && x - r < b.maxX && z + r > b.minZ && z - r < b.maxZ)
 }
 
-export const BARREL_SPOTS = chosen.slice(0, BARREL_COUNT)
+export function barrelSpotsOf(scene?: string | null) {
+  const extra = extraAabbsOf(scene)
+  const pad = BARREL_RADIUS + 0.2
+  const spots: { x: number; z: number }[] = []
+  const tryPut = (x: number, z: number, minGap: number) => {
+    if (spots.length >= BARREL_COUNT) return
+    if (!isWalkableWorld(x, z, pad)) return
+    if (overlapsWall(x, z, pad, extra)) return
+    if (!far(x, z, HIDE_SPOTS, 2.4)) return
+    if (!far(x, z, SPAWN_POINTS, 4)) return
+    if (!far(x, z, spots, minGap)) return
+    spots.push({ x, z })
+  }
+  for (const c of FLOOR_CENTERS) tryPut(c.x, c.z, 6)
+  for (const c of FLOOR_CENTERS) tryPut(c.x, c.z, 3.2)
+  return spots.slice(0, BARREL_COUNT)
+}
 
-export function createBarrels(): BarrelState[] {
-  return BARREL_SPOTS.map((p, i) => ({
+export const BARREL_SPOTS = barrelSpotsOf('kenney')
+
+export function createBarrels(scene?: string | null): BarrelState[] {
+  return barrelSpotsOf(scene).map((p, i) => ({
     id: `barrel-${i}`,
     x: p.x,
     z: p.z,

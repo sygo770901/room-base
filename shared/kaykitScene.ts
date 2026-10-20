@@ -6,6 +6,7 @@ import {
   type Place,
   type WallBox,
 } from './dungeon'
+import { DOORWAY_DEFS } from './doorways'
 
 /** 牆中心往走道外側挪 0.5m，內側面才會貼在 4m 格子邊上。 */
 const OUT = 0.5
@@ -19,7 +20,6 @@ function outward(rotY: number): [number, number] {
 
 function wallModel(x: number, z: number) {
   const n = Math.abs(Math.round(x) * 3 + Math.round(z) * 7)
-  if (n % 9 === 0) return 'wall_doorway.gltf'
   if (n % 7 === 0) return 'wall_gated.gltf'
   return 'wall.gltf'
 }
@@ -56,6 +56,10 @@ for (const prop of PROP_LIST) {
   places.push({ x: prop.x, y: 0, z: prop.z, rotY: prop.rotY, model: 'pillar.gltf' })
 }
 
+for (const d of DOORWAY_DEFS) {
+  places.push({ x: d.x, y: 0, z: d.z, rotY: d.rotY, model: 'wall_doorway.gltf' })
+}
+
 places.push(
   { x: 58, y: 0, z: 12, rotY: 0, model: 'stairs_wide.gltf' },
   { x: 96, y: 0, z: 108, rotY: 0, model: 'stairs_long.gltf' },
@@ -66,6 +70,8 @@ places.push(
 )
 
 export const KAYKIT_PLACES = places
+
+export const KAYKIT_DOORWAYS = places.filter((p) => p.model === 'wall_doorway.gltf')
 
 export const KAYKIT_TORCHES = places
   .filter((p) => p.model === 'torch_mounted.gltf')

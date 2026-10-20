@@ -658,12 +658,16 @@ export function rayOcclusion(
   dz: number,
   maxDist: number,
   extra: OccBox[] = [],
+  opts?: { skipCeilingY?: number },
 ) {
   let best = maxDist
   const boxes = extra.length ? CAMERA_OCCLUDERS.concat(extra) : CAMERA_OCCLUDERS
+  const skipY = opts?.skipCeilingY
   for (const b of boxes) {
     const t = rayBox(ox, oy, oz, dx, dy, dz, b)
-    if (t != null && t > 0.05 && t < best) best = t
+    if (t == null || t <= 0.05 || t >= best) continue
+    if (skipY != null && oy + dy * t > skipY) continue
+    best = t
   }
   return best
 }

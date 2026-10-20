@@ -1,7 +1,31 @@
-import { KAYKIT_EXTRA_WALLS, KAYKIT_OCCLUDERS } from './kaykitScene'
+import { KAYKIT_DOORWAYS, KAYKIT_EXTRA_WALLS, KAYKIT_OCCLUDERS } from './kaykitScene'
+import { DOORWAY_DEFS, doorwayPlaces } from './doorways'
 import { platformsFor } from './platforms'
 import type { WallBox, OccBox } from './dungeon'
 import type { SceneId } from './scenes'
+import type { DoorDef } from './doors'
+
+function copyDoors(): DoorDef[] {
+  return DOORWAY_DEFS.map((d) => ({ ...d }))
+}
+
+const KENNEY_DOORS: DoorDef[] = copyDoors()
+const KAYKIT_DOORS: DoorDef[] = copyDoors()
+const JUNGLE_DOORS: DoorDef[] = copyDoors()
+
+export function doorsOf(scene?: SceneId | string | null): DoorDef[] {
+  if (scene === 'kaykit') return KAYKIT_DOORS
+  if (scene === 'jungle') return JUNGLE_DOORS
+  return KENNEY_DOORS
+}
+
+/** 門口模型位置。Kenney 用通道座標，KayKit／叢林用 wall_doorway。 */
+export function doorwayModelsOf(scene?: SceneId | string | null) {
+  if (scene === 'kaykit' || scene === 'jungle') {
+    return KAYKIT_DOORWAYS.map((p) => ({ x: p.x, z: p.z, rotY: p.rotY }))
+  }
+  return doorwayPlaces()
+}
 
 /** 叢林樹幹碰撞。加地圖時在這裡加資料即可。 */
 const JUNGLE_TRUNKS: WallBox[] = [

@@ -1,210 +1,162 @@
-import { useMemo, useRef } from 'react'
+import { Component, useMemo, useRef, type ReactNode } from 'react'
+import { useGLTF } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
+import { useAppStore } from '../store'
 
-const SKIN = '#e2b48a'
-const HAIR = '#1a1412'
-const SHIRT = '#161616'
-const JEANS = '#8b8f97'
-const SHOE = '#d9c5a3'
-const SHOE_SOLE = '#c4b08a'
-const LENS = '#1c1c1c'
-const GLASS = '#9ad4e8'
+export const DUCK_URL = '/assets/duck/Duck.glb'
+/** 鴨王目標身高（先定，昱豪可改） */
+export const DUCK_TARGET_HEIGHT = 1.68
 
-export function DuckKingMesh({ moving, fleeing, raging }: { moving: boolean; fleeing?: boolean; raging?: boolean }) {
-  const arms = useRef<THREE.Group>(null)
-  const head = useRef<THREE.Group>(null)
+useGLTF.preload(DUCK_URL)
+
+function collectMats(root: THREE.Object3D) {
+  const mats: THREE.MeshStandardMaterial[] = []
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh
+    if (!mesh.isMesh) return
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    const raw = mesh.material
+    const list = Array.isArray(raw) ? raw : [raw]
+    mesh.material = list.map((m) => {
+      const cloned = (m as THREE.Material).clone() as THREE.MeshStandardMaterial
+      if (cloned.color) cloned.userData.base = cloned.color.getHex()
+      mats.push(cloned)
+      return cloned
+    })
+  })
+  return mats
+}
+
+function Crown({ raging, y }: { raging?: boolean; y: number }) {
+  return (
+    <>
+      <mesh position={[0, y, 0.02]} castShadow>
+        <cylinderGeometry args={[0.15, 0.2, 0.1, 8]} />
+        <meshStandardMaterial color={raging ? '#6a1212' : '#e8c547'} metalness={0.55} roughness={0.28} />
+      </mesh>
+      <mesh position={[0, y + 0.1, 0.02]} castShadow>
+        <coneGeometry args={[0.11, 0.16, 6]} />
+        <meshStandardMaterial color={raging ? '#ffb703' : '#f4d35e'} metalness={0.45} roughness={0.32} />
+      </mesh>
+    </>
+  )
+}
+
+export function FallbackDuck({ moving, fleeing, raging, downed }: { moving: boolean; fleeing?: boolean; raging?: boolean; downed?: boolean }) {
+  const body = useRef<THREE.Group>(null)
+  const t = useRef(0)
+  useFrame((_, dt) => {
+    t.current += dt * (fleeing ? 11 : moving ? 8 : 2.2)
+    if (!body.current) return
+    if (downed) {
+      body.current.rotation.x = THREE.MathUtils.damp(body.current.rotation.x, 1.25, 8, dt)
+      return
+    }
+    body.current.rotation.x = 0
+    body.current.position.y = moving ? Math.abs(Math.sin(t.current)) * 0.045 : Math.sin(t.current * 0.5) * 0.012
+    body.current.rotation.z = moving ? Math.sin(t.current) * 0.08 : 0
+  })
+  const skin = raging ? '#c45a4a' : '#f4c430'
+  return (
+    <group ref={body}>
+      <mesh position={[0, 0.55, 0]} castShadow>
+        <sphereGeometry args={[0.42, 16, 12]} />
+        <meshStandardMaterial color={skin} roughness={0.45} />
+      </mesh>
+      <mesh position={[0, 1.05, 0.18]} castShadow>
+        <sphereGeometry args={[0.28, 14, 12]} />
+        <meshStandardMaterial color={skin} roughness={0.45} />
+      </mesh>
+      <mesh position={[0, 1.0, 0.46]} rotation={[0.4, 0, 0]} castShadow>
+        <coneGeometry args={[0.1, 0.28, 8]} />
+        <meshStandardMaterial color="#ef9f27" />
+      </mesh>
+      <Crown raging={raging} y={1.32} />
+    </group>
+  )
+}
+
+function GltfDuck({ moving, fleeing, raging, downed }: { moving: boolean; fleeing?: boolean; raging?: boolean; downed?: boolean }) {
+  const gltf = useGLTF(DUCK_URL)
   const body = useRef<THREE.Group>(null)
   const t = useRef(0)
 
-  const shirtMat = useMemo(() => new THREE.MeshStandardMaterial({ color: SHIRT, roughness: 0.72, metalness: 0.04 }), [])
-  const skinMat = useMemo(() => new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.55, metalness: 0.02 }), [])
-  const hairMat = useMemo(() => new THREE.MeshStandardMaterial({ color: HAIR, roughness: 0.85 }), [])
-  const jeanMat = useMemo(() => new THREE.MeshStandardMaterial({ color: JEANS, roughness: 0.78 }), [])
-  const shoeMat = useMemo(() => new THREE.MeshStandardMaterial({ color: SHOE, roughness: 0.5 }), [])
-  const soleMat = useMemo(() => new THREE.MeshStandardMaterial({ color: SHOE_SOLE, roughness: 0.7 }), [])
-  const frameMat = useMemo(() => new THREE.MeshStandardMaterial({ color: LENS, roughness: 0.35, metalness: 0.4 }), [])
-  const glassMat = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: GLASS,
-        roughness: 0.05,
-        metalness: 0.15,
-        transparent: true,
-        opacity: 0.28,
-      }),
-    [],
-  )
+  const { model, mats } = useMemo(() => {
+    const cloned = gltf.scene.clone(true)
+    cloned.updateMatrixWorld(true)
+    const box = new THREE.Box3().setFromObject(cloned)
+    const size = new THREE.Vector3()
+    box.getSize(size)
+    const s = DUCK_TARGET_HEIGHT / Math.max(size.y, 0.001)
+    cloned.scale.setScalar(s)
+    cloned.position.y = -box.min.y * s
+    return { model: cloned, mats: collectMats(cloned) }
+  }, [gltf])
 
   useFrame((_, dt) => {
-    shirtMat.color.set(raging ? '#6a1212' : SHIRT)
-    skinMat.color.set(raging ? '#c45a4a' : SKIN)
-    hairMat.color.set(raging ? '#2a0606' : HAIR)
-    jeanMat.color.set(raging ? '#6a2028' : JEANS)
     t.current += dt * (fleeing ? 11 : moving ? 8 : 2.2)
-    const swing = moving ? Math.sin(t.current) * (fleeing ? 0.55 : 0.38) : Math.sin(t.current * 0.35) * 0.06
-    if (arms.current) {
-      const left = arms.current.children[0]
-      const right = arms.current.children[1]
-      if (left) left.rotation.x = swing
-      if (right) right.rotation.x = -swing
-    }
     if (body.current) {
-      body.current.position.y = moving ? Math.abs(Math.sin(t.current)) * 0.035 : Math.sin(t.current * 0.5) * 0.012
+      if (downed) {
+        body.current.rotation.x = THREE.MathUtils.damp(body.current.rotation.x, 1.2, 8, dt)
+      } else {
+        body.current.rotation.x = 0
+        const swing = moving ? Math.sin(t.current) * (fleeing ? 0.14 : 0.08) : Math.sin(t.current * 0.35) * 0.03
+        body.current.position.y = moving ? Math.abs(Math.sin(t.current)) * 0.045 : Math.sin(t.current * 0.5) * 0.012
+        body.current.rotation.z = swing * 0.55
+      }
     }
-    if (head.current) {
-      head.current.rotation.y = fleeing ? 0.55 : Math.sin(t.current * 0.2) * 0.08
-      head.current.rotation.x = fleeing ? 0.12 : 0
+    for (const mat of mats) {
+      if (!mat.color || mat.userData.base == null) continue
+      mat.color.set(raging ? '#c45a4a' : mat.userData.base)
     }
   })
 
   return (
     <group ref={body}>
+      <primitive object={model} />
+      <Crown raging={raging} y={DUCK_TARGET_HEIGHT * 0.94} />
+    </group>
+  )
+}
+
+class DuckBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  componentDidCatch(error: Error) {
+    const store = useAppStore.getState()
+    store.addMapLoadError(error.message ? `${DUCK_URL}（${error.message}）` : DUCK_URL)
+    store.setMapLoadFailed(true)
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children
+  }
+}
+
+export function DuckKingMesh({
+  moving,
+  fleeing,
+  raging,
+  downed,
+}: {
+  moving: boolean
+  fleeing?: boolean
+  raging?: boolean
+  downed?: boolean
+}) {
+  const props = { moving, fleeing, raging, downed }
+  return (
+    <group>
       <mesh rotation-x={-Math.PI / 2} position={[0, 0.012, 0]} receiveShadow>
-        <circleGeometry args={[0.26, 16]} />
+        <circleGeometry args={[0.32, 16]} />
         <meshBasicMaterial color="#000000" transparent opacity={0.28} />
       </mesh>
-
-      {/* legs */}
-      <mesh position={[-0.09, 0.46, 0]} castShadow material={jeanMat}>
-        <cylinderGeometry args={[0.068, 0.078, 0.7, 10]} />
-      </mesh>
-      <mesh position={[0.09, 0.46, 0]} castShadow material={jeanMat}>
-        <cylinderGeometry args={[0.068, 0.078, 0.7, 10]} />
-      </mesh>
-      {/* hips */}
-      <mesh position={[0, 0.78, 0]} castShadow material={jeanMat}>
-        <boxGeometry args={[0.3, 0.16, 0.18]} />
-      </mesh>
-
-      {/* shoes */}
-      <mesh position={[-0.09, 0.075, 0.045]} castShadow material={shoeMat}>
-        <boxGeometry args={[0.13, 0.09, 0.26]} />
-      </mesh>
-      <mesh position={[0.09, 0.075, 0.045]} castShadow material={shoeMat}>
-        <boxGeometry args={[0.13, 0.09, 0.26]} />
-      </mesh>
-      <mesh position={[-0.09, 0.028, 0.04]} material={soleMat}>
-        <boxGeometry args={[0.136, 0.035, 0.28]} />
-      </mesh>
-      <mesh position={[0.09, 0.028, 0.04]} material={soleMat}>
-        <boxGeometry args={[0.136, 0.035, 0.28]} />
-      </mesh>
-
-      {/* torso / black shirt */}
-      <mesh position={[0, 1.12, 0]} castShadow material={shirtMat}>
-        <boxGeometry args={[0.36, 0.52, 0.2]} />
-      </mesh>
-      {/* collar */}
-      <mesh position={[0, 1.38, 0.02]} rotation={[0.35, 0, 0]} material={shirtMat}>
-        <boxGeometry args={[0.2, 0.06, 0.16]} />
-      </mesh>
-      <mesh position={[-0.08, 1.36, 0.06]} rotation={[0.4, 0, 0.5]} material={shirtMat}>
-        <boxGeometry args={[0.1, 0.05, 0.08]} />
-      </mesh>
-      <mesh position={[0.08, 1.36, 0.06]} rotation={[0.4, 0, -0.5]} material={shirtMat}>
-        <boxGeometry args={[0.1, 0.05, 0.08]} />
-      </mesh>
-      {/* yellow duck pin */}
-      <mesh position={[0.12, 1.18, 0.106]}>
-        <sphereGeometry args={[0.035, 10, 8]} />
-        <meshStandardMaterial color="#f4c430" roughness={0.4} />
-      </mesh>
-      <mesh position={[0.148, 1.185, 0.11]}>
-        <coneGeometry args={[0.012, 0.028, 6]} />
-        <meshStandardMaterial color="#ef9f27" />
-      </mesh>
-
-      <group ref={arms}>
-        <group position={[-0.22, 1.28, 0]}>
-          <mesh position={[0, -0.18, 0]} rotation={[0, 0, 0.12]} castShadow material={shirtMat}>
-            <cylinderGeometry args={[0.055, 0.05, 0.2, 8]} />
-          </mesh>
-          <mesh position={[0, -0.36, 0]} rotation={[0, 0, 0.08]} castShadow material={skinMat}>
-            <cylinderGeometry args={[0.042, 0.038, 0.26, 8]} />
-          </mesh>
-          <mesh position={[0, -0.52, 0.01]} castShadow material={skinMat}>
-            <sphereGeometry args={[0.045, 10, 8]} />
-          </mesh>
-        </group>
-        <group position={[0.22, 1.28, 0]}>
-          <mesh position={[0, -0.18, 0]} rotation={[0, 0, -0.12]} castShadow material={shirtMat}>
-            <cylinderGeometry args={[0.055, 0.05, 0.2, 8]} />
-          </mesh>
-          <mesh position={[0, -0.36, 0]} rotation={[0, 0, -0.08]} castShadow material={skinMat}>
-            <cylinderGeometry args={[0.042, 0.038, 0.26, 8]} />
-          </mesh>
-          <mesh position={[0, -0.52, 0.01]} castShadow material={skinMat}>
-            <sphereGeometry args={[0.045, 10, 8]} />
-          </mesh>
-        </group>
-      </group>
-
-      <group ref={head} position={[0, 1.52, 0]}>
-        <mesh position={[0, 0.16, 0]} castShadow material={skinMat}>
-          <sphereGeometry args={[0.155, 18, 14]} />
-        </mesh>
-        {/* ears */}
-        <mesh position={[-0.15, 0.16, 0]} material={skinMat}>
-          <sphereGeometry args={[0.032, 8, 6]} />
-        </mesh>
-        <mesh position={[0.15, 0.16, 0]} material={skinMat}>
-          <sphereGeometry args={[0.032, 8, 6]} />
-        </mesh>
-        {/* short black hair */}
-        <mesh position={[0, 0.22, -0.01]} scale={[1.02, 0.58, 1.08]} material={hairMat}>
-          <sphereGeometry args={[0.162, 16, 12]} />
-        </mesh>
-        <mesh position={[0, 0.14, -0.12]} material={hairMat}>
-          <boxGeometry args={[0.28, 0.12, 0.08]} />
-        </mesh>
-        {/* brows */}
-        <mesh position={[-0.05, 0.21, 0.13]} rotation={[0.2, 0, 0.15]} material={hairMat}>
-          <boxGeometry args={[0.06, 0.012, 0.012]} />
-        </mesh>
-        <mesh position={[0.05, 0.21, 0.13]} rotation={[0.2, 0, -0.15]} material={hairMat}>
-          <boxGeometry args={[0.06, 0.012, 0.012]} />
-        </mesh>
-        {/* glasses */}
-        <mesh position={[-0.055, 0.175, 0.14]} rotation={[Math.PI / 2, 0, 0]} material={frameMat}>
-          <torusGeometry args={[0.042, 0.007, 8, 16]} />
-        </mesh>
-        <mesh position={[0.055, 0.175, 0.14]} rotation={[Math.PI / 2, 0, 0]} material={frameMat}>
-          <torusGeometry args={[0.042, 0.007, 8, 16]} />
-        </mesh>
-        <mesh position={[-0.055, 0.175, 0.14]} material={glassMat}>
-          <circleGeometry args={[0.038, 16]} />
-        </mesh>
-        <mesh position={[0.055, 0.175, 0.14]} material={glassMat}>
-          <circleGeometry args={[0.038, 16]} />
-        </mesh>
-        <mesh position={[0, 0.175, 0.14]} material={frameMat}>
-          <boxGeometry args={[0.028, 0.008, 0.008]} />
-        </mesh>
-        <mesh position={[-0.095, 0.17, 0.08]} rotation={[0, 0.6, 0]} material={frameMat}>
-          <boxGeometry args={[0.05, 0.008, 0.008]} />
-        </mesh>
-        <mesh position={[0.095, 0.17, 0.08]} rotation={[0, -0.6, 0]} material={frameMat}>
-          <boxGeometry args={[0.05, 0.008, 0.008]} />
-        </mesh>
-        {/* eyes */}
-        <mesh position={[-0.055, 0.172, 0.148]}>
-          <sphereGeometry args={[0.016, 8, 8]} />
-          <meshStandardMaterial color="#1b1b1b" />
-        </mesh>
-        <mesh position={[0.055, 0.172, 0.148]}>
-          <sphereGeometry args={[0.016, 8, 8]} />
-          <meshStandardMaterial color="#1b1b1b" />
-        </mesh>
-        {/* nose / mouth */}
-        <mesh position={[0, 0.145, 0.148]} material={skinMat}>
-          <sphereGeometry args={[0.018, 8, 6]} />
-        </mesh>
-        <mesh position={[0, 0.118, 0.145]}>
-          <boxGeometry args={[0.04, 0.006, 0.008]} />
-          <meshStandardMaterial color="#b07a68" />
-        </mesh>
-      </group>
+      <DuckBoundary fallback={<FallbackDuck {...props} />}>
+        <GltfDuck {...props} />
+      </DuckBoundary>
     </group>
   )
 }

@@ -1,10 +1,11 @@
 import type { Server } from 'socket.io'
-import { ATTACK_COS, ATTACK_COOLDOWN_MS, ATTACK_RANGE, PLAYER_MAX_HP, type MatchOver } from '../shared/combat.ts'
+import { ATTACK_COOLDOWN_MS, ATTACK_RANGE, meleeHits, PLAYER_MAX_HP, type MatchOver } from '../shared/combat.ts'
 import { nextComboStep } from '../shared/anim.ts'
 import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
 import { JUMP_CEILING, JUMP_MAX_DELTA, MOVE_Y_PAD, moveAllowance, type MoveGrant } from '../shared/movement.ts'
-import { HIDE_MAX_Y } from '../shared/platforms.ts'
+import { HIDE_MAX_Y, JUMP_GROUND_EPS, supportY, PLAYER_FOOT_RADIUS } from '../shared/platforms.ts'
+import { doorsOf, platformsOf } from '../shared/mapData.ts'
 import { smokeHidesFrom, type SmokeCloud } from '../shared/smoke.ts'
 import { doorHidesFrom, type DoorState } from '../shared/doors.ts'
 import {
@@ -18,6 +19,9 @@ import {
   type TagHud,
   type TagState,
 } from '../shared/tag.ts'
+import { computeAwards } from '../shared/awards.ts'
+import { isDowned } from '../shared/downed.ts'
+import { announce } from './feed.ts'
 import type { PlayerState, Vec3 } from './types.ts'
 
 export type { TagState }
@@ -45,6 +49,13 @@ export interface TagRoom {
   moveGrant?: Record<string, MoveGrant>
   smokes?: SmokeCloud[]
   doors?: DoorState[]
+  scene?: string | null
+  hideMs?: Record<string, number>
+  taken?: Record<string, number>
+  dispenserKills?: Record<string, number>
+  rescues?: Record<string, number>
+  feed?: import('../shared/events.ts').FeedItem[]
+  poopSlowUntil?: Record<string, number>
 }
 
 export function emptyTag(): TagState {
@@ -76,15 +87,15 @@ function hidePhase(room: TagRoom, now = Date.now()) {
   return Boolean(room.tag?.roundActive && now < (room.tag.hideUntil ?? 0))
 }
 
-export function stripPlayer(p: PlayerState): PlayerState {
-  const copy = { ...p }
-  return copy
+export function stripPlayer(p: PlayerState, away = false): PlayerState {
+  return { ...p, away }
 }
 
 export function playerViewFor(room: TagRoom, viewerId: string, p: PlayerState): PlayerState {
-  if (room.mode !== 'tag') return stripPlayer(p)
-  if (p.id === viewerId) return stripPlayer(p)
-  if (!seekersOf(room, viewerId)) return stripPlayer(p)
+  const away = Boolean(room.awayUntil?.[p.id])
+  if (room.mode !== 'tag') return stripPlayer(p, away)
+  if (p.id === viewerId) return stripPlayer(p, away)
+  if (!seekersOf(room, viewerId)) return stripPlayer(p, away)
   const hidingCoords = hidePhase(room) ? p.team === 'hider' : Boolean(p.hidden && p.team === 'hider')
   const viewer = room.players[viewerId]
   const smoked =
@@ -105,10 +116,11 @@ export function playerViewFor(room: TagRoom, viewerId: string, p: PlayerState): 
       room.doors,
       { x: viewer!.position[0], z: viewer!.position[2] },
       { x: p.position[0], z: p.position[2] },
+      doorsOf(room.scene),
     )
-  if (!hidingCoords && !smoked && !behindDoor) return stripPlayer(p)
-  const { position: _pos, ...rest } = p
-  return rest as PlayerState
+  if (!hidingCoords && !smoked && !behindDoor) return stripPlayer(p, away)
+  const { position: _pos, phrase: _phrase, ...rest } = p
+  return { ...rest, away } as PlayerState
 }
 
 export function playersForViewer(room: TagRoom, viewerId: string) {
@@ -297,10 +309,22 @@ function rankingOf(room: TagRoom, now: number): MatchOver['ranking'] {
 
 function endTag(room: TagRoom, io: Server, winner: 'hiders' | 'ghosts', now: number) {
   if (room.matchOver) return
+  const ranking = rankingOf(room, now)
+  const hideMs = { ...(room.hideMs ?? {}) }
+  for (const [id, at] of Object.entries(room.tag?.hideEnteredAt ?? {})) {
+    hideMs[id] = (hideMs[id] ?? 0) + Math.max(0, now - at)
+  }
   const over: MatchOver = {
     teamWin: winner === 'hiders',
     winner,
-    ranking: rankingOf(room, now),
+    ranking,
+    awards: computeAwards({
+      mode: 'tag',
+      names: Object.fromEntries(Object.values(room.players).map((p) => [p.id, p.name])),
+      catches: Object.fromEntries(ranking.map((r) => [r.id, r.catches ?? 0])),
+      surviveSec: Object.fromEntries(ranking.map((r) => [r.id, r.surviveSec ?? 0])),
+      hideMs,
+    }),
   }
   room.matchOver = over
   if (room.tag) room.tag.roundActive = false
@@ -316,6 +340,7 @@ export function catchHider(room: TagRoom, io: Server, ghostId: string, victimId:
   if (ghost.team !== 'ghost' || victim.team !== 'hider') return
   victim.team = 'ghost'
   victim.hidden = false
+  creditHide(room, victimId, now)
   delete tag.hideEnteredAt[victimId]
   delete tag.hideSpot[victimId]
   tag.caughtAt[victimId] = now
@@ -324,6 +349,9 @@ export function catchHider(room: TagRoom, io: Server, ghostId: string, victimId:
   emitPlayerMoved(room, io, victimId)
   for (const id of Object.keys(room.players)) io.to(id).emit('tag:hud', tagHudFor(room, id, now))
   io.to(room.roomId).emit('combat:skill', { text: `${victim.name} 被抓到了，變成鬼` })
+  announce(room, io, `${victim.name} 被抓到了，變成鬼`)
+  const hidersLeft = presentPlayers(room).filter((p) => p.team === 'hider').length
+  if (hidersLeft === 1) announce(room, io, '剩最後 1 人！')
   settleTag(room, io, now)
 }
 
@@ -382,14 +410,22 @@ export function nearestHideSpot(x: number, z: number, range: number) {
   return best
 }
 
+function creditHide(room: TagRoom, playerId: string, now: number) {
+  const at = room.tag?.hideEnteredAt[playerId]
+  if (!at) return
+  if (!room.hideMs) room.hideMs = {}
+  room.hideMs[playerId] = (room.hideMs[playerId] ?? 0) + Math.max(0, now - at)
+}
+
 export function tryHide(room: TagRoom, playerId: string, want: boolean, now: number) {
   const player = room.players[playerId]
   const tag = room.tag
   if (!player) return false
-  if (player.team === 'ghost' || player.team === 'spectator') return false
+  if (player.team === 'ghost' || player.team === 'spectator' || isDowned(player, now)) return false
   if (!want) {
     player.hidden = false
     if (tag) {
+      creditHide(room, playerId, now)
       delete tag.hideEnteredAt[playerId]
       delete tag.hideSpot[playerId]
     }
@@ -434,6 +470,7 @@ export function handleCheck(room: TagRoom, io: Server, playerId: string, now: nu
 export function handleTagAttack(room: TagRoom, io: Server, playerId: string, now: number, attackerSocketId?: string) {
   const player = room.players[playerId]
   if (!player || player.seated || player.hidden) return
+  if (isDowned(player, now)) return
   if (room.matchOver) return
   if ((room.nextAttack?.[playerId] ?? 0) > now) return
   if (!room.nextAttack) room.nextAttack = {}
@@ -447,17 +484,19 @@ export function handleTagAttack(room: TagRoom, io: Server, playerId: string, now
   swing.emit('player:swing', { id: playerId, combo })
   if (room.mode !== 'tag' || player.team !== 'ghost' || !room.tag?.roundActive) return
   if (now < room.tag.hideUntil) return
-  const fx = Math.sin(player.rotationY)
-  const fz = Math.cos(player.rotationY)
   for (const other of presentPlayers(room)) {
     if (other.team !== 'hider' || other.id === playerId) continue
-    const dx = other.position[0] - player.position[0]
-    const dz = other.position[2] - player.position[2]
-    const dist = Math.hypot(dx, dz)
-    if (dist > ATTACK_RANGE) continue
-    if (dist >= 0.26) {
-      const dot = (dx / dist) * fx + (dz / dist) * fz
-      if (dot < ATTACK_COS) continue
+    if (
+      !meleeHits(
+        player.position[0],
+        player.position[2],
+        player.rotationY,
+        other.position[0],
+        other.position[2],
+        ATTACK_RANGE,
+      )
+    ) {
+      continue
     }
     catchHider(room, io, playerId, other.id, now)
     return
@@ -475,6 +514,7 @@ export function tickTag(room: TagRoom, io: Server, now: number) {
     if (now - at < TAG_BOX_MAX_MS) continue
     const spotId = tag.hideSpot[id]
     p.hidden = false
+    creditHide(room, id, now)
     tag.hideCooldown[id] = { spotId, until: now + TAG_BOX_REENTER_MS }
     delete tag.hideEnteredAt[id]
     delete tag.hideSpot[id]
@@ -510,12 +550,22 @@ export function acceptMove(
   payload: { position: Vec3; rotationY: number },
   now: number,
 ) {
+  if (isDowned(player, now)) return false
   if (player.team === 'ghost' && hidePhase(room, now)) return false
   if (!room.lastMoveAt) room.lastMoveAt = {}
   if (!room.moveGrant) room.moveGrant = {}
   if (!Array.isArray(payload.position) || payload.position.length < 3) return false
-  const [x, y, z] = payload.position
-  if (![x, y, z, payload.rotationY].every((n) => typeof n === 'number' && Number.isFinite(n))) return false
+  const [x, rawY, z] = payload.position
+  if (![x, rawY, z, payload.rotationY].every((n) => typeof n === 'number' && Number.isFinite(n))) return false
+
+  const grant = room.moveGrant[player.id]
+  const jumping = Boolean(grant?.jumpUntil && now <= grant.jumpUntil)
+  const prevY = player.position[1] ?? 0
+  const platforms = platformsOf(room.scene)
+  const floor = supportY(x, z, rawY, prevY, PLAYER_FOOT_RADIUS, platforms)
+  let y = rawY
+  if (!jumping && y > floor + JUMP_GROUND_EPS) y = floor
+  if (y > JUMP_CEILING + 0.2 || y < -0.08) return false
 
   const prev = room.lastMoveAt[player.id]
   if (prev == null) {
@@ -525,12 +575,11 @@ export function acceptMove(
     return true
   }
 
-  const allow = moveAllowance(now - prev, room.moveGrant[player.id], now)
+  const slowed = now < (room.poopSlowUntil?.[player.id] ?? 0)
+  const allow = moveAllowance(now - prev, grant, now, { poopSlow: slowed })
   const dist = Math.hypot(x - player.position[0], z - player.position[2])
-  const prevY = player.position[1] ?? 0
   const rise = y - prevY
   const drop = prevY - y
-  if (y > JUMP_CEILING + 0.2 || y < -0.08) return false
   if (dist > allow.horiz || rise > allow.vert || drop > JUMP_MAX_DELTA + MOVE_Y_PAD) return false
 
   player.position = [x, y, z]

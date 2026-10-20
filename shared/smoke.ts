@@ -2,9 +2,17 @@
 export const SMOKE_RANGE = 8
 export const SMOKE_RANGE_MOBILE = 6
 export const SMOKE_RADIUS = 3
-export const SMOKE_DURATION_MS = 4000
-export const SMOKE_CD_MS = 15000
-export const SMOKE_CD_GHOST_MS = 20000
+export const SMOKE_DURATION_MS = 8000
+export const SMOKE_DURATION_TAG_MS = 4000
+export const SMOKE_CD_MS = 5000
+export const SMOKE_CD_GHOST_MS = 5000
+/** 扔大便飛行／中招（先定，昱豪可改） */
+export const POOP_FLIGHT_MS = 560
+export const POOP_SLOW_MS = 1000
+export const POOP_SLOW_MUL = 0.75
+export const POOP_SLOW_IMMUNE_MS = 4000
+export const POOP_VIGNETTE_MS = 2000
+export const POOP_FLIES_MS = 3000
 
 export type SmokeCloud = {
   id: string
@@ -12,18 +20,80 @@ export type SmokeCloud = {
   z: number
   r: number
   until: number
+  ox?: number
+  oz?: number
+  thrownAt?: number
+  landAt?: number
+  hits?: string[]
+  throwerId?: string
+  resolved?: boolean
+}
+
+export function smokeDurationMs(mode?: string | null) {
+  return mode === 'tag' ? SMOKE_DURATION_TAG_MS : SMOKE_DURATION_MS
+}
+
+export function publicSmokeForViewer(
+  cloud: SmokeCloud,
+  viewer: { id: string; team?: string | null },
+  mode?: string | null,
+): SmokeCloud {
+  const isGhost = mode === 'tag' && viewer.team === 'ghost'
+  const hideHits = mode === 'tag'
+  const hits = cloud.hits ?? []
+  return {
+    id: cloud.id,
+    x: cloud.x,
+    z: cloud.z,
+    r: cloud.r,
+    until: cloud.until,
+    thrownAt: cloud.thrownAt,
+    landAt: cloud.landAt,
+    ox: isGhost ? undefined : cloud.ox,
+    oz: isGhost ? undefined : cloud.oz,
+    hits: hideHits ? (hits.includes(viewer.id) ? [viewer.id] : []) : hits,
+  }
+}
+
+export function alliesForPoop(throwerTeam: string | null | undefined, mode?: string | null) {
+  if (mode === 'tag') return throwerTeam ?? ''
+  return '__all_players__'
+}
+
+export function shouldPoopHitPlayer(
+  throwerId: string,
+  throwerTeam: string | null | undefined,
+  target: { id: string; team?: string | null },
+  mode?: string | null,
+) {
+  if (target.id === throwerId) return false
+  if (mode === 'tag') return Boolean(target.team && throwerTeam && target.team !== throwerTeam)
+  return false
 }
 
 export function smokeCooldownMs(team?: string | null) {
   return team === 'ghost' ? SMOKE_CD_GHOST_MS : SMOKE_CD_MS
 }
 
+let smokeSeq = 0
+
+/** 煙霧編號不含丟擲者身分。 */
+export function anonSmokeId(now = Date.now()) {
+  smokeSeq = (smokeSeq + 1) % 1_000_000
+  const rand = Math.floor(Math.random() * 36 ** 4).toString(36).padStart(4, '0')
+  return `smoke-${now.toString(36)}-${smokeSeq.toString(36)}-${rand}`
+}
+
 export function liveSmokes(clouds: SmokeCloud[] | undefined, now: number) {
   return (clouds ?? []).filter((c) => c.until > now)
 }
 
+export function landedSmokes(clouds: SmokeCloud[] | undefined, now: number) {
+  return liveSmokes(clouds, now).filter((c) => !c.landAt || now >= c.landAt)
+}
+
 export function inSmoke(clouds: SmokeCloud[] | undefined, x: number, z: number, now: number) {
-  return liveSmokes(clouds, now).some((c) => Math.hypot(c.x - x, c.z - z) <= c.r)
+  return landedSmokes(clouds, now).some((c) => Math.hypot(c.x - x, c.z - z) <= c.r)
 }
 
 function segHitsCircle(ax: number, az: number, bx: number, bz: number, cx: number, cz: number, r: number) {

@@ -4,7 +4,7 @@ import type { Socket } from 'socket.io'
 import { BOSS_COUNTDOWN_MS, PLAYER_MAX_HP, ROOM_MAX_PLAYERS, type ProjectileState } from '../shared/combat.ts'
 import { SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
-import { createBossMonsters, createMonsters, handleAttack, publicMonsters, scaleBossHealth, tickRoom } from './combat.ts'
+import { createBossMonsters, createMonsters, handleAttack, publicMonsters, scaleBossHealth, standPlayer, tickRoom } from './combat.ts'
 import {
   acceptMove,
   emitPlayerHidden,
@@ -30,25 +30,42 @@ import {
   type MoveGrant,
 } from '../shared/movement.ts'
 import {
-  SMOKE_DURATION_MS,
+  POOP_FLIGHT_MS,
+  POOP_SLOW_IMMUNE_MS,
+  POOP_SLOW_MS,
   SMOKE_RADIUS,
   SMOKE_RANGE,
   liveSmokes,
+  publicSmokeForViewer,
+  shouldPoopHitPlayer,
   smokeCooldownMs,
+  smokeDurationMs,
+  anonSmokeId,
   type SmokeCloud,
 } from '../shared/smoke.ts'
 import { createBarrels, type BarrelState, type LootDrop } from '../shared/barrels.ts'
 import {
   DOOR_ANIM_MS,
-  DOOR_RANGE,
+  DOOR_AUTO_CLOSE_MS,
+  DOOR_AUTO_RANGE,
+  DOOR_PROMPT_RANGE,
   createDoors,
-  doorDef,
-  nearestDoor,
+  doorSurfaceDist,
+  doorToggleAim,
+  inspectNearestDoor,
   occupantInDoor,
   type DoorState,
 } from '../shared/doors.ts'
 import { defaultSettings, isGameMode, type GameMode, type RoomSettings } from '../shared/modes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
+import { canStartJump } from '../shared/platforms.ts'
+import { doorsOf, platformsOf } from '../shared/mapData.ts'
+import { normalizeToken, resolveJoinPlayerId } from '../shared/identity.ts'
+import { PHRASE_COOLDOWN_MS, PHRASE_DURATION_MS, phraseAt } from '../shared/phrases.ts'
+import { pickLiveHost } from '../shared/host.ts'
+import { RESCUE_HOLD_MS, RESCUE_RANGE, isDowned } from '../shared/downed.ts'
+import { liveFeed } from '../shared/events.ts'
+import { announce } from './feed.ts'
 import type { DuckSpeech, MatchOver } from '../shared/combat.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
@@ -86,6 +103,19 @@ export interface RoomState {
   duckSpeech?: DuckSpeech | null
   lastDuckLine?: string
   speechNextAt?: number
+  /** 私密識別碼，不進 snapshot。 */
+  secrets: Record<string, string>
+  taken: Record<string, number>
+  dispenserKills: Record<string, number>
+  rescues: Record<string, number>
+  hideMs: Record<string, number>
+  nextPhrase: Record<string, number>
+  rescueHold: Record<string, { targetId: string; since: number }>
+  feed: import('../shared/events.ts').FeedItem[]
+  poopSlowUntil: Record<string, number>
+  poopImmuneUntil: Record<string, number>
+  doorNearAt: Record<string, number>
+  doorAuto: Record<string, boolean>
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -121,10 +151,22 @@ function createRoom(roomId: string): RoomState {
     nextDash: {},
     nextSmoke: {},
     smokes: [],
-    barrels: createBarrels(),
+    barrels: createBarrels('kenney'),
     drops: [],
     projectiles: [],
-    doors: createDoors(),
+    doors: createDoors(doorsOf('kenney')),
+    secrets: {},
+    taken: {},
+    dispenserKills: {},
+    rescues: {},
+    hideMs: {},
+    nextPhrase: {},
+    rescueHold: {},
+    feed: [],
+    poopSlowUntil: {},
+    poopImmuneUntil: {},
+    doorNearAt: {},
+    doorAuto: {},
   }
 }
 
@@ -158,12 +200,15 @@ function snapshotFor(room: RoomState, viewerId: string) {
     startInMs: room.startAt ? Math.max(0, room.startAt - Date.now()) : 0,
     started: room.started,
     tagHud: tagHudFor(room, viewerId),
-    smokes: liveSmokes(room.smokes, Date.now()),
+    smokes: liveSmokes(room.smokes, Date.now()).map((c) =>
+      publicSmokeForViewer(c, room.players[viewerId] ?? { id: viewerId }, room.mode),
+    ),
     barrels: room.barrels,
     drops: room.drops,
     projectiles: room.projectiles,
     doors: room.doors,
     duckSpeech: room.duckSpeech && room.duckSpeech.until > Date.now() ? room.duckSpeech : null,
+    feed: liveFeed(room.feed),
   }
 }
 
@@ -171,6 +216,75 @@ function emitState(room: RoomState, io: Server) {
   for (const id of Object.keys(room.players)) {
     io.to(id).emit('room:state', snapshotFor(room, id))
   }
+}
+
+function emitSmokes(room: RoomState, io: Server) {
+  const now = Date.now()
+  const live = liveSmokes(room.smokes, now)
+  for (const id of Object.keys(room.players)) {
+    io.to(id).emit(
+      'smoke:sync',
+      live.map((c) => publicSmokeForViewer(c, room.players[id] ?? { id }, room.mode)),
+    )
+  }
+}
+
+function resolveLandedPoop(room: RoomState, io: Server, now: number) {
+  let changed = false
+  for (const cloud of room.smokes) {
+    if (cloud.resolved || !cloud.landAt || now < cloud.landAt) continue
+    cloud.resolved = true
+    cloud.hits = []
+    const thrower = cloud.throwerId ? room.players[cloud.throwerId] : null
+    for (const p of Object.values(room.players)) {
+      if (room.awayUntil[p.id] || p.team === 'spectator' || isDowned(p, now)) continue
+      if (!shouldPoopHitPlayer(cloud.throwerId ?? '', thrower?.team, p, room.mode)) continue
+      if (Math.hypot((p.position?.[0] ?? 0) - cloud.x, (p.position?.[2] ?? 0) - cloud.z) > (cloud.r ?? SMOKE_RADIUS)) continue
+      cloud.hits.push(p.id)
+      if (now < (room.poopImmuneUntil[p.id] ?? 0)) continue
+      room.poopSlowUntil[p.id] = now + POOP_SLOW_MS
+      room.poopImmuneUntil[p.id] = now + POOP_SLOW_IMMUNE_MS
+      io.to(p.id).emit('poop:slow', { until: room.poopSlowUntil[p.id] })
+    }
+    for (const m of room.monsters ?? []) {
+      if (!m.alive) continue
+      if (Math.hypot(m.x - cloud.x, m.z - cloud.z) <= (cloud.r ?? SMOKE_RADIUS)) cloud.hits.push(m.id)
+    }
+    changed = true
+  }
+  if (changed) emitSmokes(room, io)
+}
+
+function tickAutoDoors(room: RoomState, io: Server, now: number) {
+  if (room.mode === 'tag') return
+  const defs = doorsOf(room.scene)
+  let changed = false
+  for (const door of room.doors) {
+    const def = defs.find((d) => d.id === door.id)
+    if (!def) continue
+    const nearPlayers = Object.values(room.players).filter((p) => {
+      if (room.awayUntil[p.id] || p.team === 'spectator') return false
+      return doorSurfaceDist(p.position[0], p.position[2], def) <= DOOR_AUTO_RANGE
+    })
+    const wantAuto = nearPlayers.some((p) => room.doorAuto[p.id] !== false)
+    if (nearPlayers.length) {
+      room.doorNearAt[door.id] = now
+      if (wantAuto && !door.open && now >= door.busyUntil) {
+        door.open = true
+        door.busyUntil = now + DOOR_ANIM_MS
+        changed = true
+        console.log('[door] auto-open', { room: room.roomId, id: door.id, near: nearPlayers.map((p) => p.id) })
+      }
+      continue
+    }
+    if (door.open && room.doorNearAt[door.id] && now - room.doorNearAt[door.id] >= DOOR_AUTO_CLOSE_MS) {
+      if (now < door.busyUntil) continue
+      door.open = false
+      door.busyUntil = now + DOOR_ANIM_MS
+      changed = true
+    }
+  }
+  if (changed) io.to(room.roomId).emit('doors:sync', room.doors)
 }
 
 function seatWorldPos(room: RoomState, seatId: SeatId): Vec3 {
@@ -191,10 +305,15 @@ function clampFurniturePos(item: FurnitureItem, pos: Vec3): Vec3 {
 }
 
 function normalizePlayerId(raw: unknown, fallback: string) {
-  if (typeof raw !== 'string') return fallback
-  const id = raw.trim().slice(0, 64)
-  if (!/^[A-Za-z0-9_-]{8,64}$/.test(id)) return fallback
-  return id
+  return normalizeToken(raw, fallback)
+}
+
+function freshPlayerId(room: RoomState) {
+  for (let i = 0; i < 8; i++) {
+    const id = crypto.randomUUID()
+    if (!room.players[id]) return id
+  }
+  return `p${Date.now()}${Math.random().toString(36).slice(2, 10)}`
 }
 
 function leaveKey(roomId: string, playerId: string) {
@@ -248,6 +367,15 @@ function applyResume(
   }
 }
 
+function applyLiveHost(room: RoomState, prefer?: string) {
+  const next = pickLiveHost(Object.keys(room.players), Object.keys(room.awayUntil), room.hostId, prefer)
+  if (room.hostId && room.players[room.hostId] && room.hostId !== next) {
+    room.players[room.hostId].role = 'guest'
+  }
+  room.hostId = next
+  if (next && room.players[next]) room.players[next].role = 'host'
+}
+
 function removeFromOtherRooms(playerId: string, keepRoomId: string, io: Server) {
   for (const room of [...rooms.values()]) {
     if (room.roomId === keepRoomId) continue
@@ -261,19 +389,18 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
   cancelLeave(room, playerId)
   if (player.seated) room.seats[player.seated] = null
   delete room.players[playerId]
+  delete room.secrets[playerId]
   delete room.hurtUntil[playerId]
   delete room.nextAttack[playerId]
   delete room.lastMoveAt[playerId]
   delete room.moveGrant[playerId]
   delete room.nextDash[playerId]
   delete room.nextSmoke[playerId]
+  delete room.nextPhrase[playerId]
+  delete room.doorAuto[playerId]
   playerSockets.delete(playerId)
 
-  if (room.hostId === playerId) {
-    const next = Object.values(room.players)[0]
-    room.hostId = next?.id ?? null
-    if (next) next.role = 'host'
-  }
+  applyLiveHost(room)
 
   persist(room)
   io.to(room.roomId).emit('player:left', { id: playerId })
@@ -290,6 +417,9 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
 function scheduleLeave(room: RoomState, playerId: string, io: Server) {
   cancelLeave(room, playerId)
   room.awayUntil[playerId] = Date.now() + RECONNECT_GRACE_MS
+  applyLiveHost(room)
+  persist(room)
+  emitState(room, io)
   const key = leaveKey(room.roomId, playerId)
   leaveTimers.set(
     key,
@@ -322,6 +452,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           scene?: string
           mode?: string
           playerId?: string
+          secret?: string
           timed?: boolean
           resume?: {
             position?: Vec3
@@ -334,8 +465,18 @@ export function attachSocketServer(httpServer: HttpServer) {
       ) => {
         const roomId = (payload.roomId || 'home').trim().slice(0, 32) || 'home'
         const name = (payload.name || '訪客').trim().slice(0, 16) || '訪客'
-        const playerId = normalizePlayerId(payload.playerId ?? socket.handshake.auth?.playerId, socket.id)
+        const claimedId = normalizePlayerId(payload.playerId ?? socket.handshake.auth?.playerId, socket.id)
+        const secret = normalizeToken(payload.secret ?? socket.handshake.auth?.secret, '')
         const room = getOrCreateRoom(roomId)
+        const claimedExisting = Boolean(room.players[claimedId])
+        const resolved = resolveJoinPlayerId({
+          claimedId,
+          secret,
+          storedSecret: room.secrets[claimedId],
+          existing: claimedExisting,
+          fallbackId: freshPlayerId(room),
+        })
+        const playerId = resolved.playerId
         const existing = room.players[playerId]
         if (!existing && Object.keys(room.players).length >= ROOM_MAX_PLAYERS) {
           ack?.({ error: '房間已滿' })
@@ -344,7 +485,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         const sameSocket = existing && playerSockets.get(playerId) === socket.id && currentRoomId === roomId
 
         if (sameSocket && !room.awayUntil[playerId]) {
-          ack?.(snapshotFor(room, playerId))
+          ack?.({ ...snapshotFor(room, playerId), selfId: playerId })
           return
         }
 
@@ -356,25 +497,31 @@ export function attachSocketServer(httpServer: HttpServer) {
         socket.data.playerId = playerId
         socket.data.replaced = false
 
-        removeFromOtherRooms(playerId, roomId, io)
+        if (!resolved.impersonation) {
+          removeFromOtherRooms(playerId, roomId, io)
 
-        const prevSid = playerSockets.get(playerId)
-        if (prevSid && prevSid !== socket.id) {
-          const prev = io.sockets.sockets.get(prevSid)
-          if (prev) {
-            prev.data.replaced = true
-            const prevRoomId = typeof prev.data.roomId === 'string' ? prev.data.roomId : null
-            if (prevRoomId && prevRoomId !== roomId) {
-              const prevRoom = rooms.get(prevRoomId)
-              if (prevRoom?.players[playerId]) removePlayer(prevRoom, playerId, io)
+          const prevSid = playerSockets.get(playerId)
+          if (prevSid && prevSid !== socket.id) {
+            const prev = io.sockets.sockets.get(prevSid)
+            if (prev) {
+              prev.data.replaced = true
+              const prevRoomId = typeof prev.data.roomId === 'string' ? prev.data.roomId : null
+              if (prevRoomId && prevRoomId !== roomId) {
+                const prevRoom = rooms.get(prevRoomId)
+                if (prevRoom?.players[playerId]) removePlayer(prevRoom, playerId, io)
+              }
+              io.to(prevRoomId || roomId).emit('voice:peer-left', { id: playerId })
+              prev.disconnect(true)
             }
-            io.to(prevRoomId || roomId).emit('voice:peer-left', { id: playerId })
-            prev.disconnect(true)
           }
         }
 
         const isFirst = Object.keys(room.players).length === 0
-        if (isFirst && isSceneId(payload.scene)) room.scene = payload.scene
+        if (isFirst && isSceneId(payload.scene)) {
+          room.scene = payload.scene
+          room.doors = createDoors(doorsOf(room.scene))
+          room.barrels = createBarrels(room.scene)
+        }
         if (isFirst && !isGameMode(payload.mode)) room.started = true
         if (isFirst && isGameMode(payload.mode)) {
           room.mode = payload.mode
@@ -383,7 +530,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           room.matchOver = null
           room.damage = {}
           room.projectiles = []
-          room.doors = createDoors()
+          room.doors = createDoors(doorsOf(room.scene))
           const allowTimed = payload.mode === 'boss' || payload.mode === 'tag'
           room.settings = {
             timed: Boolean(payload.timed) && allowTimed,
@@ -429,20 +576,24 @@ export function attachSocketServer(httpServer: HttpServer) {
                   : undefined,
           }
           room.players[playerId] = player
+          room.doorAuto[playerId] = true
           resumed = false
         } else {
           applyResume(player, payload.resume)
+          if (room.doorAuto[playerId] == null) room.doorAuto[playerId] = true
         }
         room.lastMoveAt[playerId] = Date.now()
+        if (secret) room.secrets[playerId] = secret
 
         cancelLeave(room, playerId)
+        applyLiveHost(room, playerId)
         playerSockets.set(playerId, socket.id)
         currentRoomId = roomId
         socket.data.roomId = roomId
         socket.join(roomId)
         socket.join(playerId)
 
-        ack?.(snapshotFor(room, playerId))
+        ack?.({ ...snapshotFor(room, playerId), selfId: playerId })
         if (!resumed) emitPlayerJoined(room, io, player)
         socket.to(roomId).emit('voice:peer-joined', { id: playerId })
         emitState(room, io)
@@ -461,6 +612,13 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.hurtUntil = {}
       room.nextAttack = {}
       room.damage = {}
+      room.taken = {}
+      room.dispenserKills = {}
+      room.rescues = {}
+      room.hideMs = {}
+      room.nextPhrase = {}
+      room.rescueHold = {}
+      room.feed = []
       room.startAt = 0
       room.matchDeadline = null
       if (room.mode === 'boss') {
@@ -479,16 +637,18 @@ export function attachSocketServer(httpServer: HttpServer) {
         room.tag = undefined
       }
       room.smokes = []
-      room.barrels = createBarrels()
+      room.barrels = createBarrels(room.scene)
       room.drops = []
       room.projectiles = []
-      room.doors = createDoors()
+      room.doors = createDoors(doorsOf(room.scene))
       const ids = Object.keys(room.players)
       ids.forEach((id, i) => {
         const p = room.players[id]
         const sp = SPAWN_POINTS[i % SPAWN_POINTS.length]
         p.hp = PLAYER_MAX_HP
         p.hidden = false
+        p.phrase = null
+        p.downedUntil = 0
         p.weapon = 'sword'
         p.weaponUntil = 0
         if (p.seated) {
@@ -573,7 +733,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (!ctx) return
       const { room, player, playerId } = ctx
       const now = Date.now()
-      if (player.seated || player.hidden) return
+      if (player.seated || player.hidden || isDowned(player, now)) return
       if (player.team === 'spectator') return
       if ((room.mode === 'boss' || room.mode === 'tag') && !room.started) return
       if (room.mode === 'tag' && player.team === 'ghost' && room.tag && now < room.tag.hideUntil) {
@@ -604,32 +764,84 @@ export function attachSocketServer(httpServer: HttpServer) {
       io.to(playerId).emit('dash:result', { ok: true, nextAt, until })
     })
 
-    socket.on('door:toggle', (payload: { id?: string } = {}) => {
+    socket.on('door:auto', (payload: { on?: boolean } = {}) => {
       const ctx = inRoom(socket, currentRoomId)
       if (!ctx) return
+      ctx.room.doorAuto[ctx.playerId] = payload.on !== false
+    })
+
+    socket.on('door:toggle', (payload: { id?: string; x?: number; z?: number; auto?: boolean } = {}) => {
+      const ctx = inRoom(socket, currentRoomId)
+      const reply = (info: Record<string, unknown>) => {
+        console.log('[door]', info)
+        if (ctx) io.to(ctx.playerId).emit('door:debug', info)
+      }
+      if (!ctx) {
+        reply({ reason: 'no-room', payload })
+        return
+      }
       const { room, player, playerId } = ctx
-      if (player.seated || player.team === 'spectator') return
+      const defs = doorsOf(room.scene)
+      const inspect = inspectNearestDoor(player.position[0], player.position[2], defs)
+      const base = {
+        payload,
+        server: { x: player.position[0], z: player.position[2] },
+        scene: room.scene,
+        nearest: inspect,
+      }
+      if (player.seated) {
+        reply({ ...base, reason: 'seated' })
+        return
+      }
+      if (player.team === 'spectator') {
+        reply({ ...base, reason: 'spectator' })
+        return
+      }
+      if (isDowned(player)) {
+        reply({ ...base, reason: 'downed' })
+        return
+      }
       const now = Date.now()
-      const near =
-        (typeof payload.id === 'string' && doorDef(payload.id)
-          ? doorDef(payload.id)
-          : nearestDoor(player.position[0], player.position[2], DOOR_RANGE)) ?? null
-      if (!near) return
-      if (Math.hypot(near.x - player.position[0], near.z - player.position[2]) > DOOR_RANGE) return
+      const before = player.position.slice() as [number, number, number]
+      const aim = doorToggleAim(player.position[0], player.position[2], payload, defs, DOOR_PROMPT_RANGE)
+      const near = aim.door
+      if (player.position[0] !== before[0] || player.position[2] !== before[2]) {
+        player.position[0] = before[0]
+        player.position[2] = before[2]
+      }
+      if (!near) {
+        reply({ ...base, reason: 'no-door', aim: { x: aim.x, z: aim.z } })
+        return
+      }
       const door = room.doors.find((d) => d.id === near.id)
-      if (!door || now < door.busyUntil) return
-      if (door.open) {
+      if (!door || now < door.busyUntil) {
+        reply({ ...base, reason: 'busy', doorId: near.id, dist: doorSurfaceDist(aim.x, aim.z, near) })
+        return
+      }
+      if (door.open && !payload.auto) {
         for (const p of Object.values(room.players)) {
           if (room.awayUntil[p.id] || p.team === 'spectator') continue
           if (occupantInDoor(near, p.position[0], p.position[2])) {
             io.to(playerId).emit('door:result', { ok: false, reason: 'blocked' })
+            reply({ ...base, reason: 'blocked', doorId: near.id })
             return
           }
         }
       }
-      door.open = !door.open
+      if (payload.auto && door.open) {
+        reply({ ...base, reason: 'already-open', doorId: near.id })
+        return
+      }
+      door.open = payload.auto ? true : !door.open
       door.busyUntil = now + DOOR_ANIM_MS
       io.to(room.roomId).emit('doors:sync', room.doors)
+      reply({
+        ...base,
+        reason: 'ok',
+        doorId: near.id,
+        open: door.open,
+        dist: doorSurfaceDist(aim.x, aim.z, near),
+      })
       if (room.mode === 'tag') {
         for (const id of Object.keys(room.players)) emitPlayerMoved(room, io, id)
       }
@@ -643,6 +855,55 @@ export function attachSocketServer(httpServer: HttpServer) {
       if ((room.mode === 'boss' || room.mode === 'tag') && room.started && !room.matchOver) return
       if (!isSceneId(payload.scene)) return
       room.scene = payload.scene
+      room.doors = createDoors(doorsOf(room.scene))
+      room.barrels = createBarrels(room.scene)
+      room.drops = []
+      emitState(room, io)
+    })
+
+    socket.on('phrase', (payload: { index?: number } = {}) => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
+      if (player.team === 'spectator') return
+      const text = typeof payload.index === 'number' ? phraseAt(payload.index) : null
+      if (!text) return
+      const now = Date.now()
+      if (now < (room.nextPhrase[playerId] ?? 0)) return
+      room.nextPhrase[playerId] = now + PHRASE_COOLDOWN_MS
+      player.phrase = { text, until: now + PHRASE_DURATION_MS }
+      emitState(room, io)
+    })
+
+    socket.on('rescue:hold', (payload: { targetId?: string } = {}) => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
+      const now = Date.now()
+      if (room.mode !== 'boss' || !room.started || room.matchOver) return
+      if (isDowned(player, now) || player.team === 'spectator') return
+      const targetId = typeof payload.targetId === 'string' ? payload.targetId : ''
+      const target = room.players[targetId]
+      if (!target || !isDowned(target, now)) {
+        delete room.rescueHold[playerId]
+        return
+      }
+      const dist = Math.hypot(player.position[0] - target.position[0], player.position[2] - target.position[2])
+      if (dist > RESCUE_RANGE) {
+        delete room.rescueHold[playerId]
+        return
+      }
+      const prev = room.rescueHold[playerId]
+      if (!prev || prev.targetId !== targetId) {
+        room.rescueHold[playerId] = { targetId, since: now }
+        return
+      }
+      if (now - prev.since < RESCUE_HOLD_MS) return
+      standPlayer(room, io, target, now)
+      if (!room.rescues) room.rescues = {}
+      room.rescues[playerId] = (room.rescues[playerId] ?? 0) + 1
+      delete room.rescueHold[playerId]
+      announce(room, io, `${player.name} 扶起了 ${target.name}`)
       emitState(room, io)
     })
 
@@ -650,7 +911,9 @@ export function attachSocketServer(httpServer: HttpServer) {
       const ctx = inRoom(socket, currentRoomId)
       if (!ctx) return
       const { room, player, playerId } = ctx
-      if (player.seated || player.hidden || player.team === 'spectator') return
+      if (player.seated || player.hidden || player.team === 'spectator' || isDowned(player)) return
+      const [x, y, z] = player.position
+      if (!canStartJump(x, z, y ?? 0, platformsOf(room.scene))) return
       const now = Date.now()
       room.moveGrant[playerId] = { ...room.moveGrant[playerId], jumpUntil: now + JUMP_AIR_MS }
     })
@@ -660,7 +923,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (!ctx) return
       const { room, player, playerId } = ctx
       const now = Date.now()
-      if (player.seated || player.hidden) return
+      if (player.seated || player.hidden || isDowned(player, now)) return
       if (player.team === 'spectator') return
       if ((room.mode === 'boss' || room.mode === 'tag') && !room.started) return
       const readyAt = room.nextSmoke[playerId] ?? 0
@@ -679,16 +942,24 @@ export function attachSocketServer(httpServer: HttpServer) {
         tx = ox + (dx / dist) * SMOKE_RANGE
         tz = oz + (dz / dist) * SMOKE_RANGE
       }
+      const landAt = now + POOP_FLIGHT_MS
       const cloud: SmokeCloud = {
-        id: `smoke-${now}-${playerId.slice(0, 6)}`,
+        id: anonSmokeId(now),
         x: tx,
         z: tz,
         r: SMOKE_RADIUS,
-        until: now + SMOKE_DURATION_MS,
+        until: now + smokeDurationMs(room.mode),
+        ox,
+        oz,
+        thrownAt: now,
+        landAt,
+        hits: [],
+        throwerId: playerId,
+        resolved: false,
       }
       room.smokes.push(cloud)
       room.nextSmoke[playerId] = now + smokeCooldownMs(player.team)
-      io.to(room.roomId).emit('smoke:sync', liveSmokes(room.smokes, now))
+      emitSmokes(room, io)
       io.to(playerId).emit('smoke:result', { ok: true, nextAt: room.nextSmoke[playerId] })
       emitState(room, io)
     })
@@ -897,6 +1168,8 @@ export function attachSocketServer(httpServer: HttpServer) {
     for (const room of rooms.values()) {
       if (Object.keys(room.players).length === 0) continue
       tickRoom(room, io, now, 0.1)
+      resolveLandedPoop(room, io, now)
+      tickAutoDoors(room, io, now)
     }
   }, 100)
 

@@ -1,10 +1,11 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { OrbitControls } from '@react-three/drei'
+import { OrbitControls, useProgress } from '@react-three/drei'
 import * as THREE from 'three'
 import { rayOcclusion, SPAWN_POINTS } from '../../shared/dungeon'
 import { KAYKIT_TORCHES } from '../../shared/kaykitScene'
-import { occludersOf, usesKaykitKit } from '../../shared/mapData'
+import { doorsOf, extraAabbsOf, occludersOf, usesKaykitKit } from '../../shared/mapData'
+import { closedDoorAabbs } from '../../shared/doors'
 import {
   DESKTOP_DYNAMIC_POINT_LIGHTS,
   DESKTOP_SHADOW_MAP,
@@ -13,11 +14,25 @@ import {
   TORCH_LIGHT_RANGE,
 } from '../../shared/perf'
 import { POINTER_LOOK_SCALE } from '../../shared/input'
+import {
+  OTS_CEILING_Y,
+  OTS_DIST,
+  OTS_LOOK_Y,
+  OTS_MAX_PHI,
+  OTS_MAX_RADIUS,
+  OTS_MIN_PHI,
+  OTS_MIN_PULL,
+  OTS_MIN_RADIUS,
+  OTS_RIGHT,
+  otsThetaFromFacing,
+} from '../../shared/camera'
+import { minimapYawFromForward } from '../../shared/minimap'
 import { canvasDpr, isMobileDevice } from '../perf/device'
-import { bindPointerLockWatch, exitGameLock, requestGameLock } from './pointerLock'
+import { bindPointerLockWatch, exitGameLock, isAltHeld, isPointerInWindow, requestGameLock, setPointerInWindow } from './pointerLock'
 import { typingInField } from './inputLock'
 import { NotePlacementPlane, StickyNotes3D } from './Furniture'
 import { Dungeon } from './Dungeon'
+import { DungeonBoundary } from './DungeonBoundary'
 import { JungleFoliage } from './JungleFoliage'
 import { SceneDecor } from './Decor'
 import { HitEffects } from './HitEffects'
@@ -29,23 +44,32 @@ import { LocalController } from './LocalController'
 import { SmokeClouds } from './SmokeClouds'
 import { Barrels } from './Barrels'
 import { Doors } from './Doors'
+import { fileLabel } from '../load/mapLoad'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
 const SPAWN = SPAWN_POINTS[0] ?? { x: 80, z: 22 }
 // Three.js 預設 minPolarAngle 是 0（頭頂正上方）、rotateSpeed 是 1（拖滿一整個螢幕等於轉 360°）。
 // 這裡把垂直角鎖在斜上方到接近水平，旋轉改慢，避免短距離拖曳就被甩到頭頂。
-const MIN_PHI = 0.85
-const MAX_PHI = 1.35
-const MIN_RADIUS = 4.2
-const MAX_RADIUS = 14
+const MIN_PHI = OTS_MIN_PHI
+const MAX_PHI = OTS_MAX_PHI
+const MIN_RADIUS = OTS_MIN_RADIUS
+const MAX_RADIUS = OTS_MAX_RADIUS
 const ROTATE_SPEED = 0.3
-// 天花板底在 y=4。鏡頭若沿斜上方向被牆擋檢測拉近，會貼進天花板裡。
-// KayKit 改把俯角放平、距離縮到天花板底下，不把鏡頭推進石磚。
-const KAYKIT_CAM_Y = 3.2
-const KAYKIT_MAX_RADIUS = 10.5
+const SHOULDER_RIGHT = OTS_RIGHT
+const LOOK_Y = OTS_LOOK_Y
 const rigOffset = new THREE.Vector3()
 const rigSpherical = new THREE.Spherical()
+
+function MapProgressBridge() {
+  const { errors } = useProgress()
+  useEffect(() => {
+    for (const url of errors) {
+      if (url) useAppStore.getState().addMapLoadError(fileLabel(url))
+    }
+  }, [errors])
+  return null
+}
 
 function BlockContextMenu() {
   const gl = useThree((s) => s.gl)
@@ -138,18 +162,23 @@ function FollowLight({ mobile }: { mobile: boolean }) {
 
 function CameraRig() {
   const { camera, controls, gl } = useThree()
-  const saved = useRef({ theta: 0.8, phi: 1.05, radius: 12, ready: false })
+  const saved = useRef({
+    theta: otsThetaFromFacing(0),
+    phi: 1.3,
+    radius: useAppStore.getState().camDist,
+    facingReady: false,
+  })
   const drag = useRef<{ id: number; x: number; y: number; mode: 'look' | 'zoom' } | null>(null)
   const touches = useRef(new Map<number, { x: number; y: number }>())
   const pinchDist = useRef(0)
 
   useEffect(() => {
     const el = gl.domElement
-    const unwatch = bindPointerLockWatch()
+    const unwatch = bindPointerLockWatch(el)
     const arm = (scale: number) => {
-      const next = saved.current
-      const maxR = usesKaykitKit(useAppStore.getState().scene) ? KAYKIT_MAX_RADIUS : MAX_RADIUS
-      next.radius = THREE.MathUtils.clamp(next.radius * scale, MIN_RADIUS, maxR)
+      const cur = useAppStore.getState().camDist
+      useAppStore.getState().setCamDist(cur * scale)
+      saved.current.radius = useAppStore.getState().camDist
     }
     const down = (e: PointerEvent) => {
       if (e.pointerType === 'touch') {
@@ -165,9 +194,13 @@ function CameraRig() {
         return
       }
       if (e.button === 1) drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, mode: 'zoom' }
+      if (e.button === 0 && !document.pointerLockElement) {
+        drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, mode: 'look' }
+      }
     }
     const lookLocked = (e: MouseEvent) => {
       if (!document.pointerLockElement) return
+      if (isAltHeld() || !isPointerInWindow()) return
       if (typingInField()) return
       const sens = useAppStore.getState().lookSensitivity
       const k = POINTER_LOOK_SCALE * sens
@@ -218,7 +251,8 @@ function CameraRig() {
       e.preventDefault()
       arm(e.deltaY > 0 ? 1.08 : 0.92)
     }
-    const onBlur = () => exitGameLock()
+    const onBlur = () => setPointerInWindow(false)
+    const onFocus = () => setPointerInWindow(true)
     el.addEventListener('pointerdown', down)
     el.addEventListener('click', click)
     el.addEventListener('wheel', wheel, { passive: false })
@@ -226,8 +260,12 @@ function CameraRig() {
     window.addEventListener('mousemove', lookLocked)
     window.addEventListener('pointerup', up)
     window.addEventListener('pointercancel', up)
+    const onVis = () => {
+      if (document.hidden) setPointerInWindow(false)
+    }
     window.addEventListener('blur', onBlur)
-    document.addEventListener('visibilitychange', onBlur)
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVis)
     return () => {
       unwatch()
       el.removeEventListener('pointerdown', down)
@@ -238,7 +276,8 @@ function CameraRig() {
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', up)
       window.removeEventListener('blur', onBlur)
-      document.removeEventListener('visibilitychange', onBlur)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVis)
     }
   }, [gl])
 
@@ -247,31 +286,28 @@ function CameraRig() {
     const target = (controls as { target?: THREE.Vector3 } | null)?.target
     if (!target) return
     const shot = saved.current
-    if (!shot.ready) {
-      rigOffset.copy(camera.position).sub(target)
-      if (rigOffset.lengthSq() > 0.01) {
-        rigSpherical.setFromVector3(rigOffset)
-        shot.theta = rigSpherical.theta
-        shot.phi = THREE.MathUtils.clamp(rigSpherical.phi, MIN_PHI, MAX_PHI)
-        shot.radius = THREE.MathUtils.clamp(rigSpherical.radius, MIN_RADIUS, MAX_RADIUS)
-        shot.ready = true
+    const st = useAppStore.getState()
+    if (!shot.facingReady) {
+      const me = st.selfId ? st.players[st.selfId] : null
+      if (me) {
+        shot.theta = otsThetaFromFacing(me.rotationY ?? 0)
+        shot.facingReady = true
       }
     }
-    if (usesKaykitKit(useAppStore.getState().scene)) {
-      const maxR = KAYKIT_MAX_RADIUS
-      shot.radius = THREE.MathUtils.clamp(shot.radius, MIN_RADIUS, maxR)
-      const rise = KAYKIT_CAM_Y - target.y
-      const flattest = Math.cos(MAX_PHI)
-      if (shot.radius * flattest > rise) shot.radius = rise / flattest
-      const phiFloor = Math.acos(THREE.MathUtils.clamp(rise / shot.radius, -1, 1))
-      if (shot.phi < phiFloor) shot.phi = phiFloor
-      shot.phi = THREE.MathUtils.clamp(shot.phi, MIN_PHI, MAX_PHI)
-    }
+    shot.radius = THREE.MathUtils.clamp(st.camDist, MIN_RADIUS, MAX_RADIUS)
+    shot.phi = THREE.MathUtils.clamp(shot.phi, MIN_PHI, MAX_PHI)
     rigSpherical.set(shot.radius, shot.phi, shot.theta)
     rigOffset.setFromSpherical(rigSpherical)
     camera.position.copy(target).add(rigOffset)
+    const fwd = new THREE.Vector3().subVectors(target, camera.position).setY(0)
+    if (fwd.lengthSq() > 1e-6) {
+      fwd.normalize()
+      const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize()
+      camera.position.addScaledVector(right, SHOULDER_RIGHT)
+    }
     camera.up.set(0, 1, 0)
     camera.lookAt(target)
+    useAppStore.getState().setLookYaw(minimapYawFromForward(target.x - camera.position.x, target.z - camera.position.z))
   }, 0)
   return null
 }
@@ -292,12 +328,18 @@ function CameraGuard() {
         const dirx = dx * inv
         const diry = dy * inv
         const dirz = dz * inv
-        const extra = occludersOf(useAppStore.getState().scene)
-        const hit = rayOcclusion(target.x, target.y, target.z, dirx, diry, dirz, dist, extra)
-        if (hit < dist - 0.2) {
-          const desired = Math.max(MIN_RADIUS, hit - 0.45)
+        const state = useAppStore.getState()
+        const extra = occludersOf(state.scene).concat(
+          extraAabbsOf(state.scene).map((b) => ({ ...b, minY: 0, maxY: 4 })),
+          closedDoorAabbs(state.doors, doorsOf(state.scene)).map((b) => ({ ...b, minY: 0, maxY: 3.2 })),
+        )
+        const hit = rayOcclusion(target.x, target.y, target.z, dirx, diry, dirz, dist, extra, {
+          skipCeilingY: OTS_CEILING_Y,
+        })
+        if (hit < dist - 0.12) {
+          const desired = Math.max(OTS_MIN_PULL, hit - 0.28)
           if (desired < dist) {
-            const nd = THREE.MathUtils.damp(dist, desired, 3, dt)
+            const nd = THREE.MathUtils.damp(dist, desired, 10, dt)
             camera.position.set(target.x + dirx * nd, target.y + diry * nd, target.z + dirz * nd)
           }
         }
@@ -332,7 +374,7 @@ function SceneContent() {
   }, [self, localPose])
 
   const isHost = !!selfId && hostId === selfId
-  const lookAt = useMemo(() => new THREE.Vector3(SPAWN.x, 0.9, SPAWN.z), [])
+  const lookAt = useMemo(() => new THREE.Vector3(SPAWN.x, LOOK_Y, SPAWN.z), [])
 
   return (
     <>
@@ -345,13 +387,19 @@ function SceneContent() {
         }
       />
       <hemisphereLight
-        args={sceneId === 'jungle' ? ['#c8ddb0', '#2a3a24', 1.2] : ['#cbbba6', '#3a2c24', 1.25]}
+        args={sceneId === 'jungle' ? ['#d8ecbe', '#2a3a24', 1.7] : ['#e4d6c4', '#3a2c24', 1.75]}
       />
-      <ambientLight intensity={0.8} />
+      <ambientLight intensity={1.35} />
+      <directionalLight position={[40, 60, 20]} intensity={0.55} color="#fff2d8" />
       <FollowLight mobile={isMobileDevice()} />
 
+      <MapProgressBridge />
+      <DungeonBoundary>
+        <Suspense fallback={null}>
+          <Dungeon focusX={displaySelf?.position?.[0] ?? SPAWN.x} focusZ={displaySelf?.position?.[2] ?? SPAWN.z} />
+        </Suspense>
+      </DungeonBoundary>
       <Suspense fallback={null}>
-        <Dungeon focusX={displaySelf?.position?.[0] ?? SPAWN.x} focusZ={displaySelf?.position?.[2] ?? SPAWN.z} />
         {sceneId === 'jungle' ? <JungleFoliage /> : null}
         <SceneDecor />
         <Monsters />
@@ -370,8 +418,8 @@ function SceneContent() {
       </Suspense>
       <Suspense fallback={null}>
         <RemotePlayers players={players} selfId={selfId} />
-        {displaySelf?.position && <LocalAvatar player={displaySelf} />}
       </Suspense>
+      {displaySelf?.position && <LocalAvatar player={displaySelf} />}
       {self && (
         <LocalController
           player={self}
@@ -396,11 +444,8 @@ function SceneContent() {
 }
 
 export function RoomScene() {
-  const kaykit = usesKaykitKit(useAppStore((s) => s.scene))
   const mobile = isMobileDevice()
-  const cameraPos: [number, number, number] = kaykit
-    ? [SPAWN.x + 5.5, KAYKIT_CAM_Y, SPAWN.z + 6.8]
-    : [SPAWN.x + 7, 9, SPAWN.z + 9]
+  const cameraPos: [number, number, number] = [SPAWN.x + OTS_RIGHT, OTS_LOOK_Y + 1.2, SPAWN.z - OTS_DIST]
   return (
     <Canvas
       shadows={!mobile}
@@ -410,7 +455,7 @@ export function RoomScene() {
         powerPreference: 'high-performance',
         antialias: !mobile,
       }}
-      camera={{ position: cameraPos, fov: 48, near: 0.1, far: 180 }}
+      camera={{ position: cameraPos, fov: 58, near: 0.05, far: 180 }}
       style={{ width: '100%', height: '100%', touchAction: 'none' }}
     >
       <SceneContent />

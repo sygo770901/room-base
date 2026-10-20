@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { Suspense, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
@@ -26,6 +26,8 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
   const jumpPhase = storedJump ?? (y > 0.4 ? 'idle' : y > 0.12 ? 'start' : null)
   const dashUntil = useAppStore((s) => s.dashUntil[player.id] ?? 0)
   const hurtUntil = useAppStore((s) => s.hurtFlashUntil[player.id] ?? 0)
+  const throwAt = useAppStore((s) => s.throwAt[player.id] ?? 0)
+  const poopMarked = useAppStore((s) => s.smokes.some((c) => c.hits?.includes(player.id) && (!c.landAt || Date.now() < c.landAt + 3000)))
 
   useFrame((_, dt) => {
     const g = group.current
@@ -67,6 +69,12 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
 
   return (
     <group ref={group}>
+      {player.away && (
+        <mesh position={[0, 0.95, 0]}>
+          <capsuleGeometry args={[0.48, 1.15, 4, 8]} />
+          <meshBasicMaterial color="#8aa0c8" transparent opacity={0.32} depthWrite={false} />
+        </mesh>
+      )}
       {whiteFlash && (
         <mesh position={[0, 1.05, 0]}>
           <sphereGeometry args={[0.55, 10, 8]} />
@@ -77,6 +85,12 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
         <ringGeometry args={[0.34, 0.5, 22]} />
         <meshBasicMaterial color={player.color} transparent opacity={0.82} depthWrite={false} />
       </mesh>
+      {poopMarked && (
+        <mesh position={[0, 2.05, 0]}>
+          <sphereGeometry args={[0.08, 6, 5]} />
+          <meshBasicMaterial color="#7d9a4a" transparent opacity={0.55} />
+        </mesh>
+      )}
       <KayKitHero
         classId={PLAYER_CLASS}
         moving={moving}
@@ -92,22 +106,39 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
         }
         seated={Boolean(player.seated)}
         hidden={player.hidden}
-        compact
+        throwAt={throwAt}
+        downed={Boolean(player.downedUntil && player.downedUntil > Date.now()) || player.hp <= 0}
       />
-      <Billboard position={[0, labelY, 0]}>
-        <Text
-          fontSize={0.16}
-          color={isSelf ? '#f2cc8f' : '#ffffff'}
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.01}
-          outlineColor="#000000"
-        >
-          {player.name}
-          {player.role === 'host' ? ' · 房主' : ''}
-          {player.hidden ? ' · 躲藏' : ''}
-        </Text>
-      </Billboard>
+      {player.phrase && player.phrase.until > Date.now() && (
+        <Billboard position={[0, labelY + 0.32, 0]}>
+          <Text
+            fontSize={0.2}
+            color="#fff4d6"
+            anchorX="center"
+            anchorY="middle"
+            outlineWidth={0.012}
+            outlineColor="#1a1208"
+          >
+            {player.phrase.text}
+          </Text>
+        </Billboard>
+      )}
+      {!isSelf && (
+        <Billboard position={[0, labelY, 0]}>
+          <Text
+            fontSize={0.16}
+            color="#ffffff"
+            anchorX="center"
+            anchorY="middle"
+            outlineWidth={0.01}
+            outlineColor="#000000"
+          >
+            {player.away ? '斷線中' : player.downedUntil && player.downedUntil > Date.now() ? `${player.name} · 倒地` : player.name}
+            {player.away ? '' : player.role === 'host' ? ' · 房主' : ''}
+            {player.hidden && !player.away ? ' · 躲藏' : ''}
+          </Text>
+        </Billboard>
+      )}
     </group>
   )
 }
@@ -130,6 +161,23 @@ export function RemotePlayers({
   )
 }
 
+function LocalStandIn({ player }: { player: PlayerState }) {
+  const p = player.position
+  if (!p) return null
+  return (
+    <group position={[p[0], p[1] ?? 0, p[2]]} rotation-y={player.rotationY}>
+      <mesh position={[0, 1.05, 0]} castShadow>
+        <capsuleGeometry args={[0.22, 0.72, 6, 10]} />
+        <meshStandardMaterial color={player.color || '#c9a27a'} />
+      </mesh>
+    </group>
+  )
+}
+
 export function LocalAvatar({ player }: { player: PlayerState }) {
-  return <Avatar player={player} isSelf />
+  return (
+    <Suspense fallback={<LocalStandIn player={player} />}>
+      <Avatar player={player} isSelf />
+    </Suspense>
+  )
 }

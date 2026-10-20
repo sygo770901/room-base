@@ -23,7 +23,7 @@ input {
   min-height: 100%;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   background:
     radial-gradient(ellipse 80% 60% at 20% 10%, rgba(129, 178, 154, 0.25), transparent 55%),
     radial-gradient(ellipse 70% 50% at 90% 80%, rgba(224, 122, 95, 0.18), transparent 50%),
@@ -32,14 +32,51 @@ input {
 
 .lobby-card {
   width: min(520px, 100%);
+  max-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
+}
+
+.lobby-scroll {
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.lobby-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.lobby-error {
+  color: #e07a5f;
 }
 
 .scene-pick {
   display: grid;
   gap: 8px;
+}
+
+.scene-pick.compact {
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 6px;
+}
+
+.scene-pick.compact button {
+  padding: 8px 8px;
+}
+
+.scene-pick.compact button span {
+  display: block;
+  font-size: 0.75rem;
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lobby .scene-pick button {
@@ -71,13 +108,14 @@ input {
 
 .boss-objective {
   position: absolute;
-  top: 86px;
+  top: 136px;
   left: 16px;
-  background: rgba(20, 22, 24, 0.78);
-  border: 1px solid rgba(201, 160, 255, 0.35);
+  background: rgba(20, 22, 24, 0.86);
+  border: 1px solid rgba(201, 160, 255, 0.45);
   border-radius: 12px;
   padding: 10px 14px;
-  font-size: 0.85rem;
+  font-size: 1rem;
+  font-weight: 600;
   line-height: 1.45;
 }
 
@@ -129,6 +167,55 @@ input {
 .rank-first {
   color: #f2cc8f;
   font-weight: 700;
+}
+
+.award-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 0 0 12px;
+}
+
+.award-card {
+  min-width: 110px;
+  max-width: 160px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(242, 204, 143, 0.14);
+  text-align: center;
+}
+
+.award-card strong {
+  display: block;
+  font-size: 13px;
+}
+
+.award-card span {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.event-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 220px;
+  pointer-events: none;
+}
+
+.event-feed div {
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(18, 16, 14, 0.72);
+  font-size: 12px;
+  animation: feed-fade 3s linear forwards;
+}
+
+@keyframes feed-fade {
+  0% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 .restart-btn {
@@ -303,7 +390,11 @@ input {
 .lobby-actions {
   display: flex;
   gap: 10px;
-  margin-top: 6px;
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: linear-gradient(180deg, transparent, #1a1c1e 20%);
 }
 
 .lobby button {
@@ -330,6 +421,8 @@ input {
   inset: 0;
   pointer-events: none;
   z-index: 10;
+  font-size: clamp(12px, 1.6vmin, 16px);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 .hud > * {
@@ -364,12 +457,12 @@ input {
 }
 
 .pill {
-  background: rgba(20, 22, 24, 0.72);
+  background: rgba(20, 22, 24, 0.86);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 12px;
   padding: 10px 14px;
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 .player-list {
@@ -383,6 +476,10 @@ input {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.player-row.away {
+  opacity: 0.48;
 }
 
 .dot {
@@ -407,16 +504,38 @@ input {
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
-  padding: 10px 14px;
+  padding: 8px 10px;
   font-size: 0.85rem;
   opacity: 0.9;
   max-width: 420px;
 }
 
+.help-toggle {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.help-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 8px;
+}
+
+.help-keys span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .hp-bar {
   margin-top: 8px;
-  height: 8px;
-  width: 168px;
+  height: 12px;
+  width: 200px;
   border-radius: 99px;
   background: #3a2222;
   overflow: hidden;
@@ -541,6 +660,62 @@ input {
   max-width: 220px;
 }
 
+.hud > .wait-dock,
+.hud > .map-load {
+  pointer-events: none;
+}
+
+.wait-dock {
+  position: absolute;
+  top: 128px;
+  left: 16px;
+  z-index: 20;
+  width: min(260px, calc(100% - 32px));
+}
+
+.wait-card {
+  pointer-events: auto;
+  background: rgba(22, 18, 16, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  padding: 12px 14px;
+  max-height: min(52vh, 420px);
+  overflow: auto;
+}
+
+.wait-card p {
+  margin: 0 0 8px;
+}
+
+.wait-card .map-host {
+  justify-content: center;
+  max-width: none;
+  margin: 10px 0 12px;
+  pointer-events: auto;
+}
+
+.wait-card button {
+  pointer-events: auto;
+}
+
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+  min-width: 160px;
+  max-height: min(60vh, 420px);
+  overflow: auto;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(16, 14, 12, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.settings-gear.on {
+  outline: 1px solid #f2cc8f;
+}
+
 .map-host .hud-btn.on,
 .map-host .hud-btn:disabled {
   opacity: 1;
@@ -556,6 +731,50 @@ input {
   gap: 8px;
   align-items: flex-end;
   z-index: 41;
+}
+
+.key-hint {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.85;
+  line-height: 1.1;
+  margin-top: 2px;
+}
+
+.attack-btn,
+.hide-btn,
+.check-btn,
+.dash-btn,
+.skill-btn,
+.jump-btn,
+.door-btn,
+.rescue-btn,
+.hud-btn,
+.restart-btn,
+.phrase-btn,
+.note-panel button,
+.lobby button,
+.tutorial-skip {
+  transition: transform 0.08s ease, filter 0.08s ease;
+}
+
+.attack-btn:active,
+.hide-btn:active,
+.check-btn:active,
+.dash-btn:active,
+.skill-btn:active,
+.jump-btn:active,
+.door-btn:active,
+.rescue-btn:active,
+.hud-btn:active,
+.restart-btn:active,
+.phrase-btn:active,
+.note-panel button:active,
+.lobby button:active,
+.tutorial-skip:active {
+  transform: scale(0.92);
+  filter: brightness(1.18);
 }
 
 .attack-btn {
@@ -638,6 +857,106 @@ input {
   top: calc(50% + 4px);
   background: #c4a574;
   color: #1a120c;
+}
+
+.respawn-fade {
+  position: absolute;
+  inset: 0;
+  z-index: 34;
+  pointer-events: none;
+  background: #0c0c10;
+  animation: respawn-fade 0.45s ease;
+}
+
+@keyframes respawn-fade {
+  0% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+
+.poop-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 17;
+  pointer-events: none;
+  box-shadow: inset 0 0 80px 28px rgba(90, 140, 50, 0.35);
+}
+
+.door-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  transform: translateX(-50%);
+  z-index: 18;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(16, 14, 12, 0.82);
+  border: 1px solid rgba(255, 230, 170, 0.4);
+  font-weight: 800;
+}
+
+.phrase-wrap {
+  position: absolute;
+  left: 16px;
+  bottom: 92px;
+  z-index: 16;
+}
+
+.phrase-btn {
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: 50%;
+  background: #3d405b;
+  color: #fff;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.phrase-menu {
+  position: absolute;
+  left: 0;
+  bottom: 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 132px;
+}
+
+.downed-banner {
+  position: absolute;
+  left: 50%;
+  top: 28%;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(196, 69, 54, 0.92);
+  font-weight: 700;
+}
+
+.rescue-btn {
+  position: absolute;
+  right: 16px;
+  top: calc(50% + 72px);
+  z-index: 16;
+  width: 64px;
+  height: 64px;
+  border: 0;
+  border-radius: 50%;
+  background: #81b29a;
+  color: #102018;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.phrase-menu button {
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: rgba(22, 18, 16, 0.92);
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
 }
 
 .ghost-blackout {
@@ -726,7 +1045,15 @@ input {
   }
 
   .help {
-    display: none;
+    display: block;
+    max-width: 100%;
+  }
+
+  .settings-panel {
+    position: absolute;
+    left: 0;
+    top: 42px;
+    z-index: 42;
   }
 
   .note-panel {
@@ -791,6 +1118,11 @@ input {
     height: 72px;
   }
 
+  .phrase-wrap {
+    left: 12px;
+    bottom: calc(168px + env(safe-area-inset-bottom));
+  }
+
   .dock {
     top: 78px;
     right: auto;
@@ -811,6 +1143,10 @@ input {
     height: 96px;
   }
 
+  .event-feed {
+    max-width: 42vw;
+  }
+
   .weapon-pill {
     display: inline-block;
     margin: 6px 0 0;
@@ -819,6 +1155,31 @@ input {
   .duck-speech-hud {
     top: 30%;
     max-width: 90vw;
+  }
+
+  .match-over {
+    top: 12%;
+    max-height: min(62vh, 480px);
+    padding-bottom: 8px;
+  }
+
+  .award-card {
+    min-width: 96px;
+    max-width: 46vw;
+    padding: 6px 8px;
+  }
+
+  .objective-banner {
+    top: 72px;
+    left: 12px;
+    font-size: 0.92rem;
+    max-width: 58vw;
+  }
+
+  .boss-objective {
+    top: 118px;
+    left: 12px;
+    font-size: 0.92rem;
   }
 }
 
@@ -833,6 +1194,162 @@ input {
   border-radius: 999px;
   font-weight: 600;
   font-size: 0.85rem;
+}
+
+.crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  z-index: 8;
+  pointer-events: none;
+  border: 2px solid rgba(255, 244, 214, 0.85);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+
+.map-load {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  z-index: 30;
+  min-width: 220px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(16, 14, 12, 0.88);
+  text-align: center;
+}
+
+.map-load.fail {
+  min-width: 0;
+  top: auto;
+  bottom: 18%;
+  background: rgba(196, 69, 54, 0.9);
+  pointer-events: auto;
+}
+
+.map-load-bar {
+  margin-top: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.map-load-bar span {
+  display: block;
+  height: 100%;
+  background: #81b29a;
+}
+
+.map-load-slow {
+  margin: 6px 0 0;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.map-load-files {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+.lobby-goal {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(242, 204, 143, 0.16);
+  border: 1px solid rgba(242, 204, 143, 0.45);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #ffe7b3;
+}
+
+.objective-banner {
+  position: absolute;
+  left: 16px;
+  top: 86px;
+  z-index: 18;
+  max-width: min(420px, calc(100% - 32px));
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(16, 14, 12, 0.88);
+  border: 1px solid rgba(255, 230, 170, 0.45);
+  color: #ffe7b3;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.tutorial {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(8, 8, 10, 0.62);
+}
+
+.tutorial-card {
+  width: min(440px, 100%);
+  background: rgba(22, 18, 16, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+  padding: 18px 18px 16px;
+}
+
+.tutorial-card h2 {
+  margin: 0 0 12px;
+  font-size: 1.25rem;
+}
+
+.tutorial-card ul {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tutorial-card li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.98rem;
+}
+
+kbd,
+.help-keys kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6em;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.tutorial-skip {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 16px;
+  background: #f2cc8f;
+  color: #2b2112;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .reconnect-banner {

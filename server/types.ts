@@ -17,6 +17,9 @@ export interface PlayerState {
   team?: 'ghost' | 'hider' | 'spectator'
   weapon?: 'sword' | 'dagger' | 'hammer'
   weaponUntil?: number
+  away?: boolean
+  phrase?: { text: string; until: number } | null
+  downedUntil?: number
 }
 
 export interface StickyNote {

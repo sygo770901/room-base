@@ -133,6 +133,12 @@ function KitModel({ root, model, places }: { root: string; model: string; places
   )
 }
 
+export function dungeonModelUrls(scene: string) {
+  const root = usesKaykitKit(scene) ? KAYKIT_ROOT : KENNEY_ROOT
+  const places = usesKaykitKit(scene) ? KAYKIT_PLACES : KENNEY_PLACES
+  return [...new Set(places.map((p) => `${root}/${p.model}`))]
+}
+
 export function Dungeon(_props: { focusX: number; focusZ: number }) {
   const scene = useAppStore((s) => s.scene)
   const root = usesKaykitKit(scene) ? KAYKIT_ROOT : KENNEY_ROOT
