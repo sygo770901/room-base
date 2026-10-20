@@ -617,10 +617,40 @@ input {
   max-width: 220px;
 }
 
-.wait-modal .map-host {
+.hud > .wait-dock,
+.hud > .map-load {
+  pointer-events: none;
+}
+
+.wait-dock {
+  position: absolute;
+  top: 128px;
+  left: 16px;
+  z-index: 20;
+  width: min(260px, calc(100% - 32px));
+}
+
+.wait-card {
+  pointer-events: auto;
+  background: rgba(22, 18, 16, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.wait-card p {
+  margin: 0 0 8px;
+}
+
+.wait-card .map-host {
   justify-content: center;
   max-width: none;
   margin: 10px 0 12px;
+  pointer-events: auto;
+}
+
+.wait-card button {
+  pointer-events: auto;
 }
 
 .settings-panel {
@@ -1163,6 +1193,16 @@ input {
   display: block;
   height: 100%;
   background: #81b29a;
+}
+
+.map-load-files {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-all;
 }
 
 .lobby-goal {

@@ -27,7 +27,6 @@ export function canRequestLock() {
   const state = useAppStore.getState()
   if (state.phase !== 'room') return false
   if (state.matchOver) return false
-  if ((state.mode === 'boss' || state.mode === 'tag') && !state.started) return false
   if (state.pendingNote || state.noteAsk) return false
   if (typingInField()) return false
   return true
