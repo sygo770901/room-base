@@ -1,5 +1,5 @@
 import type { Server } from 'socket.io'
-import { ATTACK_COS, ATTACK_COOLDOWN_MS, ATTACK_RANGE, PLAYER_MAX_HP, type MatchOver } from '../shared/combat.ts'
+import { ATTACK_COOLDOWN_MS, ATTACK_RANGE, meleeHits, PLAYER_MAX_HP, type MatchOver } from '../shared/combat.ts'
 import { nextComboStep } from '../shared/anim.ts'
 import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
@@ -55,6 +55,7 @@ export interface TagRoom {
   dispenserKills?: Record<string, number>
   rescues?: Record<string, number>
   feed?: import('../shared/events.ts').FeedItem[]
+  poopSlowUntil?: Record<string, number>
 }
 
 export function emptyTag(): TagState {
@@ -483,17 +484,19 @@ export function handleTagAttack(room: TagRoom, io: Server, playerId: string, now
   swing.emit('player:swing', { id: playerId, combo })
   if (room.mode !== 'tag' || player.team !== 'ghost' || !room.tag?.roundActive) return
   if (now < room.tag.hideUntil) return
-  const fx = Math.sin(player.rotationY)
-  const fz = Math.cos(player.rotationY)
   for (const other of presentPlayers(room)) {
     if (other.team !== 'hider' || other.id === playerId) continue
-    const dx = other.position[0] - player.position[0]
-    const dz = other.position[2] - player.position[2]
-    const dist = Math.hypot(dx, dz)
-    if (dist > ATTACK_RANGE) continue
-    if (dist >= 0.26) {
-      const dot = (dx / dist) * fx + (dz / dist) * fz
-      if (dot < ATTACK_COS) continue
+    if (
+      !meleeHits(
+        player.position[0],
+        player.position[2],
+        player.rotationY,
+        other.position[0],
+        other.position[2],
+        ATTACK_RANGE,
+      )
+    ) {
+      continue
     }
     catchHider(room, io, playerId, other.id, now)
     return
@@ -572,7 +575,8 @@ export function acceptMove(
     return true
   }
 
-  const allow = moveAllowance(now - prev, grant, now)
+  const slowed = now < (room.poopSlowUntil?.[player.id] ?? 0)
+  const allow = moveAllowance(now - prev, grant, now, { poopSlow: slowed })
   const dist = Math.hypot(x - player.position[0], z - player.position[2])
   const rise = y - prevY
   const drop = prevY - y

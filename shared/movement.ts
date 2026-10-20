@@ -1,3 +1,5 @@
+import { POOP_SLOW_MUL } from './smoke.ts'
+
 /** 與客戶端走路速度相同。之後衝刺／跳躍加在 allowance 上，不必重寫判定。 */
 export const PLAYER_SPEED = 5.2
 export const MOVE_SLACK = 1.3
@@ -34,9 +36,15 @@ export function cappedMoveDt(elapsedMs: number) {
   return Math.min(Math.max(0, elapsedMs) / 1000, MOVE_DT_CAP_SEC)
 }
 
-export function moveAllowance(elapsedMs: number, grant: MoveGrant | undefined, now: number) {
+export function moveAllowance(
+  elapsedMs: number,
+  grant: MoveGrant | undefined,
+  now: number,
+  opts?: { poopSlow?: boolean; poopMul?: number },
+) {
   const dt = cappedMoveDt(elapsedMs)
-  let horiz = PLAYER_SPEED * dt * MOVE_SLACK + MOVE_PAD
+  const mul = opts?.poopSlow ? (opts.poopMul ?? POOP_SLOW_MUL) : 1
+  let horiz = opts?.poopSlow ? PLAYER_SPEED * mul * dt + 0.08 : PLAYER_SPEED * dt * MOVE_SLACK + MOVE_PAD
   let vert = MOVE_Y_PAD
   if (grant?.dashUntil && now <= grant.dashUntil) {
     horiz += DASH_DISTANCE * MOVE_SLACK
