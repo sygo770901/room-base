@@ -43,20 +43,36 @@ function clipOf(gltf: { animations: THREE.AnimationClip[] }, name: string) {
   return THREE.AnimationClip.findByName(gltf.animations, name)
 }
 
+const normBone = (s: string) => s.toLowerCase().replace(/[.\s_:\/\[\]]/g, '')
+
 function findBone(root: THREE.Object3D, name: string) {
+  const want = normBone(name)
   let found: THREE.Object3D | undefined
   root.traverse((o) => {
     if (found) return
-    if (o.name === name) {
+    if (normBone(o.name) === want) {
       found = o
       return
     }
     const skinned = o as THREE.SkinnedMesh
     if (!skinned.isSkinnedMesh || !skinned.skeleton) return
-    const bone = skinned.skeleton.bones.find((b) => b.name === name)
+    const bone = skinned.skeleton.bones.find((b) => normBone(b.name) === want)
     if (bone) found = bone
   })
   return found
+}
+
+function handBones(root: THREE.Object3D) {
+  const names: string[] = []
+  root.traverse((o) => {
+    if (/hand/i.test(o.name)) names.push(o.name)
+    const skinned = o as THREE.SkinnedMesh
+    if (!skinned.isSkinnedMesh || !skinned.skeleton) return
+    for (const b of skinned.skeleton.bones) {
+      if (/hand/i.test(b.name)) names.push(b.name)
+    }
+  })
+  return [...new Set(names)]
 }
 
 function prepareHeld(src: THREE.Object3D) {
@@ -358,18 +374,38 @@ export function KayKitHero({
   })
 
   useLayoutEffect(() => {
-    const rightBone = findBone(root, 'handslot.r')
-    const leftBone = findBone(root, 'handslot.l')
-    const mount = (bone: THREE.Object3D | undefined, held: THREE.Object3D) => {
-      if (!bone || !held.children.length) return
+    const rightBone = findBone(root, 'handslot.r') ?? findBone(root, 'hand.r')
+    const leftBone = findBone(root, 'handslot.l') ?? findBone(root, 'hand.l')
+    const mount = (bone: THREE.Object3D | undefined, held: THREE.Object3D, label: string) => {
+      if (!held.children.length) return
+      if (!bone) {
+        console.warn(`[weapon] 找不到 ${label}`, handBones(root))
+        return
+      }
       bone.add(held)
       held.position.set(0, 0, 0)
       held.rotation.set(0, 0, 0)
       held.scale.setScalar(1)
       held.updateMatrix()
+      root.updateMatrixWorld(true)
+      bone.updateWorldMatrix(true, true)
+      const world = new THREE.Vector3()
+      const scale = new THREE.Vector3()
+      held.getWorldPosition(world)
+      held.getWorldScale(scale)
+      const sl = scale.length() / Math.sqrt(3)
+      if (sl < 0.01 || sl > 100) {
+        const fix = 1 / Math.max(sl, 1e-6)
+        held.scale.setScalar(fix)
+        held.updateMatrix()
+        root.updateMatrixWorld(true)
+        held.getWorldPosition(world)
+        held.getWorldScale(scale)
+      }
+      console.log(`[weapon] bone=${bone.name} pos=${world.x.toFixed(2)},${world.y.toFixed(2)},${world.z.toFixed(2)} scale=${scale.x.toFixed(3)}`)
     }
-    mount(rightBone, rightWeapon)
-    mount(leftBone, leftWeapon)
+    mount(rightBone, rightWeapon, 'handslot.r')
+    mount(leftBone, leftWeapon, 'handslot.l')
     return () => {
       rightWeapon.removeFromParent()
       leftWeapon.removeFromParent()
