@@ -1,9 +1,12 @@
 import * as THREE from 'three'
 import { useGLTF } from '@react-three/drei'
+import { DECOR_URL } from '../../shared/decor'
 import { dungeonModelUrls } from '../scene/Dungeon'
 import { heroModelUrls } from '../scene/KayKitHero'
 import { DUCK_URL } from '../scene/DuckKing'
 import { useAppStore } from '../store'
+
+const BARREL_URL = '/assets/kaykit/barrel.gltf.glb'
 
 export const MAP_LOAD_SLOW_MS = 8000
 const FILE_TIMEOUT_MS = 10000
@@ -29,6 +32,11 @@ export function criticalModelUrls(scene: string) {
   return [...new Set([...dungeonModelUrls(scene), ...heroModelUrls(), DUCK_URL])]
 }
 
+/** 進房就要進快取的模型。揮擊只用這份，不會再臨時抓檔。 */
+export function sceneAssetUrls(scene: string) {
+  return [...new Set([...criticalModelUrls(scene), ...Object.values(DECOR_URL), BARREL_URL])]
+}
+
 function fetchWithTimeout(url: string, ms: number) {
   const ctrl = new AbortController()
   const timer = window.setTimeout(() => ctrl.abort(), ms)
@@ -42,10 +50,10 @@ function fetchWithTimeout(url: string, ms: number) {
 
 let preloadGen = 0
 
-export function startCriticalPreload(scene: string, retry = 0) {
+export function startCriticalPreload(scene: string, clearCache = false) {
   const gen = ++preloadGen
-  const urls = criticalModelUrls(scene)
-  if (retry > 0) {
+  const urls = sceneAssetUrls(scene)
+  if (clearCache) {
     for (const url of urls) {
       try {
         useGLTF.clear(url)

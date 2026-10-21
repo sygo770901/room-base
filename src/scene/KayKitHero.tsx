@@ -95,6 +95,27 @@ function handBones(root: THREE.Object3D) {
 }
 
 /** 劍刃沿模型最長軸。轉成局部 +Y，手槽的 +Y 在待機與揮擊時朝角色前方。 */
+const _aimParentQ = new THREE.Quaternion()
+const _aimRootQ = new THREE.Quaternion()
+const _aimFwd = new THREE.Vector3()
+const _aimWorldQ = new THREE.Quaternion()
+const _aimUp = new THREE.Vector3(0, 1, 0)
+
+/** 劍尖沿角色前方。手槽在揮擊時會抬起來，這裡每幀把劍扳回前方。 */
+function aimBladeForward(held: THREE.Object3D, root: THREE.Object3D) {
+  const bone = held.parent
+  if (!bone) return
+  root.updateWorldMatrix(true, false)
+  bone.updateWorldMatrix(true, false)
+  bone.getWorldQuaternion(_aimParentQ)
+  _aimFwd.set(0, 0, 1).applyQuaternion(root.getWorldQuaternion(_aimRootQ))
+  _aimFwd.y = 0
+  if (_aimFwd.lengthSq() < 1e-8) return
+  _aimFwd.normalize()
+  _aimWorldQ.setFromUnitVectors(_aimUp, _aimFwd)
+  held.quaternion.copy(_aimParentQ).invert().multiply(_aimWorldQ)
+}
+
 function orientBladeToPlusY(root: THREE.Object3D) {
   root.position.set(0, 0, 0)
   root.rotation.set(0, 0, 0)
@@ -372,6 +393,14 @@ export function KayKitHero({
   )
 
   useFrame((_, dt) => {
+    const stepMixer = () => {
+      try {
+        mixer.update(dt)
+      } catch {
+        /* 動作軌壞掉時留下目前姿勢，不要拆掉模型和地圖 */
+      }
+      aimBladeForward(rightWeapon, root)
+    }
     const phase = deathAnimTrigger(wasDowned.current, Boolean(downed))
     wasDowned.current = Boolean(downed)
     if (phase === 'play' && actions.death) {
@@ -380,11 +409,11 @@ export function KayKitHero({
       current.current?.fadeOut(0.06)
       actions.death.reset().fadeIn(0.06).play()
       current.current = actions.death
-      mixer.update(dt)
+      stepMixer()
       return
     }
     if (phase === 'hold') {
-      mixer.update(dt)
+      stepMixer()
       return
     }
     if (phase === 'idle') {
@@ -419,7 +448,7 @@ export function KayKitHero({
         }
       }
     }
-    mixer.update(dt)
+    stepMixer()
   })
 
   useLayoutEffect(() => {

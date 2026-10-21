@@ -268,7 +268,7 @@ export const useAppStore = create<AppState>((set) => ({
   autoOpenDoors: typeof localStorage === 'undefined' ? true : localStorage.getItem('rb-auto-door') !== '0',
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
-    set((s) => ({
+    set(() => ({
       phase: 'room',
       connection: 'online',
       selfId,
@@ -285,7 +285,6 @@ export const useAppStore = create<AppState>((set) => ({
       mapLoadErrors: [],
       mapLoadSlow: false,
       mapLoadActive: true,
-      mapLoadRetry: s.mapLoadRetry + 1,
       tagHud: snapshot.tagHud ?? null,
       players: snapshot.players,
       localX: snapshot.players[selfId]?.position?.[0] ?? 0,

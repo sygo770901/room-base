@@ -155,8 +155,6 @@ export function Dungeon(_props: { focusX: number; focusZ: number }) {
     return [...map.entries()]
   }, [places])
 
-  for (const [model] of groups) useGLTF.preload(`${root}/${model}`)
-
   return (
     <group>
       {groups.map(([model, list]) => (

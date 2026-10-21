@@ -1,4 +1,5 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { useGLTF } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, useProgress } from '@react-three/drei'
 import * as THREE from 'three'
@@ -45,7 +46,7 @@ import { SmokeClouds } from './SmokeClouds'
 import { Barrels } from './Barrels'
 import { Doors } from './Doors'
 import { ModelBoundary } from './ModelBoundary'
-import { fileLabel } from '../load/mapLoad'
+import { fileLabel, sceneAssetUrls } from '../load/mapLoad'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
@@ -341,6 +342,24 @@ function CameraGuard() {
   return null
 }
 
+function WarmOne({ url }: { url: string }) {
+  useGLTF(url)
+  return null
+}
+
+/** 場景裡會用到的 gltf 先在同一個 Suspense 裡解開。揮擊不會再觸發新的載入。 */
+function WarmAssets({ urls }: { urls: string[] }) {
+  return (
+    <>
+      {urls.map((url) => (
+        <ModelBoundary key={url} file={url} fallback={null}>
+          <WarmOne url={url} />
+        </ModelBoundary>
+      ))}
+    </>
+  )
+}
+
 function SceneContent() {
   const selfId = useAppStore((s) => s.selfId)
   const players = useAppStore((s) => s.players)
@@ -358,6 +377,7 @@ function SceneContent() {
 
   const isHost = !!selfId && hostId === selfId
   const lookAt = useMemo(() => new THREE.Vector3(SPAWN.x, LOOK_Y, SPAWN.z), [])
+  const assetUrls = useMemo(() => sceneAssetUrls(sceneId), [sceneId])
 
   return (
     <>
@@ -377,18 +397,25 @@ function SceneContent() {
       <FollowLight mobile={isMobileDevice()} />
 
       <MapProgressBridge />
-      <DungeonBoundary>
-        <Suspense fallback={null}>
+      <Suspense fallback={null}>
+        <WarmAssets urls={assetUrls} />
+        <DungeonBoundary>
           <Dungeon focusX={displaySelf?.position?.[0] ?? SPAWN.x} focusZ={displaySelf?.position?.[2] ?? SPAWN.z} />
-        </Suspense>
-      </DungeonBoundary>
-      <ModelBoundary file="/assets/kaykit/dungeon-1.1/wall.gltf" fallback={null}>
-        <Suspense fallback={null}>
+        </DungeonBoundary>
+        <ModelBoundary file="/assets/kaykit/dungeon-1.1/wall.gltf" fallback={null}>
           {sceneId === 'jungle' ? <JungleFoliage /> : null}
           <SceneDecor />
           <Monsters />
-        </Suspense>
-      </ModelBoundary>
+        </ModelBoundary>
+        <ModelBoundary file="/assets/kaykit/barrel.gltf.glb" fallback={null}>
+          <Barrels />
+        </ModelBoundary>
+        <ModelBoundary file="/assets/kaykit/adventurers/Ranger.glb" fallback={null}>
+          <RemotePlayers players={players} selfId={selfId} />
+        </ModelBoundary>
+        {displaySelf?.position && <LocalAvatar player={displaySelf} />}
+        <Doors />
+      </Suspense>
 
       <StickyNotes3D notes={notes} selfId={selfId} isHost={isHost} />
       <NotePlacementPlane />
@@ -396,19 +423,7 @@ function SceneContent() {
       <HitEffects />
       <Telegraph />
       <Projectiles />
-      <Doors />
       <SmokeClouds />
-      <ModelBoundary file="/assets/kaykit/barrel.gltf.glb" fallback={null}>
-        <Suspense fallback={null}>
-          <Barrels />
-        </Suspense>
-      </ModelBoundary>
-      <ModelBoundary file="/assets/kaykit/adventurers/Ranger.glb" fallback={null}>
-        <Suspense fallback={null}>
-          <RemotePlayers players={players} selfId={selfId} />
-        </Suspense>
-      </ModelBoundary>
-      {displaySelf?.position && <LocalAvatar player={displaySelf} />}
       {self && (
         <LocalController
           player={self}
