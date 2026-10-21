@@ -314,12 +314,19 @@ async function shot(page: Page, name: string) {
   return file
 }
 
-async function capturePoop(page: Page, label: string, skewMs: number) {
+async function capturePoop(
+  page: Page,
+  label: string,
+  skewMs: number,
+  opts?: { marks?: number[]; side?: boolean; nudge?: boolean },
+) {
   await installClock(page, skewMs)
-  await page.keyboard.down('KeyW')
-  await sleep(160)
-  await page.keyboard.up('KeyW')
-  await sleep(80)
+  if (opts?.nudge !== false) {
+    await page.keyboard.down('KeyW')
+    await sleep(160)
+    await page.keyboard.up('KeyW')
+    await sleep(80)
+  }
   const before = new Set((await world(page)).poop.map((p) => p.id))
   const canvas = await page.$('canvas')
   assert(Boolean(canvas), '沒有畫布')
@@ -358,16 +365,27 @@ async function capturePoop(page: Page, label: string, skewMs: number) {
     const gy = appeared.gy ?? pose.y ?? 0
     const mx = (ox + lx) / 2
     const mz = (oz + lz) / 2
+    const sideX = opts?.side ? -fz : 0
+    const sideZ = opts?.side ? fx : 0
     await page.evaluate((lock) => {
       ;(window as Window & { __camLock?: typeof lock }).__camLock = lock
-    }, {
-      x: ox - fx * 9,
-      y: gy + 2.2,
-      z: oz - fz * 9,
-      tx: mx,
-      ty: gy + 1.25,
-      tz: mz,
-    })
+    }, opts?.side
+      ? {
+          x: mx + sideX * 9,
+          y: gy + 3.4,
+          z: mz + sideZ * 9,
+          tx: mx,
+          ty: gy + 1.3,
+          tz: mz,
+        }
+      : {
+          x: ox - fx * 9,
+          y: gy + 2.2,
+          z: oz - fz * 9,
+          tx: mx,
+          ty: gy + 1.25,
+          tz: mz,
+        })
     await stepFrames(page)
     console.log('cam lock', await page.evaluate(() => (window as Window & { __camDir?: unknown }).__camDir ?? null))
   }
@@ -376,7 +394,7 @@ async function capturePoop(page: Page, label: string, skewMs: number) {
       for (const el of document.querySelectorAll(sel)) (el as HTMLElement).style.display = 'none'
     }
   })
-  const marks = [0, 110, 220, 340, 460, 560]
+  const marks = opts?.marks ?? [0, 110, 220, 340, 460, 560]
   const samples: { ms: number; poop: Poop }[] = []
   for (let i = 0; i < marks.length; i++) {
     const ms = marks[i]
@@ -402,15 +420,37 @@ async function capturePoop(page: Page, label: string, skewMs: number) {
   const last = samples[samples.length - 1]
   assert(first.poop.t < 0.2, `${label} 起點 t=${first.poop.t}`)
   assert(last.poop.t > 0.9, `${label} 560ms 時還沒落地 t=${last.poop.t}`)
-  const f = forwardOf(theta)
+  let f = forwardOf(theta)
+  if (opts?.side && last.poop.ox != null && last.poop.lx != null && last.poop.oz != null && last.poop.lz != null) {
+    const dx = last.poop.lx - last.poop.ox
+    const dz = last.poop.lz - last.poop.oz
+    const len = Math.hypot(dx, dz) || 1
+    f = { x: dx / len, z: dz / len }
+  }
   const along = (last.poop.x - first.poop.x) * f.x + (last.poop.z - first.poop.z) * f.z
   assert(along > 3, `${label} 沒有往準心前方飛 along=${along.toFixed(2)}`)
   const apex = Math.max(...samples.map((s) => s.poop.y))
   assert(apex > first.poop.y + 0.8, `${label} 沒有拋物線 apex=${apex.toFixed(2)} y0=${first.poop.y.toFixed(2)}`)
+  if (opts?.side) {
+    const gy = first.poop.gy ?? 0
+    for (let i = 0; i < samples.length; i++) {
+      assert(samples[i].poop.y > gy + 0.25, `${label} 第 ${i} 張沒有高過台面 y=${samples[i].poop.y.toFixed(2)} gy=${gy.toFixed(2)}`)
+      if (i === 0) continue
+      const prev = samples[i - 1].poop
+      const moved = Math.hypot(samples[i].poop.x - prev.x, samples[i].poop.y - prev.y, samples[i].poop.z - prev.z)
+      assert(moved > 0.35, `${label} 第 ${i} 張和前一張位置太近 ${moved.toFixed(2)}`)
+    }
+    const { createHash } = await import('node:crypto')
+    const { readFileSync } = await import('node:fs')
+    const hashes = samples.map((_, i) => createHash('sha1').update(readFileSync(resolve(OUT, `${label}-${i}.jpg`))).digest('hex'))
+    assert(new Set(hashes).size === hashes.length, `${label} 截圖有重複畫面`)
+  }
   return { firstY: first.poop.y, along, apex }
 }
 
 async function sectionPoop() {
+  const platformOnly = Boolean(process.env.POOP_PLATFORM)
+  if (!platformOnly) {
   const cases = [
     ['poop-forward', 0],
     ['poop-skew-plus', 2000],
@@ -426,8 +466,9 @@ async function sectionPoop() {
       await browser.close()
     }
   }
+  }
 
-  if (process.env.POOP_ONE) return
+  if (!platformOnly && process.env.POOP_ONE) return
   const raised = await launch('platform')
   try {
     await join(raised.page, '寶物房樣本', null, '高台', `plat${Date.now()}`, true)
@@ -460,7 +501,37 @@ async function sectionPoop() {
     }
     await release(raised.page)
     assert(top != null && top.y >= 3.9, `沒站上高台 y=${top?.y}`)
-    const raisedArc = await capturePoop(raised.page, 'poop-platform', 0)
+    await raised.page.keyboard.down('KeyW')
+    const faceStart = Date.now()
+    while (Date.now() - faceStart < 2500) {
+      const snap = await world(raised.page)
+      const here = snap.pose
+      if (!here || here.y < 3.5) break
+      await raised.page.evaluate((lock) => {
+        ;(window as Window & { __camLock?: typeof lock }).__camLock = lock
+      }, {
+        x: here.x - 3.2,
+        y: here.y + 1.7,
+        z: here.z,
+        tx: here.x + 8,
+        ty: here.y + 1.1,
+        tz: here.z,
+      })
+      const yaw = here.yaw
+      let diff = yaw - Math.PI / 2
+      while (diff > Math.PI) diff -= Math.PI * 2
+      while (diff < -Math.PI) diff += Math.PI * 2
+      if (Math.abs(diff) < 0.3 && here.x < 48) break
+      await sleep(90)
+    }
+    await raised.page.keyboard.up('KeyW')
+    const faced = (await world(raised.page)).pose
+    assert(faced != null && faced.y >= 3.5, `轉身時掉下高台 y=${faced?.y}`)
+    const raisedArc = await capturePoop(raised.page, 'poop-platform', 0, {
+      marks: [0, 100, 200, 300, 400, 520],
+      side: true,
+      nudge: false,
+    })
     assert(raisedArc.firstY > 3.5, `高台便便沒有加上地面高度 y=${raisedArc.firstY.toFixed(2)}`)
     console.log('poop platform', raisedArc, top)
   } finally {
