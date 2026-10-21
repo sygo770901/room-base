@@ -1,8 +1,13 @@
 import { Billboard, Text } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
-import { useMemo, useRef } from 'react'
+import { Suspense, useMemo, useRef } from 'react'
+import { preloadFont } from 'troika-three-text'
 import * as THREE from 'three'
 import { useAppStore, type HitFx } from '../store'
+
+// 傷害數字的字在背景先抓。真正 suspend 留在這棵樹裡，
+// 不能冒到 Canvas 那層，否則整張場景會卸掉，畫布只剩清空色。
+preloadFont({}, () => {})
 
 const LIFE = 0.52
 
@@ -103,10 +108,12 @@ function OneHit({ hit }: { hit: HitFx }) {
 export function HitEffects() {
   const hits = useAppStore((s) => s.hits)
   return (
-    <group>
-      {hits.map((h) => (
-        <OneHit key={h.key} hit={h} />
-      ))}
-    </group>
+    <Suspense fallback={null}>
+      <group>
+        {hits.map((h) => (
+          <OneHit key={h.key} hit={h} />
+        ))}
+      </group>
+    </Suspense>
   )
 }

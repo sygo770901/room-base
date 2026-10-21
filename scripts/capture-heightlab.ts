@@ -16,9 +16,21 @@ const BASE = process.env.HEIGHTLAB_URL || 'http://127.0.0.1:5173/'
 const OUT = resolve(import.meta.dirname, '../docs/heightlab')
 const FRAMES = 26
 const GAP_MS = 500
+/** 清空色 #2a2428 的亮度約 39。整張幾乎同色、標準差很低，就是空場景。 */
+const EMPTY_MEAN = 52
+const EMPTY_STD = 22
 
 type Pose = { x: number; y: number; z: number; yaw: number; monsters: number }
 type Cam = { x: number; y: number; z: number; theta: number; phi: number; radius: number; shoulder: number }
+type SceneStats = {
+  mean: number
+  std: number
+  orange: number
+  ox: number
+  oy: number
+  empty: boolean
+}
+type Snap = { t: number; from: [number, number, number] | null; to: [number, number, number]; yaw: number }
 type Sample = {
   i: number
   t: number
@@ -26,6 +38,9 @@ type Sample = {
   cam: Cam
   steer: 'none' | 'a' | 'd'
   monsters: number
+  scene: SceneStats
+  crosshairDx: number
+  crosshairDy: number
 }
 
 const WAYPOINTS = [
@@ -57,6 +72,100 @@ async function readPose(page: Page) {
     const w = window as unknown as { __pose?: Pose; __cam?: Cam }
     return { pose: w.__pose ?? null, cam: w.__cam ?? null }
   })
+}
+
+async function readScene(page: Page) {
+  return page.evaluate((limits) => {
+    const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
+    const empty: SceneStats = { mean: 0, std: 0, orange: 0, ox: 0, oy: 0, empty: true }
+    if (!canvas) return { scene: empty, crosshairDx: 999, crosshairDy: 999 }
+    const w = 160
+    const h = 90
+    const c = document.createElement('canvas')
+    c.width = w
+    c.height = h
+    const ctx = c.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return { scene: empty, crosshairDx: 999, crosshairDy: 999 }
+    ctx.drawImage(canvas, 0, 0, w, h)
+    const data = ctx.getImageData(0, 0, w, h).data
+    let n = 0
+    let sum = 0
+    let sum2 = 0
+    let orange = 0
+    let ox = 0
+    let oy = 0
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4
+        const r = data[i]
+        const g = data[i + 1]
+        const b = data[i + 2]
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b
+        n += 1
+        sum += lum
+        sum2 += lum * lum
+        if (y > h * 0.4 && x < w * 0.52 && r > 115 && r > g + 15 && b < 175) {
+          orange += 1
+          ox += x
+          oy += y
+        }
+      }
+    }
+    const mean = n ? sum / n : 0
+    const variance = n ? sum2 / n - mean * mean : 0
+    const std = Math.sqrt(Math.max(0, variance))
+    const hair = document.querySelector('.crosshair')?.getBoundingClientRect()
+    const crosshairDx = hair ? hair.left + hair.width / 2 - window.innerWidth / 2 : 999
+    const crosshairDy = hair ? hair.top + hair.height / 2 - window.innerHeight / 2 : 999
+    return {
+      scene: {
+        mean,
+        std,
+        orange,
+        ox: orange ? ox / orange / w : 0,
+        oy: orange ? oy / orange / h : 0,
+        empty: mean < limits.mean || std < limits.std,
+      },
+      crosshairDx,
+      crosshairDy,
+    }
+  }, { mean: EMPTY_MEAN, std: EMPTY_STD })
+}
+
+async function installFrameWatch(page: Page) {
+  // 函式本體用字串，避免 tsx 塞進瀏覽器沒有的 __name。
+  const install = new Function(
+    'limits',
+    `const canvas = document.querySelector('canvas');
+     const c = document.createElement('canvas');
+     c.width = 80; c.height = 45;
+     const ctx = c.getContext('2d', { willReadFrequently: true });
+     const watch = { samples: 0, minStd: 999, minMean: 999, empty: [] };
+     window.__watch = watch;
+     const tick = () => {
+       if (canvas && ctx) {
+         ctx.drawImage(canvas, 0, 0, c.width, c.height);
+         const data = ctx.getImageData(0, 0, c.width, c.height).data;
+         let n = 0, sum = 0, sum2 = 0;
+         for (let i = 0; i < data.length; i += 4) {
+           const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+           n += 1; sum += lum; sum2 += lum * lum;
+         }
+         const mean = n ? sum / n : 0;
+         const std = Math.sqrt(Math.max(0, n ? sum2 / n - mean * mean : 0));
+         watch.samples += 1;
+         watch.minStd = Math.min(watch.minStd, std);
+         watch.minMean = Math.min(watch.minMean, mean);
+         if (mean < limits.mean || std < limits.std) {
+           const pose = window.__pose;
+           watch.empty.push({ t: performance.now(), mean: mean, std: std, z: pose ? pose.z : null });
+         }
+       }
+       requestAnimationFrame(tick);
+     };
+     requestAnimationFrame(tick);`,
+  ) as (limits: { mean: number; std: number }) => void
+  await page.evaluate(install, { mean: EMPTY_MEAN, std: EMPTY_STD })
 }
 
 async function main() {
@@ -131,9 +240,17 @@ async function main() {
       ;(el as HTMLElement).style.display = 'none'
     }
   })
+  await installFrameWatch(page)
 
   const samples: Sample[] = []
   const started = Date.now()
+  let watch: { samples: number; minStd: number; minMean: number; empty: { t: number; mean: number; std: number; z: number | null }[] } = {
+    samples: 0,
+    minStd: 999,
+    minMean: 999,
+    empty: [],
+  }
+  let snaps: Snap[] = []
   await page.keyboard.down('KeyW')
   let steering: 'none' | 'a' | 'd' = 'none'
   try {
@@ -162,6 +279,7 @@ async function main() {
         await page.keyboard.up(steering === 'a' ? 'KeyA' : 'KeyD')
         steering = 'none'
       }
+      const view = await readScene(page)
       const name = `frame-${String(i).padStart(2, '0')}.png`
       await page.screenshot({ path: resolve(OUT, name) })
       const row: Sample = {
@@ -171,6 +289,9 @@ async function main() {
         cam,
         steer,
         monsters: pose.monsters,
+        scene: view.scene,
+        crosshairDx: view.crosshairDx,
+        crosshairDy: view.crosshairDy,
       }
       samples.push(row)
       console.log(
@@ -180,8 +301,19 @@ async function main() {
         `theta=${cam.theta.toFixed(3)} r=${cam.radius.toFixed(2)} camZ=${cam.z.toFixed(2)}`,
         `monsters=${pose.monsters}`,
         `steer=${steer}`,
+        `mean=${view.scene.mean.toFixed(1)} std=${view.scene.std.toFixed(1)} orange=${view.scene.orange}`,
+        view.scene.empty ? 'EMPTY' : 'scene',
       )
     }
+    const trace = await page.evaluate(() => {
+      const w = window as unknown as {
+        __watch?: { samples: number; minStd: number; minMean: number; empty: { t: number; mean: number; std: number; z: number | null }[] }
+        __snaps?: Snap[]
+      }
+      return { watch: w.__watch ?? null, snaps: w.__snaps ?? [] }
+    })
+    if (trace.watch) watch = trace.watch
+    snaps = trace.snaps
   } finally {
     await page.keyboard.up('KeyW')
     if (steering !== 'none') await page.keyboard.up(steering === 'a' ? 'KeyA' : 'KeyD')
@@ -209,11 +341,30 @@ async function main() {
         steered,
         monsterFrames,
         reached: reached.map((wp) => wp.name),
+        corrections: snaps,
+        frameWatch: {
+          samples: watch.samples,
+          minStd: watch.minStd,
+          minMean: watch.minMean,
+          empty: watch.empty,
+        },
       },
       null,
       2,
     ),
   )
+  const emptyFrames = samples.filter((s) => s.scene.empty)
+  const firstBlank = watch.empty[0]
+  assert(emptyFrames.length === 0, `空場景幀 ${emptyFrames.map((s) => s.i).join(',')}`)
+  assert(
+    watch.empty.length === 0,
+    `按住 W 的途中有 ${watch.empty.length} 張空畫面，第一張 z=${firstBlank?.z ?? '無'} mean=${firstBlank ? firstBlank.mean.toFixed(1) : ''}`,
+  )
+  for (const row of samples) {
+    assert(row.scene.orange > 80, `第 ${row.i} 幀左下沒有角色，橙色像素 ${row.scene.orange}`)
+    assert(row.scene.ox < 0.48 && row.scene.oy > 0.48, `第 ${row.i} 幀角色不在左下 (${row.scene.ox.toFixed(2)}, ${row.scene.oy.toFixed(2)})`)
+    assert(Math.abs(row.crosshairDx) < 12 && Math.abs(row.crosshairDy) < 12, `第 ${row.i} 幀準心不在正中 dx=${row.crosshairDx.toFixed(1)} dy=${row.crosshairDy.toFixed(1)}`)
+  }
   assert(monsterFrames > 0, '一般模式應該有怪物')
   assert(!steered, `按住 W 不該需要修正方向，最大橫漂 ${maxDrift.toFixed(2)}`)
   assert(maxDrift < 0.45, `x 漂離 14 達 ${maxDrift.toFixed(2)}`)
@@ -225,7 +376,16 @@ async function main() {
       `沒走到 ${wp.name}（z=${wp.z}），最後 z=${samples[samples.length - 1]?.pose.z.toFixed(2)}`,
     )
   }
-  console.log('capture-heightlab: ok', { maxDrift, yawAbs, thetaAbs, monsterFrames, frames: samples.length })
+  console.log('capture-heightlab: ok', {
+    maxDrift,
+    yawAbs,
+    thetaAbs,
+    monsterFrames,
+    frames: samples.length,
+    corrections: snaps.length,
+    watched: watch.samples,
+    minStd: Number(watch.minStd.toFixed(1)),
+  })
 }
 
 main().catch((err) => {

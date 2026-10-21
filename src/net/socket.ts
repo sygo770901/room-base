@@ -200,6 +200,20 @@ function bindListeners(s: Socket) {
       rotationY: payload.rotationY,
     })
     if (payload.snap && payload.id === selfId) {
+      const from = lastPose?.position
+      const correction = {
+        t: performance.now(),
+        from: from ? [from[0], from[1], from[2]] : null,
+        to: [payload.position[0], payload.position[1], payload.position[2]] as Vec3,
+        yaw: payload.rotationY,
+      }
+      if (import.meta.env.DEV) {
+        const slot = window as Window & { __snaps?: unknown[] }
+        const list = slot.__snaps ?? []
+        list.push(correction)
+        slot.__snaps = list
+      }
+      console.info('[move] server correction', correction)
       lastPose = { position: payload.position, rotationY: payload.rotationY }
       useAppStore.getState().bumpPoseSync()
     }

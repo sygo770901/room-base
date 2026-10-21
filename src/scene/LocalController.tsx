@@ -18,6 +18,7 @@ import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } f
 import { resolvePlayerMove } from '../physics/collision'
 import { doorsOf, extraAabbsOf } from '../../shared/mapData'
 import { useAppStore } from '../store'
+import { livePose } from './livePose'
 import type { PlayerState, Vec3 } from '../types'
 
 const SPEED = 5.2
@@ -471,6 +472,11 @@ export function LocalController({
     stickCamera(pos.current.x, pos.current.y, pos.current.z)
 
     const pose: Vec3 = [pos.current.x, pos.current.y, pos.current.z]
+    livePose.x = pose[0]
+    livePose.y = pose[1]
+    livePose.z = pose[2]
+    livePose.yaw = rotY.current
+    livePose.ready = true
     if (import.meta.env.DEV) {
       const slot = window as Window & {
         __pose?: { x: number; y: number; z: number; yaw: number; monsters: number }
