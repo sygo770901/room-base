@@ -9,10 +9,12 @@ import {
   canMoveTo,
   groundY,
   heightBlocksSight,
+  unreachableFromSpawn,
   type HeightField,
 } from '../shared/heightfield.ts'
 import { heightFieldOf, spawnOf } from '../shared/heightmaps.ts'
 import { DASH_DURATION_MS, JUMP_MAX_DELTA } from '../shared/movement.ts'
+import { GRAVITY, JUMP_SPEED } from '../shared/platforms.ts'
 
 function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(msg)
@@ -139,8 +141,79 @@ const tele = acceptMove(
   { position: [cliff.tx, cliff.ty, cliff.tz], rotationY: 0 },
   now + 400,
 )
-assert(!tele, '有衝刺和跳躍也不該瞬移上斷崖平台')
+assert(!tele, '有衝刺和跳躍也不該一包瞬移上斷崖')
 assert(cheat.position[0] === cliff.fx && cheat.position[2] === cliff.fz, '拒絕後應留在斷崖下')
+
+{
+  const walker = player([cliff.fx, cliff.fy, cliff.fz])
+  const walkRoom = room('heightlab', walker, now)
+  const dx = cliff.tx - cliff.fx
+  const dz = cliff.tz - cliff.fz
+  const span = Math.hypot(dx, dz) || 1
+  let blockedWalk = false
+  let at = now
+  for (let i = 1; i <= 8; i++) {
+    const nx = cliff.fx + (dx / span) * 0.2 * i
+    const nz = cliff.fz + (dz / span) * 0.2 * i
+    const ok = acceptMove(walkRoom, walker, { position: [nx, cliff.fy, nz], rotationY: 0 }, at + i * 80)
+    if (!ok) {
+      blockedWalk = true
+      break
+    }
+  }
+  assert(blockedWalk, '直線走不該爬上 0.65–1.2m 的斷崖')
+  const stayed = groundY(field, walker.position[0], walker.position[2]) ?? 99
+  assert(stayed < cliff.ty - 0.4, `走上去之後還在低處，實際地面 ${stayed}`)
+}
+
+{
+  const jumper = player([cliff.fx, cliff.fy, cliff.fz])
+  const jumpRoom = room('heightlab', jumper, now + 10_000)
+  const t0 = now + 10_000
+  jumpRoom.moveGrant = { p: { jumpUntil: t0 + 1100 } }
+  const dx = cliff.tx - cliff.fx
+  const dz = cliff.tz - cliff.fz
+  const span = Math.hypot(dx, dz) || 1
+  const ux = dx / span
+  const uz = dz / span
+  let sim = 0
+  let x = cliff.fx
+  let z = cliff.fz
+  let accepted = 0
+  const arcY = () => cliff.fy + JUMP_SPEED * sim - 0.5 * GRAVITY * sim * sim
+  const send = (px: number, py: number, pz: number) => {
+    const at = t0 + Math.round(sim * 1000)
+    const ok = acceptMove(jumpRoom, jumper, { position: [px, py, pz], rotationY: 0 }, at)
+    assert(ok, `跳躍弧線被拒 x=${px.toFixed(2)} z=${pz.toFixed(2)} y=${py.toFixed(2)} sim=${sim.toFixed(2)}`)
+    accepted += 1
+  }
+  while (sim < 0.7 && arcY() < cliff.ty + 0.15) {
+    sim += 0.05
+    send(x, arcY(), z)
+  }
+  assert(arcY() >= cliff.ty, `起跳後腳要高過斷崖，實際 ${arcY().toFixed(2)} 目標 ${cliff.ty}`)
+  let guard = 0
+  while (Math.hypot(cliff.tx - x, cliff.tz - z) > 0.2 && guard < 20) {
+    guard += 1
+    sim += 0.05
+    const rise = JUMP_SPEED - GRAVITY * sim
+    if (rise < -0.2) break
+    x += ux * 0.2
+    z += uz * 0.2
+    const y = Math.max(cliff.ty, arcY())
+    send(x, y, z)
+  }
+  while (arcY() > cliff.ty && sim < 1.05) {
+    sim += 0.05
+    const y = Math.max(cliff.ty, arcY())
+    send(x, y, z)
+  }
+  send(x, cliff.ty, z)
+  const landed = groundY(field, jumper.position[0], jumper.position[2])
+  assert(landed != null && Math.abs(landed - cliff.ty) < 0.08, `應落在斷崖上，地面 ${landed} @ ${jumper.position[0].toFixed(2)},${jumper.position[2].toFixed(2)}`)
+  assert(Math.abs((jumper.position[1] ?? 0) - cliff.ty) < 0.08, `落地高度應貼著斷崖，y=${jumper.position[1]}`)
+  assert(accepted >= 8, '跳躍弧線要有多包移動，不是一包瞬移')
+}
 
 const fall = player([cliff.tx, cliff.ty, cliff.tz])
 const fallRoom = room('heightlab', fall, now)
@@ -164,6 +237,21 @@ for (let cz = 1; cz < field.rows - 1 && !blockedSight; cz++) {
   }
 }
 assert(blockedSight, '牆應擋住鬼抓人視線')
+
+const sealed = unreachableFromSpawn(field)
+assert(sealed.length === 0, `每個可行走格都要走得回出生點，封住的有 ${sealed.slice(0, 8).join(' ')}`)
+
+let floorSplit = false
+for (let cz = 0; cz < field.rows && !floorSplit; cz++) {
+  for (let cx = 0; cx < field.cols; cx++) {
+    const low = groundY(field, cx + 0.5, cz + 0.5)
+    const high = groundY(field, cx + 0.5, cz + 0.5 + 6)
+    if (low == null || high == null || high < low + 2) continue
+    floorSplit = heightBlocksSight(field, cx + 0.5, low, cz + 0.5, cx + 0.5, high, cz + 6.5)
+    if (floorSplit) break
+  }
+}
+assert(floorSplit, '樓板兩側的視線應被擋住')
 
 console.log('height: ok', {
   stairs: field.stairs.length,

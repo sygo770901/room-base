@@ -13,7 +13,7 @@ export const SCENE_BLURBS: Record<SceneId, string> = {
   kenney: '橙色地板與紫色石牆。',
   kaykit: '石磚、鐵柵與樓梯。',
   jungle: '叢林裡的遺跡通道。',
-  heightlab: '樓梯、高台，還有摔下去的斷崖。',
+  heightlab: '樓梯、高台，摔下去還走得回出生點。',
 }
 
 export function isSceneId(value: unknown): value is SceneId {

@@ -130,7 +130,7 @@ function tryMove(
   nz = clamped.z
 
   if (nav) {
-    if (!canMoveTo(nav, fromX, fromZ, nx, nz, r)) return { x: fromX, z: fromZ }
+    if (!canMoveTo(nav, fromX, fromZ, nx, nz, r, y, y)) return { x: fromX, z: fromZ }
   } else if (!isWalkableWorld(nx, nz, r)) return { x: fromX, z: fromZ }
   if (blocksAtHeight(nx, nz, y, r, platforms)) return { x: fromX, z: fromZ }
 

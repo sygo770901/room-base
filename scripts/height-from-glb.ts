@@ -9,7 +9,7 @@
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { applyHeightOverride, groundY, type HeightField, type HeightOverride, type StairCell } from '../shared/heightfield.ts'
+import { applyHeightOverride, groundY, unreachableFromSpawn, type HeightField, type HeightOverride, type StairCell } from '../shared/heightfield.ts'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const KIT = resolve(ROOT, 'public/assets/kaykit/dungeon-1.1')
@@ -469,6 +469,8 @@ function main() {
   console.log(ascii(field))
   if (!field.stairs.length) throw new Error('沒掃到樓梯')
   if (!high) throw new Error('沒掃到抬高的平台')
+  const sealed = unreachableFromSpawn(field)
+  if (sealed.length) throw new Error(`有走不回出生點的格子：${sealed.slice(0, 12).join(' ')}`)
 
   const doc = {
     id: field.id,

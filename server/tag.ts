@@ -135,9 +135,25 @@ export function playerViewFor(room: TagRoom, viewerId: string, p: PlayerState): 
   const away = Boolean(room.awayUntil?.[p.id])
   if (room.mode !== 'tag') return stripPlayer(p, away)
   if (p.id === viewerId) return stripPlayer(p, away)
+  const viewer = room.players[viewerId]
+  const heightHide =
+    Boolean(p.position) &&
+    Boolean(viewer?.position) &&
+    heightBlocksSight(
+      heightFieldOf(room.scene),
+      viewer!.position[0],
+      viewer!.position[1] ?? 0,
+      viewer!.position[2],
+      p.position[0],
+      p.position[1] ?? 0,
+      p.position[2],
+    )
+  if (heightHide) {
+    const { position: _pos, phrase: _phrase, ...rest } = p
+    return { ...rest, away } as PlayerState
+  }
   if (!seekersOf(room, viewerId)) return stripPlayer(p, away)
   const hidingCoords = hidePhase(room) ? p.team === 'hider' : Boolean(p.hidden && p.team === 'hider')
-  const viewer = room.players[viewerId]
   const smoked =
     p.team === 'hider' &&
     Boolean(p.position) &&
@@ -158,20 +174,7 @@ export function playerViewFor(room: TagRoom, viewerId: string, p: PlayerState): 
       { x: p.position[0], z: p.position[2] },
       doorsOf(room.scene),
     )
-  const heightHide =
-    p.team === 'hider' &&
-    Boolean(p.position) &&
-    Boolean(viewer?.position) &&
-    heightBlocksSight(
-      heightFieldOf(room.scene),
-      viewer!.position[0],
-      viewer!.position[1] ?? 0,
-      viewer!.position[2],
-      p.position[0],
-      p.position[1] ?? 0,
-      p.position[2],
-    )
-  if (!hidingCoords && !smoked && !behindDoor && !heightHide) return stripPlayer(p, away)
+  if (!hidingCoords && !smoked && !behindDoor) return stripPlayer(p, away)
   const { position: _pos, phrase: _phrase, ...rest } = p
   return { ...rest, away } as PlayerState
 }
@@ -618,7 +621,7 @@ export function acceptMove(
   const nav = heightFieldOf(room.scene)
   const px = player.position[0]
   const pz = player.position[2]
-  if (nav && !canMoveTo(nav, px, pz, x, z, PLAYER_FOOT_RADIUS)) return false
+  if (nav && !canMoveTo(nav, px, pz, x, z, PLAYER_FOOT_RADIUS, jumping ? prevY : undefined, jumping ? rawY : undefined)) return false
   const terrain = nav ? (groundY(nav, x, z) ?? 0) : 0
   const startT = nav ? (groundY(nav, px, pz) ?? prevY) : 0
   const floor = supportY(x, z, rawY, prevY, PLAYER_FOOT_RADIUS, platforms, terrain)

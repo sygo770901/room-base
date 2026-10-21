@@ -1,7 +1,10 @@
 import type { OccBox } from './dungeon.ts'
+import { JUMP_MAX_DELTA } from './movement.ts'
 
 /** 一步能走上的最大高度。超過就是斷崖，只能跳下去、不能走上去。 */
 export const MAX_STEP_UP = 0.65
+/** 跳躍中，腳要比落點地面再高出這點，才算越過斷崖而不是穿進牆面。 */
+export const JUMP_CLEAR = 0.08
 export const EYE_HEIGHT = 1.45
 
 export type StairDir = '+x' | '-x' | '+z' | '-z'
@@ -129,7 +132,8 @@ function radiusHitsWall(field: HeightField, x: number, z: number, radius: number
 
 /**
  * 從 (x0,z0) 走到 (x1,z1)。
- * 穿牆不行。往上超過 MAX_STEP_UP 的斷崖不行。往下（摔落）可以。
+ * 穿牆不行。往上超過 MAX_STEP_UP 的斷崖不能走上去。往下（摔落）可以。
+ * 跳躍時傳入腳的高度：路徑上腳已經高過落點，而且落差不超過 JUMP_MAX_DELTA，才可以橫移上去。
  * 樓梯內插後每小步上升量小，所以走得上去。
  */
 export function canMoveTo(
@@ -139,23 +143,80 @@ export function canMoveTo(
   x1: number,
   z1: number,
   radius: number,
+  feetY0?: number,
+  feetY1?: number,
 ) {
   const y0 = groundY(field, x0, z0)
   if (y0 == null) return false
   const dist = Math.hypot(x1 - x0, z1 - z0)
   const steps = Math.max(1, Math.ceil(dist / 0.2))
   let prev = y0
+  const airborne = feetY0 != null
+  const feetEnd = feetY1 ?? feetY0 ?? 0
   for (let i = 1; i <= steps; i++) {
     const t = i / steps
     const x = x0 + (x1 - x0) * t
     const z = z0 + (z1 - z0) * t
     const y = groundY(field, x, z)
     if (y == null) return false
-    if (y > prev + MAX_STEP_UP) return false
+    if (y > prev + MAX_STEP_UP) {
+      const feet = airborne ? (feetY0 as number) + (feetEnd - (feetY0 as number)) * t : -Infinity
+      if (feet + JUMP_CLEAR < y) return false
+      if (y - y0 > JUMP_MAX_DELTA) return false
+    }
     if (radiusHitsWall(field, x, z, radius)) return false
     prev = y
   }
   return true
+}
+
+/**
+ * 從這格走回出生點會被擋住的格子。
+ * 往下摔可以，往上超過一步不行。跳上去的矮台摔得下來，所以算連著；封死的坑不算。
+ */
+export function unreachableFromSpawn(field: HeightField, radius = 0.26): string[] {
+  const spawn = field.spawns[0]
+  if (!spawn) return ['no-spawn']
+  const start = cellCoord(field, spawn.x, spawn.z)
+  if (!start || groundY(field, spawn.x, spawn.z) == null) return ['spawn-unwalkable']
+  const key = (cx: number, cz: number) => `${cx},${cz}`
+  const seen = new Set<string>([key(start.cx, start.cz)])
+  const queue = [start]
+  const dirs = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ] as const
+  while (queue.length) {
+    const cur = queue.pop()!
+    const ax = field.originX + (cur.cx + 0.5) * field.cell
+    const az = field.originZ + (cur.cz + 0.5) * field.cell
+    for (const [dx, dz] of dirs) {
+      const cx = cur.cx + dx
+      const cz = cur.cz + dz
+      const id = key(cx, cz)
+      if (seen.has(id)) continue
+      if (cx < 0 || cz < 0 || cx >= field.cols || cz >= field.rows) continue
+      const bx = field.originX + (cx + 0.5) * field.cell
+      const bz = field.originZ + (cz + 0.5) * field.cell
+      if (groundY(field, bx, bz) == null) continue
+      // 鄰居要能踏進已經走得回出生點的這格（摔下來也算）。
+      if (!canMoveTo(field, bx, bz, ax, az, radius)) continue
+      seen.add(id)
+      queue.push({ cx, cz })
+    }
+  }
+  const missing: string[] = []
+  for (let cz = 0; cz < field.rows; cz++) {
+    for (let cx = 0; cx < field.cols; cx++) {
+      const x = field.originX + (cx + 0.5) * field.cell
+      const z = field.originZ + (cz + 0.5) * field.cell
+      if (groundY(field, x, z) == null) continue
+      if (!seen.has(key(cx, cz))) missing.push(key(cx, cz))
+    }
+  }
+  return missing
 }
 
 /** 視線：牆擋住，或射線穿進地面體積（樓板）也擋住。沒有高度圖時不擋。 */
