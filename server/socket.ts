@@ -715,6 +715,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (player.seated) return
       const now = Date.now()
       if (player.hidden) return
+      // 地城、打鴨王、鬼抓人都走 acceptMove。站著再久也不放寬單步。
       const ok = acceptMove(room, player, payload, now)
       if (!ok) {
         io.to(playerId).emit('player:moved', {

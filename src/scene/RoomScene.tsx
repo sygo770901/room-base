@@ -16,14 +16,14 @@ import {
 import { POINTER_LOOK_SCALE } from '../../shared/input'
 import {
   OTS_CEILING_Y,
-  OTS_DIST,
+  OTS_ENTRY_PHI,
   OTS_LOOK_Y,
   OTS_MAX_PHI,
   OTS_MAX_RADIUS,
   OTS_MIN_PHI,
   OTS_MIN_PULL,
   OTS_MIN_RADIUS,
-  OTS_RIGHT,
+  otsCamera,
   otsThetaFromFacing,
 } from '../../shared/camera'
 import { minimapYawFromForward } from '../../shared/minimap'
@@ -44,6 +44,7 @@ import { LocalController } from './LocalController'
 import { SmokeClouds } from './SmokeClouds'
 import { Barrels } from './Barrels'
 import { Doors } from './Doors'
+import { ModelBoundary } from './ModelBoundary'
 import { fileLabel } from '../load/mapLoad'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
@@ -56,10 +57,7 @@ const MAX_PHI = OTS_MAX_PHI
 const MIN_RADIUS = OTS_MIN_RADIUS
 const MAX_RADIUS = OTS_MAX_RADIUS
 const ROTATE_SPEED = 0.3
-const SHOULDER_RIGHT = OTS_RIGHT
 const LOOK_Y = OTS_LOOK_Y
-const rigOffset = new THREE.Vector3()
-const rigSpherical = new THREE.Spherical()
 
 function MapProgressBridge() {
   const { errors } = useProgress()
@@ -164,7 +162,7 @@ function CameraRig() {
   const { camera, controls, gl } = useThree()
   const saved = useRef({
     theta: otsThetaFromFacing(0),
-    phi: 1.3,
+    phi: OTS_ENTRY_PHI,
     radius: useAppStore.getState().camDist,
     facingReady: false,
   })
@@ -296,55 +294,40 @@ function CameraRig() {
     }
     shot.radius = THREE.MathUtils.clamp(st.camDist, MIN_RADIUS, MAX_RADIUS)
     shot.phi = THREE.MathUtils.clamp(shot.phi, MIN_PHI, MAX_PHI)
-    rigSpherical.set(shot.radius, shot.phi, shot.theta)
-    rigOffset.setFromSpherical(rigSpherical)
-    camera.position.copy(target).add(rigOffset)
-    const fwd = new THREE.Vector3().subVectors(target, camera.position).setY(0)
-    if (fwd.lengthSq() > 1e-6) {
-      fwd.normalize()
-      const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize()
-      camera.position.addScaledVector(right, SHOULDER_RIGHT)
+    let radius = shot.radius
+    let pose = otsCamera(target.x, target.y, target.z, shot.theta, shot.phi, radius)
+    const state = useAppStore.getState()
+    const extra = occludersOf(state.scene).concat(
+      extraAabbsOf(state.scene).map((b) => ({ ...b, minY: 0, maxY: 4 })),
+      closedDoorAabbs(state.doors, doorsOf(state.scene)).map((b) => ({ ...b, minY: 0, maxY: 3.2 })),
+    )
+    for (let i = 0; i < 2; i++) {
+      const dx = pose.x - target.x
+      const dy = pose.y - target.y
+      const dz = pose.z - target.z
+      const dist = Math.hypot(dx, dy, dz)
+      if (dist < 1.25) break
+      const hit = rayOcclusion(target.x, target.y, target.z, dx / dist, dy / dist, dz / dist, dist, extra, {
+        skipCeilingY: OTS_CEILING_Y,
+      })
+      if (hit >= dist - 0.12) break
+      const next = Math.max(OTS_MIN_PULL, Math.min(radius, hit - 0.28))
+      if (next >= radius - 0.01) break
+      radius = next
+      pose = otsCamera(target.x, target.y, target.z, shot.theta, shot.phi, radius)
     }
+    camera.position.set(pose.x, pose.y, pose.z)
     camera.up.set(0, 1, 0)
-    camera.lookAt(target)
-    useAppStore.getState().setLookYaw(minimapYawFromForward(target.x - camera.position.x, target.z - camera.position.z))
+    camera.lookAt(pose.aimX, pose.aimY, pose.aimZ)
+    useAppStore.getState().setLookYaw(minimapYawFromForward(pose.aimX - pose.x, pose.aimZ - pose.z))
   }, 0)
   return null
 }
 
 function CameraGuard() {
-  const { camera, controls, gl, scene } = useThree()
+  const { camera, gl, scene } = useThree()
   // priority > 0 會關掉 Fiber 的自動 render，這一層必須自己畫，否則畫布維持透明。
-  useFrame((_, dt) => {
-    const orbit = controls as { target?: THREE.Vector3 } | null
-    const target = orbit?.target
-    if (target) {
-      const dx = camera.position.x - target.x
-      const dy = camera.position.y - target.y
-      const dz = camera.position.z - target.z
-      const dist = Math.hypot(dx, dy, dz)
-      if (dist >= 1.25) {
-        const inv = 1 / dist
-        const dirx = dx * inv
-        const diry = dy * inv
-        const dirz = dz * inv
-        const state = useAppStore.getState()
-        const extra = occludersOf(state.scene).concat(
-          extraAabbsOf(state.scene).map((b) => ({ ...b, minY: 0, maxY: 4 })),
-          closedDoorAabbs(state.doors, doorsOf(state.scene)).map((b) => ({ ...b, minY: 0, maxY: 3.2 })),
-        )
-        const hit = rayOcclusion(target.x, target.y, target.z, dirx, diry, dirz, dist, extra, {
-          skipCeilingY: OTS_CEILING_Y,
-        })
-        if (hit < dist - 0.12) {
-          const desired = Math.max(OTS_MIN_PULL, hit - 0.28)
-          if (desired < dist) {
-            const nd = THREE.MathUtils.damp(dist, desired, 10, dt)
-            camera.position.set(target.x + dirx * nd, target.y + diry * nd, target.z + dirz * nd)
-          }
-        }
-      }
-    }
+  useFrame(() => {
     const feel = useAppStore.getState()
     if (feel.sfxOn && performance.now() < feel.shakeUntil) {
       const t = (feel.shakeUntil - performance.now()) / 180
@@ -399,11 +382,13 @@ function SceneContent() {
           <Dungeon focusX={displaySelf?.position?.[0] ?? SPAWN.x} focusZ={displaySelf?.position?.[2] ?? SPAWN.z} />
         </Suspense>
       </DungeonBoundary>
-      <Suspense fallback={null}>
-        {sceneId === 'jungle' ? <JungleFoliage /> : null}
-        <SceneDecor />
-        <Monsters />
-      </Suspense>
+      <ModelBoundary file="/assets/kaykit/dungeon-1.1/wall.gltf" fallback={null}>
+        <Suspense fallback={null}>
+          {sceneId === 'jungle' ? <JungleFoliage /> : null}
+          <SceneDecor />
+          <Monsters />
+        </Suspense>
+      </ModelBoundary>
 
       <StickyNotes3D notes={notes} selfId={selfId} isHost={isHost} />
       <NotePlacementPlane />
@@ -413,12 +398,16 @@ function SceneContent() {
       <Projectiles />
       <Doors />
       <SmokeClouds />
-      <Suspense fallback={null}>
-        <Barrels />
-      </Suspense>
-      <Suspense fallback={null}>
-        <RemotePlayers players={players} selfId={selfId} />
-      </Suspense>
+      <ModelBoundary file="/assets/kaykit/barrel.gltf.glb" fallback={null}>
+        <Suspense fallback={null}>
+          <Barrels />
+        </Suspense>
+      </ModelBoundary>
+      <ModelBoundary file="/assets/kaykit/adventurers/Ranger.glb" fallback={null}>
+        <Suspense fallback={null}>
+          <RemotePlayers players={players} selfId={selfId} />
+        </Suspense>
+      </ModelBoundary>
       {displaySelf?.position && <LocalAvatar player={displaySelf} />}
       {self && (
         <LocalController
@@ -443,9 +432,15 @@ function SceneContent() {
   )
 }
 
+function sceneClear(sceneId: string) {
+  if (sceneId === 'jungle') return '#1c2a1c'
+  if (sceneId === 'kaykit') return '#2a2428'
+  return '#3a3544'
+}
+
 export function RoomScene() {
   const mobile = isMobileDevice()
-  const cameraPos: [number, number, number] = [SPAWN.x + OTS_RIGHT, OTS_LOOK_Y + 1.2, SPAWN.z - OTS_DIST]
+  const boot = otsCamera(SPAWN.x, OTS_LOOK_Y, SPAWN.z, otsThetaFromFacing(0), OTS_ENTRY_PHI, useAppStore.getState().camDist)
   return (
     <Canvas
       shadows={!mobile}
@@ -454,9 +449,14 @@ export function RoomScene() {
         toneMappingExposure: 1.35,
         powerPreference: 'high-performance',
         antialias: !mobile,
+        alpha: false,
       }}
-      camera={{ position: cameraPos, fov: 58, near: 0.05, far: 180 }}
-      style={{ width: '100%', height: '100%', touchAction: 'none' }}
+      camera={{ position: [boot.x, boot.y, boot.z], fov: 58, near: 0.05, far: 180 }}
+      style={{ width: '100%', height: '100%', touchAction: 'none', background: sceneClear(useAppStore.getState().scene) }}
+      onCreated={({ camera, gl }) => {
+        camera.lookAt(boot.aimX, boot.aimY, boot.aimZ)
+        gl.setClearColor(sceneClear(useAppStore.getState().scene), 1)
+      }}
     >
       <SceneContent />
     </Canvas>

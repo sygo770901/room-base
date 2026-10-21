@@ -9,6 +9,12 @@ import { resumeSessionIfNeeded } from './net/socket'
 import { unlockSfx } from './audio/sfx'
 import { useAppStore } from './store'
 
+function sceneShell(scene: string) {
+  if (scene === 'jungle') return '#1c2a1c'
+  if (scene === 'kaykit') return '#2a2428'
+  return '#3a3544'
+}
+
 function MapLoadWatch() {
   const scene = useAppStore((s) => s.scene)
   const retry = useAppStore((s) => s.mapLoadRetry)
@@ -16,7 +22,7 @@ function MapLoadWatch() {
   useEffect(() => {
     if (phase !== 'room') return
     const stopWatch = bindLoadErrorWatch()
-    const stopPreload = startCriticalPreload(scene)
+    const stopPreload = startCriticalPreload(scene, retry)
     return () => {
       stopWatch()
       stopPreload()
@@ -27,6 +33,8 @@ function MapLoadWatch() {
 
 export default function App() {
   const phase = useAppStore((s) => s.phase)
+  const scene = useAppStore((s) => s.scene)
+  const retry = useAppStore((s) => s.mapLoadRetry)
 
   useEffect(() => {
     resumeSessionIfNeeded()
@@ -45,9 +53,9 @@ export default function App() {
   }
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div className="room-shell" style={{ background: sceneShell(scene) }}>
       <MapLoadWatch />
-      <RoomScene />
+      <RoomScene key={`${scene}-${retry}`} />
       <Hud />
       <ReconnectBanner />
       <Tutorial />

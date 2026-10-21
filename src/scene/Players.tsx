@@ -6,6 +6,7 @@ import { PLAYER_CLASS } from '../../shared/classes'
 import { useAppStore } from '../store'
 import type { PlayerState } from '../types'
 import { KayKitHero } from './KayKitHero'
+import { ModelBoundary } from './ModelBoundary'
 
 function dampAngle(current: number, target: number, lambda: number, dt: number) {
   let diff = target - current
@@ -176,8 +177,10 @@ function LocalStandIn({ player }: { player: PlayerState }) {
 
 export function LocalAvatar({ player }: { player: PlayerState }) {
   return (
-    <Suspense fallback={<LocalStandIn player={player} />}>
-      <Avatar player={player} isSelf />
-    </Suspense>
+    <ModelBoundary file="/assets/kaykit/adventurers/Ranger.glb" fallback={<LocalStandIn player={player} />}>
+      <Suspense fallback={<LocalStandIn player={player} />}>
+        <Avatar player={player} isSelf />
+      </Suspense>
+    </ModelBoundary>
   )
 }

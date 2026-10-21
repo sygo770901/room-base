@@ -567,16 +567,11 @@ export function acceptMove(
   if (!jumping && y > floor + JUMP_GROUND_EPS) y = floor
   if (y > JUMP_CEILING + 0.2 || y < -0.08) return false
 
-  const prev = room.lastMoveAt[player.id]
-  if (prev == null) {
-    player.position = [x, y, z]
-    player.rotationY = payload.rotationY
-    room.lastMoveAt[player.id] = now
-    return true
-  }
-
   const slowed = now < (room.poopSlowUntil?.[player.id] ?? 0)
-  const allow = moveAllowance(now - prev, grant, now, { poopSlow: slowed })
+  const prev = room.lastMoveAt[player.id]
+  // 沒有上一筆，或站很久才送座標，都用同一套上限。打鴨王與鬼抓人共用這段。
+  const elapsed = prev == null ? 0 : now - prev
+  const allow = moveAllowance(elapsed, grant, now, { poopSlow: slowed })
   const dist = Math.hypot(x - player.position[0], z - player.position[2])
   const rise = y - prevY
   const drop = prevY - y

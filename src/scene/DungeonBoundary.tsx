@@ -15,7 +15,7 @@ export class DungeonBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error) {
     const store = useAppStore.getState()
-    store.addMapLoadError(error.message || '地城模型解讀失敗')
+    store.addMapLoadError(error.message || '地城模型.gltf')
     store.setMapLoadFailed(true)
   }
 

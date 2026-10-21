@@ -8,6 +8,18 @@ export const DOOR_ANIM_MS = 400
 export const DOOR_MONSTER_WAIT_MS = 1000
 export const DOOR_WIDTH = 2.6
 export const DOOR_THICK = 0.28
+/** KayKit wall_doorway 開口寬約 2m，門軸貼左門框。 */
+export const KAYKIT_DOOR_LEAF = 2
+
+export function doorLeafWidth(scene?: string | null) {
+  if (scene === 'kaykit' || scene === 'jungle') return KAYKIT_DOOR_LEAF
+  return DOOR_WIDTH
+}
+
+/** 門軸在門板的一側。關門時門板以門口中心對稱。 */
+export function doorHingeLocalX(width: number) {
+  return -width / 2
+}
 
 export interface DoorDef {
   id: string

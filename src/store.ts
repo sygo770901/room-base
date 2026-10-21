@@ -24,6 +24,16 @@ function readLookSens() {
 
 const boot = typeof localStorage === 'undefined' ? null : loadSession()
 
+function modelFileName(input: string) {
+  const text = String(input || '')
+  const matched = text.match(/([^/?#\\\s"'()]+\.(?:gltf|glb|bin|png|jpe?g|webp))/i)
+  if (matched) return matched[1]
+  const parts = text.split(/[/\\]/).filter(Boolean)
+  const last = parts[parts.length - 1] || ''
+  if (last && last.length <= 96 && !/\s/.test(last)) return last
+  return '未知檔案'
+}
+
 export type NoteAsk =
   | { kind: 'place'; position: Vec3; text: string; fontSize: number }
   | { kind: 'manage'; id: string }
@@ -428,9 +438,11 @@ export const useAppStore = create<AppState>((set) => ({
   setMapLoadProgress: (progress, active) => set({ mapLoadProgress: progress, mapLoadActive: active }),
   setMapLoadFailed: (failed) => set({ mapLoadFailed: failed }),
   addMapLoadError: (file) =>
-    set((s) =>
-      s.mapLoadErrors.includes(file) ? s : { mapLoadErrors: [...s.mapLoadErrors, file], mapLoadFailed: true },
-    ),
+    set((s) => {
+      const name = modelFileName(file)
+      if (s.mapLoadErrors.includes(name)) return { mapLoadFailed: true }
+      return { mapLoadErrors: [...s.mapLoadErrors, name], mapLoadFailed: true }
+    }),
   setMapLoadSlow: (slow) => set({ mapLoadSlow: slow }),
   setMapLoadCounts: (loaded, total) => set({ mapLoadLoaded: loaded, mapLoadTotal: total }),
   requestMapRetry: () =>

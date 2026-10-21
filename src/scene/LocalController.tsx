@@ -315,10 +315,9 @@ export function LocalController({
     }
 
     if (fwd !== 0 || strafe !== 0) {
-      const look = (controls as { target?: THREE.Vector3 } | null)?.target
-      if (look) forward.set(look.x - camera.position.x, 0, look.z - camera.position.z)
-      else camera.getWorldDirection(forward).setY(0)
-      if (forward.lengthSq() < 1e-4) forward.set(0, 0, -1)
+      camera.getWorldDirection(forward)
+      forward.y = 0
+      if (forward.lengthSq() < 1e-4) forward.set(0, 0, 1)
       forward.normalize()
       right.crossVectors(forward, up).normalize()
 

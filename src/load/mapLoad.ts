@@ -42,9 +42,19 @@ function fetchWithTimeout(url: string, ms: number) {
 
 let preloadGen = 0
 
-export function startCriticalPreload(scene: string) {
+export function startCriticalPreload(scene: string, retry = 0) {
   const gen = ++preloadGen
   const urls = criticalModelUrls(scene)
+  if (retry > 0) {
+    for (const url of urls) {
+      try {
+        useGLTF.clear(url)
+      } catch {
+        /* 清快取失敗仍重抓 */
+      }
+      THREE.Cache.remove(url)
+    }
+  }
   const total = Math.max(1, urls.length)
   let finished = 0
   THREE.Cache.enabled = true
