@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import { PLAYER_CLASS, type ClassId } from '../../shared/classes'
 import type { HeldWeapon } from '../../shared/barrels'
 import { COMBO_CLIP_NAMES, deathAnimTrigger, type HitAnim, type JumpPhase } from '../../shared/anim'
+import { playerMotion } from './playerMotion'
 
 const ROOT = '/assets/kaykit/adventurers'
 const CHAR: Record<ClassId, string> = {
@@ -244,6 +245,8 @@ export function KayKitHero({
   heldWeapon,
   throwAt = 0,
   downed,
+  debugId,
+  motion,
 }: {
   classId: ClassId
   moving: boolean
@@ -261,6 +264,9 @@ export function KayKitHero({
   heldWeapon?: HeldWeapon
   throwAt?: number
   downed?: boolean
+  debugId?: string
+  /** 步態。父層用 ref 更新，已掛上的模型不用等重新渲染就能換跑跳。 */
+  motion?: { current: { moving: boolean; running: boolean } }
 }) {
   const char = useGLTF(CHAR[classId])
   const moveGltf = useGLTF(MOVE_URL)
@@ -393,6 +399,11 @@ export function KayKitHero({
   )
 
   useFrame((_, dt) => {
+    const liveMotion = (debugId && playerMotion.get(debugId)) || motion?.current
+    if (liveMotion) {
+      locoRef.current.moving = liveMotion.moving
+      locoRef.current.running = liveMotion.running
+    }
     const stepMixer = () => {
       try {
         mixer.update(Math.min(dt, 1 / 20))
@@ -448,7 +459,21 @@ export function KayKitHero({
         }
       }
     }
+    if (liveMotion?.moving && !oneshot()) {
+      const next = loco()
+      if (next && current.current !== next) play(next, 0.12)
+    }
     stepMixer()
+    if (import.meta.env.DEV && debugId && current.current) {
+      const slot = window as Window & { __clips?: Record<string, string> }
+      const map = slot.__clips ?? {}
+      map[debugId] = current.current.getClip().name
+      slot.__clips = map
+      const locoSlot = window as Window & { __loco?: Record<string, string> }
+      const locoMap = locoSlot.__loco ?? {}
+      locoMap[debugId] = `${liveMotion?.moving ? 1 : 0}${liveMotion?.running ? 1 : 0}`
+      locoSlot.__loco = locoMap
+    }
   })
 
   useLayoutEffect(() => {

@@ -2,10 +2,13 @@ import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { isMobileDevice } from '../perf/device'
+import { groundY } from '../../shared/heightfield'
+import { heightFieldOf } from '../../shared/heightmaps'
 import { POOP_FLIGHT_MS, type SmokeCloud } from '../../shared/smoke'
 import { playSfx } from '../audio/sfx'
 import { useAppStore } from '../store'
 
+const _poopNdc = new THREE.Vector3()
 const FLY_COUNT = isMobileDevice() ? 8 : 16
 const SPLAT_COUNT = isMobileDevice() ? 10 : 20
 
@@ -15,16 +18,74 @@ function flightT(c: SmokeCloud, now: number) {
   return Math.max(0, Math.min(1, (now - start) / Math.max(1, land - start)))
 }
 
+function groundAt(x: number, z: number) {
+  const field = heightFieldOf(useAppStore.getState().scene)
+  if (!field) return 0
+  return groundY(field, x, z) ?? 0
+}
+
 function poopPos(c: SmokeCloud, now: number) {
   const t = flightT(c, now)
   const ox = c.ox ?? c.x
   const oz = c.oz ?? c.z
+  const y0 = groundAt(ox, oz)
+  const y1 = groundAt(c.x, c.z)
   return {
     x: ox + (c.x - ox) * t,
-    y: 0.35 + Math.sin(t * Math.PI) * 2.1,
+    y: y0 + (y1 - y0) * t + 0.35 + Math.sin(t * Math.PI) * 2.1,
     z: oz + (c.z - oz) * t,
     t,
   }
+}
+
+function PoopBody({
+  cloud,
+  cloudMat,
+  stainMat,
+}: {
+  cloud: SmokeCloud
+  cloudMat: THREE.Material
+  stainMat: THREE.Material
+}) {
+  const ball = useRef<THREE.Mesh>(null)
+  const stain = useRef<THREE.Mesh>(null)
+  const puff = useRef<THREE.Mesh>(null)
+  useFrame(() => {
+    const now = Date.now()
+    const gone = cloud.until <= now
+    const p = poopPos(cloud, now)
+    const gy = groundAt(cloud.x, cloud.z)
+    const flying = !gone && p.t < 1
+    if (ball.current) {
+      ball.current.visible = flying
+      if (flying) ball.current.position.set(p.x, p.y, p.z)
+    }
+    const life = Math.max(0, (cloud.until - now) / 8000)
+    if (stain.current) {
+      stain.current.visible = !gone && !flying
+      stain.current.position.set(cloud.x, gy + 0.04, cloud.z)
+      const radius = 0.55 * life + 0.25
+      stain.current.scale.set(radius, radius, radius)
+    }
+    if (puff.current) {
+      puff.current.visible = !gone && !flying
+      puff.current.position.set(cloud.x, gy + 1.05, cloud.z)
+    }
+  })
+  return (
+    <group>
+      <mesh ref={ball} visible={false} frustumCulled={false}>
+        <sphereGeometry args={[0.22, 10, 8]} />
+        <meshStandardMaterial color="#6b3a18" emissive="#c46a28" emissiveIntensity={1.6} roughness={0.55} />
+      </mesh>
+      <mesh ref={stain} rotation-x={-Math.PI / 2} material={stainMat} visible={false}>
+        <circleGeometry args={[1, 12]} />
+      </mesh>
+      <mesh ref={puff} material={cloudMat} visible={false}>
+        <sphereGeometry args={[cloud.r * 0.72, 12, 10]} />
+      </mesh>
+    </group>
+  )
 }
 
 export function SmokeClouds() {
@@ -44,7 +105,7 @@ export function SmokeClouds() {
     [],
   )
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock, camera }) => {
     const now = Date.now()
     const live = smokes.filter((c) => c.until > now)
     if (live.length !== smokes.length) useAppStore.getState().setSmokes(live)
@@ -60,6 +121,7 @@ export function SmokeClouds() {
       }
       const p = poopPos(c, now)
       const landed = p.t >= 1
+      const gy = groundAt(c.x, c.z)
       const nFly = isMobileDevice() ? 3 : 5
       for (let i = 0; i < nFly && flyMesh; i++) {
         const a = t * 3.4 + i * 1.7 + c.x
@@ -71,12 +133,41 @@ export function SmokeClouds() {
       if (landed && splatMesh) {
         for (let i = 0; i < (isMobileDevice() ? 6 : 10); i++) {
           const a = i * 0.7
-          splatDummy.position.set(c.x + Math.cos(a) * 0.22, 0.06 + (i % 3) * 0.05, c.z + Math.sin(a) * 0.22)
+          splatDummy.position.set(c.x + Math.cos(a) * 0.22, gy + 0.06 + (i % 3) * 0.05, c.z + Math.sin(a) * 0.22)
           splatDummy.scale.setScalar(0.07)
           splatDummy.updateMatrix()
           splatMesh.setMatrixAt(si++, splatDummy.matrix)
         }
       }
+    }
+    if (import.meta.env.DEV) {
+      const slot = window as Window & { __poop?: { id: string; x: number; y: number; z: number; t: number; gy: number }[] }
+      const pack = (c: SmokeCloud) => {
+        const p = poopPos(c, now)
+        const ndc = _poopNdc.set(p.x, p.y, p.z).project(camera)
+        return {
+          id: c.id,
+          x: p.x,
+          y: p.y,
+          z: p.z,
+          t: p.t,
+          gy: groundAt(c.x, c.z),
+          until: c.until,
+          thrownAt: c.thrownAt,
+          landAt: c.landAt,
+          now,
+          nx: ndc.x,
+          ny: ndc.y,
+          nz: ndc.z,
+          lx: c.x,
+          lz: c.z,
+          ox: c.ox ?? c.x,
+          oz: c.oz ?? c.z,
+        }
+      }
+      slot.__poop = live.map(pack)
+      const slotAll = window as Window & { __allSmokes?: ReturnType<typeof pack>[] }
+      slotAll.__allSmokes = smokes.map(pack)
     }
     if (flyMesh) {
       flyMesh.count = fi
@@ -86,9 +177,8 @@ export function SmokeClouds() {
       splatMesh.count = si
       splatMesh.instanceMatrix.needsUpdate = true
     }
-  })
+  }, -1)
 
-  const now = Date.now()
   return (
     <group>
       <instancedMesh ref={flies} args={[undefined, undefined, FLY_COUNT]} frustumCulled={false}>
@@ -99,31 +189,9 @@ export function SmokeClouds() {
         <sphereGeometry args={[1, 6, 5]} />
         <meshBasicMaterial color="#5a3018" />
       </instancedMesh>
-      {smokes
-        .filter((c) => c.until > now)
-        .map((c) => {
-          const p = poopPos(c, now)
-          const life = Math.max(0, (c.until - now) / 8000)
-          return (
-            <group key={c.id}>
-              {p.t < 1 ? (
-                <mesh position={[p.x, p.y, p.z]}>
-                  <sphereGeometry args={[0.16, 8, 6]} />
-                  <meshStandardMaterial color="#6b3a18" roughness={0.9} />
-                </mesh>
-              ) : (
-                <>
-                  <mesh position={[c.x, 0.04, c.z]} rotation-x={-Math.PI / 2} material={stainMat}>
-                    <circleGeometry args={[0.55 * life + 0.25, 12]} />
-                  </mesh>
-                  <mesh position={[c.x, 1.05, c.z]} material={cloudMat}>
-                    <sphereGeometry args={[c.r * 0.72, 12, 10]} />
-                  </mesh>
-                </>
-              )}
-            </group>
-          )
-        })}
+      {smokes.map((c) => (
+        <PoopBody key={c.id} cloud={c} cloudMat={cloudMat} stainMat={stainMat} />
+      ))}
     </group>
   )
 }

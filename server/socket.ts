@@ -732,7 +732,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       socket.data.playerId = undefined
     })
 
-    socket.on('move', (payload: { position: Vec3; rotationY: number }) => {
+    socket.on('move', (payload: { position: Vec3; rotationY: number; loco?: 'idle' | 'walk' | 'run' }) => {
       const ctx = inRoom(socket, currentRoomId)
       if (!ctx) return
       const { room, player, playerId } = ctx
@@ -741,6 +741,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (player.hidden) return
       // 地城、打鴨王、鬼抓人都走 acceptMove。站著再久也不放寬單步。
       const ok = acceptMove(room, player, payload, now)
+      if (payload.loco === 'idle' || payload.loco === 'walk' || payload.loco === 'run') player.loco = payload.loco
       if (!ok) {
         io.to(playerId).emit('player:moved', {
           id: playerId,

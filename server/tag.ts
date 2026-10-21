@@ -223,6 +223,7 @@ export function emitPlayerMoved(room: TagRoom, io: Server, playerId: string) {
       id: playerId,
       position: p.position,
       rotationY: p.rotationY,
+      loco: p.loco,
     })
     return
   }
@@ -234,6 +235,7 @@ export function emitPlayerMoved(room: TagRoom, io: Server, playerId: string) {
       id: playerId,
       position: view.position,
       rotationY: p.rotationY,
+      loco: p.loco,
     })
   }
 }
