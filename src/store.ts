@@ -14,6 +14,7 @@ import { LOOK_SENS_DEFAULT, LOOK_SENS_MAX, LOOK_SENS_MIN } from '../shared/input
 import { CAM_DIST_KEY, clampCamDist, readCamDist } from '../shared/camera'
 import { MINIMAP_HEADING_KEY, readMinimapHeadingUp } from '../shared/minimap'
 import { loadSession } from './net/session'
+import { nextMapLoadOnEnter } from './load/mapLoadState'
 
 function readLookSens() {
   if (typeof localStorage === 'undefined') return LOOK_SENS_DEFAULT
@@ -268,7 +269,7 @@ export const useAppStore = create<AppState>((set) => ({
   autoOpenDoors: typeof localStorage === 'undefined' ? true : localStorage.getItem('rb-auto-door') !== '0',
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
   enterRoom: (selfId, snapshot) =>
-    set(() => ({
+    set((s) => ({
       phase: 'room',
       connection: 'online',
       selfId,
@@ -281,10 +282,7 @@ export const useAppStore = create<AppState>((set) => ({
       startInMs: snapshot.startInMs ?? 0,
       started: snapshot.started ?? false,
       joinError: null,
-      mapLoadFailed: false,
-      mapLoadErrors: [],
-      mapLoadSlow: false,
-      mapLoadActive: true,
+      ...nextMapLoadOnEnter(s, snapshot.scene ?? 'kenney'),
       tagHud: snapshot.tagHud ?? null,
       players: snapshot.players,
       localX: snapshot.players[selfId]?.position?.[0] ?? 0,

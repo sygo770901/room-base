@@ -395,7 +395,7 @@ export function KayKitHero({
   useFrame((_, dt) => {
     const stepMixer = () => {
       try {
-        mixer.update(dt)
+        mixer.update(Math.min(dt, 1 / 20))
       } catch {
         /* 動作軌壞掉時留下目前姿勢，不要拆掉模型和地圖 */
       }

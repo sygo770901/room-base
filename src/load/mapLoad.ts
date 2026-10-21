@@ -4,6 +4,7 @@ import { DECOR_URL } from '../../shared/decor'
 import { dungeonModelUrls } from '../scene/Dungeon'
 import { heroModelUrls } from '../scene/KayKitHero'
 import { DUCK_URL } from '../scene/DuckKing'
+import { showMapLoadOverlay } from './mapLoadState'
 import { useAppStore } from '../store'
 
 const BARREL_URL = '/assets/kaykit/barrel.gltf.glb'
@@ -75,9 +76,11 @@ export function startCriticalPreload(scene: string, clearCache = false) {
   const tick = () => {
     if (gen !== preloadGen) return
     const pct = asMapPercent(0, finished, total)
-    useAppStore.getState().setMapLoadCounts(finished, urls.length)
-    useAppStore.getState().setMapLoadProgress(pct, finished < total)
-    if (finished >= total) useAppStore.getState().setMapLoadProgress(100, false)
+    const storeNow = useAppStore.getState()
+    storeNow.setMapLoadCounts(finished, urls.length)
+    const complete = finished >= total
+    storeNow.setMapLoadProgress(complete ? 100 : pct, !complete)
+    if (complete) storeNow.setMapLoadSlow(false)
   }
 
   for (const url of urls) {
@@ -107,7 +110,16 @@ export function startCriticalPreload(scene: string, clearCache = false) {
 
   const slowId = window.setTimeout(() => {
     if (gen !== preloadGen) return
-    if (useAppStore.getState().mapLoadActive) useAppStore.getState().setMapLoadSlow(true)
+    const current = useAppStore.getState()
+    if (showMapLoadOverlay({
+      active: current.mapLoadActive,
+      failed: current.mapLoadFailed,
+      loaded: current.mapLoadLoaded,
+      total: current.mapLoadTotal,
+      progress: current.mapLoadProgress,
+    })) {
+      current.setMapLoadSlow(true)
+    }
   }, MAP_LOAD_SLOW_MS)
 
   return () => {

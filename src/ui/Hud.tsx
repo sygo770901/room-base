@@ -3,6 +3,7 @@ import { OTS_MAX_RADIUS, OTS_MIN_RADIUS } from '../../shared/camera'
 import { LOOK_SENS_MAX, LOOK_SENS_MIN, LOOK_SENS_STEP } from '../../shared/input'
 import { disconnectSocket, emitAddNote, emitCheck, emitDoorAuto, emitDoorToggle, emitHide, emitPhrase, emitRemoveNote, emitRescueHold, emitRestart, emitScene, emitStart, emitUpdateNote, performAttack } from '../net/socket'
 import { QUICK_PHRASES } from '../../shared/phrases'
+import { showMapLoadOverlay, showMapLoadSlow } from '../load/mapLoadState'
 import { typingInField } from '../scene/inputLock'
 import { SCENE_IDS, SCENE_LABELS } from '../../shared/scenes'
 import { setMicEnabled } from '../net/voice'
@@ -236,7 +237,14 @@ export function Hud() {
           </button>
         </div>
       ) : (
-        mapLoadActive && (
+        showMapLoadOverlay({
+          active: mapLoadActive,
+          failed: mapLoadFailed,
+          loaded: mapLoadLoaded,
+          total: mapLoadTotal,
+          progress: mapLoadProgress,
+          slow: mapLoadSlow,
+        }) && (
           <div className="map-load">
             <p>
               載入地圖中… {mapLoadTotal ? `${mapLoadLoaded}/${mapLoadTotal}` : ''} {Math.round(mapLoadProgress)}%
@@ -248,7 +256,14 @@ export function Hud() {
                 }}
               />
             </div>
-            {mapLoadSlow && <p className="map-load-slow">載入較慢，還在載…</p>}
+            {showMapLoadSlow({
+              active: mapLoadActive,
+              failed: mapLoadFailed,
+              loaded: mapLoadLoaded,
+              total: mapLoadTotal,
+              progress: mapLoadProgress,
+              slow: mapLoadSlow,
+            }) && <p className="map-load-slow">載入較慢，還在載…</p>}
           </div>
         )
       )}
