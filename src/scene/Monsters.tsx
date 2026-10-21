@@ -1,4 +1,4 @@
-import { Suspense, useRef } from 'react'
+import { useRef } from 'react'
 import { Billboard, Html, Text } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
@@ -6,7 +6,7 @@ import type { MonsterState } from '../../shared/combat'
 import { isClassId } from '../../shared/classes'
 import { useAppStore } from '../store'
 import { DispenserPetMesh } from './DispenserPet'
-import { DuckKingMesh, FallbackDuck } from './DuckKing'
+import { DuckKingMesh } from './DuckKing'
 import { KayKitHero } from './KayKitHero'
 
 function MonsterView({ monster }: { monster: MonsterState }) {
@@ -42,9 +42,7 @@ function MonsterView({ monster }: { monster: MonsterState }) {
     <group ref={ref} position={[0, -sink, 0]} scale={0.85 + fade * 0.15}>
       {monster.kind === 'duck-king' ? (
         <group scale={monster.phase === 2 ? 1.18 * 1.15 : 1.18}>
-          <Suspense fallback={<FallbackDuck moving={moving} fleeing={moving && speed.current > 2.8} raging={monster.phase === 2} downed={!monster.alive} />}>
-            <DuckKingMesh moving={moving} fleeing={moving && speed.current > 2.8} raging={monster.phase === 2} downed={!monster.alive} />
-          </Suspense>
+          <DuckKingMesh moving={moving} fleeing={moving && speed.current > 2.8} raging={monster.phase === 2} />
           <DuckSpeechBubble />
         </group>
       ) : monster.kind === 'dispenser' ? (

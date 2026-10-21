@@ -20,6 +20,8 @@ export interface PlayerState {
   away?: boolean
   phrase?: { text: string; until: number } | null
   downedUntil?: number
+  /** 客戶端正在播的步態。遠端用這個播走路／跑步，不靠延遲的位置差分。 */
+  loco?: 'idle' | 'walk' | 'run'
 }
 
 export interface StickyNote {

@@ -169,6 +169,20 @@ export function LocalController({
     emitJump()
   }
 
+  function throwAim() {
+    const state = useAppStore.getState()
+    const crosshairAim = state.started && !state.matchOver
+    if (crosshairAim) {
+      camera.getWorldDirection(forward)
+      forward.y = 0
+      if (forward.lengthSq() > 1e-8) {
+        forward.normalize()
+        return { x: forward.x, z: forward.z }
+      }
+    }
+    return { x: Math.sin(rotY.current), z: Math.cos(rotY.current) }
+  }
+
   function trySmoke() {
     const state = useAppStore.getState()
     const me = state.players[player.id]
@@ -178,9 +192,10 @@ export function LocalController({
     const now = Date.now()
     if (now < state.smokeReadyAt) return
     const range = isMobileDevice() ? SMOKE_RANGE_MOBILE : SMOKE_RANGE
-    const len = Math.hypot(lastDir.current.x, lastDir.current.z) || 1
-    const x = pos.current.x + (lastDir.current.x / len) * range
-    const z = pos.current.z + (lastDir.current.z / len) * range
+    const aim = throwAim()
+    const len = Math.hypot(aim.x, aim.z) || 1
+    const x = pos.current.x + (aim.x / len) * range
+    const z = pos.current.z + (aim.z / len) * range
     state.setSmokeReadyAt(now + smokeCooldownMs(me.team))
     state.setThrowAt(player.id, now)
     emitSmoke(x, z)
@@ -320,6 +335,7 @@ export function LocalController({
 
     const fwd = keyFwd || -joyRef.current.y
     const strafe = keyStrafe || joyRef.current.x
+    let moveSpeed = 0
 
     if ((fwd !== 0 || strafe !== 0) && player.hidden) {
       emitHide(false)
@@ -362,6 +378,7 @@ export function LocalController({
       const poopSlow = Date.now() < useAppStore.getState().poopSlowUntil ? POOP_SLOW_MUL : 1
       const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * speedMul * poopSlow * dt
       const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * poopSlow * dt
+      moveSpeed = Math.hypot(mx, mz) / Math.max(dt, 1 / 120)
 
       const sceneId = useAppStore.getState().scene
       const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors, doorsOf(sceneId)))
@@ -493,9 +510,11 @@ export function LocalController({
       const monsters = useAppStore.getState().monsters
       const slot = window as Window & {
         __pose?: { x: number; y: number; z: number; yaw: number; monsters: number }
-        __mobs?: { id: string; x: number; z: number }[]
+        __server?: { x: number; y: number; z: number } | null
+        __mobs?: { id: string; x: number; z: number; phase?: number; hp?: number }[]
         __self?: string | null
       }
+      const me = useAppStore.getState().players[useAppStore.getState().selfId ?? '']
       slot.__pose = {
         x: pose[0],
         y: pose[1],
@@ -503,7 +522,16 @@ export function LocalController({
         yaw: rotY.current,
         monsters: monsters.length,
       }
-      slot.__mobs = monsters.filter((m) => m.alive).map((m) => ({ id: m.id, x: m.x, z: m.z }))
+      slot.__server = me?.position
+        ? { x: me.position[0], y: me.position[1] ?? 0, z: me.position[2] }
+        : null
+      slot.__mobs = monsters.filter((m) => m.alive).map((m) => ({
+        id: m.id,
+        x: m.x,
+        z: m.z,
+        phase: m.phase,
+        hp: m.hp,
+      }))
       slot.__self = useAppStore.getState().selfId
     }
     onPose(pose, rotY.current)
@@ -511,15 +539,18 @@ export function LocalController({
 
     const now = performance.now()
     const moving = fwd !== 0 || strafe !== 0 || dashing || !grounded.current
+    const onFoot = fwd !== 0 || strafe !== 0 || dashing
+    const loco: 'idle' | 'walk' | 'run' =
+      player.seated || !onFoot ? 'idle' : dashing || moveSpeed > 3.6 ? 'run' : 'walk'
     const interval = moving ? 50 : 200
     if (now - lastSent.current > interval) {
       lastSent.current = now
       wasMoving.current = moving
-      emitMove(pose, rotY.current)
+      emitMove(pose, rotY.current, loco)
     } else if (!moving && wasMoving.current) {
       wasMoving.current = false
       lastSent.current = now
-      emitMove(pose, rotY.current)
+      emitMove(pose, rotY.current, 'idle')
     }
   }, -2)
 

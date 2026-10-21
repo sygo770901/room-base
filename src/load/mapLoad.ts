@@ -3,7 +3,6 @@ import { useGLTF } from '@react-three/drei'
 import { DECOR_URL } from '../../shared/decor'
 import { dungeonModelUrls } from '../scene/Dungeon'
 import { heroModelUrls } from '../scene/KayKitHero'
-import { DUCK_URL } from '../scene/DuckKing'
 import { showMapLoadOverlay } from './mapLoadState'
 import { useAppStore } from '../store'
 
@@ -30,7 +29,7 @@ export function fileLabel(url: string) {
 }
 
 export function criticalModelUrls(scene: string) {
-  return [...new Set([...dungeonModelUrls(scene), ...heroModelUrls(), DUCK_URL])]
+  return [...new Set([...dungeonModelUrls(scene), ...heroModelUrls()])]
 }
 
 /** 進房就要進快取的模型。揮擊只用這份，不會再臨時抓檔。 */

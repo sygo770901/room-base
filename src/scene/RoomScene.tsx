@@ -327,11 +327,27 @@ function CameraRig() {
 
   // 角度只存在這裡。走路、擋牆拉近都不會寫回 theta/phi。
   useFrame((_, dt) => {
+    if (import.meta.env.DEV) {
+      const lock = (window as Window & { __camLock?: { x: number; y: number; z: number; tx: number; ty: number; tz: number } }).__camLock
+      if (lock) {
+        camera.position.set(lock.x, lock.y, lock.z)
+        camera.lookAt(lock.tx, lock.ty, lock.tz)
+        camera.updateMatrixWorld()
+        return
+      }
+    }
     if (shotMode()) return
     const target = (controls as { target?: THREE.Vector3 } | null)?.target
     if (!target) return
     const shot = saved.current
     const st = useAppStore.getState()
+    if (import.meta.env.DEV) {
+      const forced = (window as Window & { __camTheta?: number }).__camTheta
+      if (typeof forced === 'number') {
+        shot.theta = forced
+        shot.facingReady = true
+      }
+    }
     if (!shot.facingReady) {
       const me = st.selfId ? st.players[st.selfId] : null
       if (me) {
@@ -459,6 +475,26 @@ function CameraGuard() {
   const pixel = useRef(new Uint8Array(4))
   // priority > 0 會關掉 Fiber 的自動 render，這一層必須自己畫，否則畫布維持透明。
   useFrame(() => {
+    if (import.meta.env.DEV) {
+      const lock = (window as Window & { __camLock?: { x: number; y: number; z: number; tx: number; ty: number; tz: number } }).__camLock
+      if (lock) {
+        camera.up.set(0, 1, 0)
+        camera.position.set(lock.x, lock.y, lock.z)
+        camera.lookAt(lock.tx, lock.ty, lock.tz)
+        camera.updateMatrixWorld()
+        const dir = camera.getWorldDirection(new THREE.Vector3())
+        ;(window as Window & { __camDir?: { x: number; y: number; z: number; px: number; py: number; pz: number } }).__camDir = {
+          x: dir.x,
+          y: dir.y,
+          z: dir.z,
+          px: camera.position.x,
+          py: camera.position.y,
+          pz: camera.position.z,
+        }
+        gl.render(scene, camera)
+        return
+      }
+    }
     const shot = shotMode()
     if (shot) {
       const spec = SAMPLE_SHOTS[shot]

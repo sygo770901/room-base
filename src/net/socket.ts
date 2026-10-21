@@ -13,6 +13,7 @@ import type { BarrelState, LootDrop } from '../../shared/barrels'
 import type { SmokeCloud } from '../../shared/smoke'
 import type { DoorState } from '../../shared/doors'
 import { clientSendsQuiet } from '../../shared/quiet'
+import { keepRebasedSmokeFlight, rebaseSmokeFlight, resetSmokeClock, retainHeldSmokes } from './smokeClock'
 import { spawnBarrelShards } from '../scene/Barrels'
 import { playSfx, unlockSfx } from '../audio/sfx'
 import { useAppStore } from '../store'
@@ -180,7 +181,9 @@ function bindListeners(s: Socket) {
   })
 
   s.on('room:state', (snapshot: RoomSnapshot) => {
-    useAppStore.getState().applySnapshot(snapshot)
+    const prevSmokes = useAppStore.getState().smokes
+    const smokes = snapshot.smokes ? retainHeldSmokes(prevSmokes, keepRebasedSmokeFlight(snapshot.smokes)) : snapshot.smokes
+    useAppStore.getState().applySnapshot(smokes === snapshot.smokes ? snapshot : { ...snapshot, smokes })
   })
 
   s.on('player:joined', (player: PlayerState) => {
@@ -192,12 +195,13 @@ function bindListeners(s: Socket) {
     useAppStore.getState().removePlayer(id)
   })
 
-  s.on('player:moved', (payload: { id: string; position: Vec3; rotationY: number; snap?: boolean }) => {
+  s.on('player:moved', (payload: { id: string; position: Vec3; rotationY: number; snap?: boolean; loco?: 'idle' | 'walk' | 'run' }) => {
     const selfId = useAppStore.getState().selfId
     if (payload.id === selfId && !payload.snap) return
     useAppStore.getState().patchPlayer(payload.id, {
       position: payload.position,
       rotationY: payload.rotationY,
+      ...(payload.loco ? { loco: payload.loco } : {}),
     })
     if (payload.snap && payload.id === selfId) {
       const from = lastPose?.position
@@ -371,6 +375,7 @@ function bindListeners(s: Socket) {
   s.on('smoke:sync', (smokes: SmokeCloud[]) => {
     const st = useAppStore.getState()
     const selfId = st.selfId
+    const now = Date.now()
     for (const c of smokes) {
       const prev = st.smokes.find((p) => p.id === c.id)
       if (selfId && c.hits?.includes(selfId) && !prev?.hits?.includes(selfId)) {
@@ -387,7 +392,8 @@ function bindListeners(s: Socket) {
         }
       }
     }
-    st.setSmokes(smokes)
+    // 第一次看到這團雲時，把飛行起迄改記到客戶端時鐘，長度維持 560ms。之後的同步沿用這組時間。
+    st.setSmokes(retainHeldSmokes(st.smokes, rebaseSmokeFlight(smokes, now)))
   })
 
   s.on('smoke:result', (payload: { ok: boolean; nextAt?: number }) => {
@@ -495,6 +501,7 @@ function emitJoin(session: RoomSession) {
         }
         const assigned = snapshot.selfId && snapshot.players[snapshot.selfId] ? snapshot.selfId : playerId
         saveSession({ ...session, playerId: assigned, secret: session.secret || getPlayerSecret() })
+        resetSmokeClock(snapshot.smokes ?? [])
         useAppStore.getState().enterRoom(assigned, snapshot)
         if (snapshot.players[assigned]?.hidden) useAppStore.getState().bumpPoseSync()
         const peers = Object.keys(snapshot.players).filter((id) => id !== assigned)
@@ -639,9 +646,9 @@ export function joinRoom(
   })
 }
 
-export function emitMove(position: Vec3, rotationY: number) {
+export function emitMove(position: Vec3, rotationY: number, loco?: 'idle' | 'walk' | 'run') {
   lastPose = { position, rotationY }
-  socket?.emit('move', { position, rotationY })
+  socket?.emit('move', { position, rotationY, loco })
 }
 
 export function emitJump() {
