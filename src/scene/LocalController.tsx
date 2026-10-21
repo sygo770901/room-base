@@ -490,16 +490,21 @@ export function LocalController({
     livePose.yaw = rotY.current
     livePose.ready = true
     if (import.meta.env.DEV) {
+      const monsters = useAppStore.getState().monsters
       const slot = window as Window & {
         __pose?: { x: number; y: number; z: number; yaw: number; monsters: number }
+        __mobs?: { id: string; x: number; z: number }[]
+        __self?: string | null
       }
       slot.__pose = {
         x: pose[0],
         y: pose[1],
         z: pose[2],
         yaw: rotY.current,
-        monsters: useAppStore.getState().monsters.length,
+        monsters: monsters.length,
       }
+      slot.__mobs = monsters.filter((m) => m.alive).map((m) => ({ id: m.id, x: m.x, z: m.z }))
+      slot.__self = useAppStore.getState().selfId
     }
     onPose(pose, rotY.current)
     useAppStore.getState().setLocalXZ(pose[0], pose[2])

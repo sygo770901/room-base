@@ -1,6 +1,7 @@
 import { Component, useEffect, useRef, type ReactNode } from 'react'
 import { Lobby } from './ui/Lobby'
 import { Hud } from './ui/Hud'
+import { DamageReadout } from './ui/DamageReadout'
 import { ReconnectBanner } from './ui/ReconnectBanner'
 import { Tutorial } from './ui/Tutorial'
 import { RoomScene } from './scene/RoomScene'
@@ -80,6 +81,7 @@ export default function App() {
         <RoomScene />
       </SceneErrorBoundary>
       <Hud />
+      <DamageReadout />
       <ReconnectBanner />
       <Tutorial />
     </div>

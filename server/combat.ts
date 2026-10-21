@@ -228,17 +228,20 @@ function fromDef(d: MonsterDef): ServerMonster {
 
 export function createMonsters(scene?: string | null): ServerMonster[] {
   const field = heightFieldOf(scene)
-  if (field && field.patrol.length >= 2) {
-    const made = fromDef({
-      id: 'knight',
-      name: '騎士',
-      model: 'knight',
-      maxHp: KNIGHT_HP,
-      patrol: field.patrol,
-    })
-    const gy = groundY(field, made.x, made.z)
-    if (gy != null) made.y = gy
-    return [made]
+  if (field) {
+    if (field.patrol.length >= 2) {
+      const made = fromDef({
+        id: 'knight',
+        name: '騎士',
+        model: 'knight',
+        maxHp: KNIGHT_HP,
+        patrol: field.patrol,
+      })
+      const gy = groundY(field, made.x, made.z)
+      if (gy != null) made.y = gy
+      return [made]
+    }
+    return []
   }
   return MONSTER_DEFS.map(fromDef)
 }

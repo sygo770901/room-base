@@ -134,7 +134,15 @@ function tryMove(
   const r = radius
   let nx = fromX + dx
   let nz = fromZ + dz
-  const clamped = clampToRoom(nx, nz, 0, 0, space ?? ROOM_BOUNDS)
+  const navBounds = nav
+    ? {
+        minX: nav.originX,
+        maxX: nav.originX + nav.cols * nav.cell,
+        minZ: nav.originZ,
+        maxZ: nav.originZ + nav.rows * nav.cell,
+      }
+    : undefined
+  const clamped = clampToRoom(nx, nz, 0, 0, space ?? navBounds ?? ROOM_BOUNDS)
   nx = clamped.x
   nz = clamped.z
 
@@ -143,7 +151,8 @@ function tryMove(
   } else if (space) {
     if (!space.walkable(nx, nz, r)) return { x: fromX, z: fromZ }
   } else if (!isWalkableWorld(nx, nz, r)) return { x: fromX, z: fromZ }
-  // 有高度圖時地面高低由高度圖決定。平台厚塊會把樓梯踏面擋成牆。
+  // 有高度圖時地面高低由高度圖決定。平台厚塊會把樓梯踏面擋成牆，
+  // 牆也已經是高度圖上的空格。額外的盒子含寶箱，會把出生點封死。
   if (!nav && blocksAtHeight(nx, nz, y, r, platforms)) return { x: fromX, z: fromZ }
 
   if (!nav && !space) {
@@ -151,8 +160,10 @@ function tryMove(
       if (circleHitsAabb(nx, nz, r, w)) return { x: fromX, z: fromZ }
     }
   }
-  for (const w of extra) {
-    if (circleHitsAabb(nx, nz, r, w)) return { x: fromX, z: fromZ }
+  if (!nav) {
+    for (const w of extra) {
+      if (circleHitsAabb(nx, nz, r, w)) return { x: fromX, z: fromZ }
+    }
   }
 
   for (const f of furniture) {

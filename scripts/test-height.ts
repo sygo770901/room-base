@@ -258,3 +258,56 @@ console.log('height: ok', {
   climbed: Number(stairUp.toFixed(2)),
   cliffRise: Number((cliff.ty - cliff.fy).toFixed(2)),
 })
+
+const sample = heightFieldOf('sample')
+assert(sample != null, '寶物房要有高度圖')
+if (!sample) throw new Error('sample')
+assert(unreachableFromSpawn(sample).length === 0, '寶物房有走不回出生點的格子')
+const sampleSpawn = spawnOf('sample', 0)
+assert(Math.abs(sampleSpawn.x - 30) < 0.01 && Math.abs(sampleSpawn.z - 246) < 0.01, '寶物房出生點應在走廊')
+assert(Math.abs(sampleSpawn.y) < 0.05, `出生點應在地面，y=${sampleSpawn.y}`)
+assert(Math.abs((groundY(sample, 46, 232) ?? -1) - 4) < 0.05, '高台應是高度 4')
+
+function walkSample(
+  field: HeightField,
+  x: number,
+  z: number,
+  dx: number,
+  dz: number,
+  n: number,
+  pred?: (x: number, z: number, y: number) => boolean,
+) {
+  const space = { minX: 18, maxX: 54, minZ: 218, maxZ: 270, walkable: () => true }
+  let y = groundY(field, x, z) ?? 0
+  for (let i = 0; i < n; i++) {
+    if (pred?.(x, z, y)) return { x, z, y, stuck: false }
+    const moved = resolvePlayerMove(x, z, dx, dz, [], 0.26, [], y, [], field, space)
+    if (Math.hypot(moved.x - x, moved.z - z) < 0.001) return { x, z, y, stuck: true }
+    x = moved.x
+    z = moved.z
+    y = groundY(field, x, z) ?? y
+  }
+  return { x, z, y, stuck: false }
+}
+
+{
+  const approach = walkSample(sample, 30, 246, 0, -0.28, 80, (_x, z) => z <= 232)
+  assert(!approach.stuck && approach.z <= 232.1, `走不到樓梯口 ${approach.z}`)
+  const platform = walkSample(sample, approach.x, approach.z, 0.22, 0, 90, (_x, _z, y) => y >= 3.95)
+  assert(platform.y >= 3.95, `走不上高度 4 的高台，y=${platform.y.toFixed(2)} @ ${platform.x.toFixed(1)},${platform.z.toFixed(1)}`)
+  const lip = walkSample(sample, platform.x, platform.z, 0, -0.22, 40, (_x, z, y) => z <= 228.5 && y >= 3.9)
+  assert(lip.y >= 3.9 && lip.z <= 228.6, `走不到平台邊緣 y=${lip.y} z=${lip.z}`)
+  const fell = walkSample(sample, lip.x, lip.z, -0.22, 0, 40, (x, _z, y) => y < 0.3 && x < 39.75)
+  assert(fell.y < 0.3 && fell.x < 39.75, `沒從邊緣摔到地面 y=${fell.y} x=${fell.x}`)
+  assert(!canMoveTo(sample, fell.x, fell.z, fell.x + 1.2, fell.z, 0.26), '摔下去的斷崖不該走得回去')
+  const west = walkSample(sample, fell.x, fell.z, -0.25, 0, 40, (x) => x <= 30)
+  const home = walkSample(sample, west.x, west.z, 0, 0.28, 90, (x, z) => Math.hypot(x - 30, z - 246) < 1.2)
+  assert(Math.hypot(home.x - 30, home.z - 246) < 1.2, `摔下去後走不回出生點 ${home.x.toFixed(1)},${home.z.toFixed(1)}`)
+  const wall = walkSample(sample, 30, 224, 0, -0.25, 30)
+  assert(wall.stuck && wall.z > 219.5, `穿得過南牆，停在 z=${wall.z}`)
+  console.log('sample-height: ok', {
+    platform: Number(platform.y.toFixed(2)),
+    fell: Number(fell.y.toFixed(2)),
+    home: [Number(home.x.toFixed(2)), Number(home.z.toFixed(2))],
+  })
+}
