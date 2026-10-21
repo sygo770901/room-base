@@ -15,6 +15,7 @@ import { KAYKIT_PLACES } from '../../shared/kaykitScene'
 import { usesKaykitKit } from '../../shared/mapData'
 import { isMobileDevice } from '../perf/device'
 import { useAppStore } from '../store'
+import { writeInstanceMatrices } from './occlusion'
 
 const CHUNK = 32
 const KENNEY_ROOT = '/assets/kenney/dungeon'
@@ -72,20 +73,7 @@ function InstanceChunk({ part, places, cast }: { part: Part; places: Place[]; ca
   useLayoutEffect(() => {
     const mesh = ref.current
     if (!mesh || places.length === 0) return
-    const dummy = new THREE.Object3D()
-    const matrix = new THREE.Matrix4()
-    for (let i = 0; i < places.length; i++) {
-      const place = places[i]
-      dummy.position.set(place.x, place.y, place.z)
-      dummy.rotation.set(0, place.rotY, 0)
-      dummy.scale.setScalar(place.scale ?? 1)
-      dummy.updateMatrix()
-      matrix.multiplyMatrices(dummy.matrix, part.matrix)
-      mesh.setMatrixAt(i, matrix)
-    }
-    mesh.instanceMatrix.needsUpdate = true
-    mesh.computeBoundingSphere()
-    mesh.frustumCulled = true
+    writeInstanceMatrices(mesh, places, part.matrix)
   }, [part, places])
 
   if (places.length === 0) return null

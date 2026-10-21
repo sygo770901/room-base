@@ -20,7 +20,11 @@ import { POINTER_LOOK_SCALE } from '../../shared/input'
 import {
   OTS_CEILING_Y,
   OTS_CHEST_Y,
+  OTS_AIM_AHEAD,
   OTS_ENTRY_PHI,
+  OTS_HEIGHT_AIM,
+  OTS_HEIGHT_AIM_DROP,
+  OTS_HEIGHT_PHI,
   OTS_LOOK_Y,
   OTS_MAX_PHI,
   OTS_MAX_RADIUS,
@@ -30,6 +34,7 @@ import {
   OTS_RIGHT,
   bodyViewBlocked,
   fitOtsCamera,
+  heightCamRadius,
   otsCamera,
   otsThetaFromFacing,
 } from '../../shared/camera'
@@ -39,6 +44,7 @@ import { bindPointerLockWatch, exitGameLock, isAltHeld, isPointerInWindow, reque
 import { typingInField } from './inputLock'
 import { NotePlacementPlane, StickyNotes3D } from './Furniture'
 import { DUNGEON_OCCLUSION, Dungeon } from './Dungeon'
+import { meshSegmentBlocked } from './occlusion'
 import { DungeonBoundary } from './DungeonBoundary'
 import { JungleFoliage } from './JungleFoliage'
 import { SceneDecor } from './Decor'
@@ -59,6 +65,11 @@ import type { PlayerState, Vec3 } from '../types'
 // Three.js 預設 minPolarAngle 是 0（頭頂正上方）、rotateSpeed 是 1（拖滿一整個螢幕等於轉 360°）。
 // 這裡把垂直角鎖在斜上方到接近水平，旋轉改慢，避免短距離拖曳就被甩到頭頂。
 const MIN_PHI = OTS_MIN_PHI
+
+function phiLimits() {
+  if (heightFieldOf(useAppStore.getState().scene)) return { min: OTS_HEIGHT_PHI, max: OTS_MAX_PHI }
+  return { min: MIN_PHI, max: MAX_PHI }
+}
 const MAX_PHI = OTS_MAX_PHI
 const MIN_RADIUS = OTS_MIN_RADIUS
 const MAX_RADIUS = OTS_MAX_RADIUS
@@ -165,43 +176,16 @@ function FollowLight({ mobile }: { mobile: boolean }) {
   )
 }
 
-const camRayOrigin = new THREE.Vector3()
-const camRayDir = new THREE.Vector3()
-const camRaycaster = new THREE.Raycaster()
-
-/** 射向地城模型。打中代表這段穿進牆、樓梯或樓板。 */
-function meshSegmentBlocked(
-  root: THREE.Object3D | null,
-  x0: number,
-  y0: number,
-  z0: number,
-  x1: number,
-  y1: number,
-  z1: number,
-) {
-  if (!root) return false
-  const dx = x1 - x0
-  const dy = y1 - y0
-  const dz = z1 - z0
-  const dist = Math.hypot(dx, dy, dz)
-  if (dist < 0.05) return false
-  camRayOrigin.set(x0, y0, z0)
-  camRayDir.set(dx / dist, dy / dist, dz / dist)
-  camRaycaster.set(camRayOrigin, camRayDir)
-  camRaycaster.near = 0.12
-  camRaycaster.far = dist - 0.02
-  return camRaycaster.intersectObject(root, true).length > 0
-}
-
 function CameraRig() {
   const { camera, controls, gl, scene } = useThree()
   const saved = useRef({
     theta: otsThetaFromFacing(0),
-    phi: OTS_ENTRY_PHI,
+    phi: heightFieldOf(useAppStore.getState().scene) ? OTS_HEIGHT_PHI : OTS_ENTRY_PHI,
     radius: useAppStore.getState().camDist,
     facingReady: false,
   })
   const camHold = useRef({ radius: useAppStore.getState().camDist, shoulder: OTS_RIGHT })
+  const heightDistReady = useRef(false)
   const drag = useRef<{ id: number; x: number; y: number; mode: 'look' | 'zoom' } | null>(null)
   const touches = useRef(new Map<number, { x: number; y: number }>())
   const pinchDist = useRef(0)
@@ -240,7 +224,8 @@ function CameraRig() {
       const k = POINTER_LOOK_SCALE * sens
       const next = saved.current
       next.theta -= e.movementX * k
-      next.phi = THREE.MathUtils.clamp(next.phi - e.movementY * k, MIN_PHI, MAX_PHI)
+      const limits = phiLimits()
+      next.phi = THREE.MathUtils.clamp(next.phi - e.movementY * k, limits.min, limits.max)
     }
     const click = (e: MouseEvent) => {
       if (e.button !== 0) return
@@ -270,7 +255,8 @@ function CameraRig() {
       const k = (2 * Math.PI * ROTATE_SPEED) / (el.clientHeight || 1)
       const next = saved.current
       next.theta -= dx * k
-      next.phi = THREE.MathUtils.clamp(next.phi - dy * k, MIN_PHI, MAX_PHI)
+      const limits = phiLimits()
+      next.phi = THREE.MathUtils.clamp(next.phi - dy * k, limits.min, limits.max)
     }
     const up = (e: PointerEvent) => {
       touches.current.delete(e.pointerId)
@@ -328,10 +314,17 @@ function CameraRig() {
         shot.facingReady = true
       }
     }
-    shot.radius = THREE.MathUtils.clamp(st.camDist, MIN_RADIUS, MAX_RADIUS)
-    shot.phi = THREE.MathUtils.clamp(shot.phi, MIN_PHI, MAX_PHI)
+    const limits = phiLimits()
+    shot.phi = THREE.MathUtils.clamp(shot.phi, limits.min, limits.max)
     const state = useAppStore.getState()
     const nav = heightFieldOf(state.scene)
+    const storedRadius = THREE.MathUtils.clamp(st.camDist, MIN_RADIUS, MAX_RADIUS)
+    const wantRadius = nav ? THREE.MathUtils.clamp(heightCamRadius(st.camDist), MIN_RADIUS, MAX_RADIUS) : storedRadius
+    shot.radius = wantRadius
+    if (nav && !heightDistReady.current) {
+      camHold.current = { radius: wantRadius, shoulder: OTS_RIGHT }
+      heightDistReady.current = true
+    }
     let pose = otsCamera(target.x, target.y, target.z, shot.theta, shot.phi, shot.radius)
     if (nav) {
       const feetY = target.y - OTS_LOOK_Y
@@ -371,7 +364,17 @@ function CameraRig() {
           hold.shoulder = nextShoulder
         }
       }
-      pose = otsCamera(target.x, target.y, target.z, shot.theta, shot.phi, hold.radius, hold.shoulder)
+      pose = otsCamera(
+        target.x,
+        target.y,
+        target.z,
+        shot.theta,
+        shot.phi,
+        hold.radius,
+        hold.shoulder,
+        OTS_HEIGHT_AIM,
+        OTS_HEIGHT_AIM_DROP,
+      )
     } else {
       let radius = shot.radius
       const extra = occludersOf(state.scene).concat(
@@ -551,7 +554,21 @@ export function RoomScene() {
   const sceneId = useAppStore((s) => s.scene)
   const spawn = spawnOf(sceneId, 0)
   const lookY = heightFieldOf(sceneId) ? spawn.y + OTS_LOOK_Y : OTS_LOOK_Y
-  const boot = otsCamera(spawn.x, lookY, spawn.z, otsThetaFromFacing(0), OTS_ENTRY_PHI, useAppStore.getState().camDist)
+  const bootRadius = heightFieldOf(sceneId) ? heightCamRadius(useAppStore.getState().camDist) : useAppStore.getState().camDist
+  const heightBoot = !!heightFieldOf(sceneId)
+  const bootPhi = heightBoot ? OTS_HEIGHT_PHI : OTS_ENTRY_PHI
+  const boot = otsCamera(
+    spawn.x,
+    lookY,
+    spawn.z,
+    otsThetaFromFacing(0),
+    bootPhi,
+    bootRadius,
+    OTS_RIGHT,
+    heightBoot ? OTS_HEIGHT_AIM : OTS_AIM_AHEAD,
+    heightBoot ? OTS_HEIGHT_AIM_DROP : 0,
+  )
+  const shot = new URLSearchParams(location.search).has('shot')
   return (
     <Canvas
       shadows={!mobile}
@@ -561,6 +578,7 @@ export function RoomScene() {
         powerPreference: 'high-performance',
         antialias: !mobile,
         alpha: false,
+        preserveDrawingBuffer: shot,
       }}
       camera={{ position: [boot.x, boot.y, boot.z], fov: 58, near: 0.05, far: 180 }}
       style={{ width: '100%', height: '100%', touchAction: 'none', background: sceneClear(useAppStore.getState().scene) }}

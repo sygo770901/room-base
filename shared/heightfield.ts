@@ -221,10 +221,12 @@ export function unreachableFromSpawn(field: HeightField, radius = 0.26): string[
 
 /** 牆柱高度。高台上的側牆大約再高 4 公尺，8 蓋得住。 */
 export const HEIGHT_WALL_TOP = 8
-/** 高台樓板的厚度。樓板底下的空氣看得到人，只有貼著板子的那一層算擋住。 */
-export const HEIGHT_SLAB = 0.45
 
-/** 這點在牆裡、樓梯體裡、地面下，或貼著高台樓板。 */
+/**
+ * 鏡頭用的實體。牆柱和樓梯體、薄地面的地下算擋住。
+ * 高台樓板底下留空：人摔出邊緣時，鏡頭還站在平台上，視線從空氣裡看下去，
+ * 不把整層樓板當成實體，否則會把鏡頭推進角色身體。
+ */
 export function heightPointSolid(field: HeightField, x: number, y: number, z: number) {
   const g = groundY(field, x, z)
   if (g == null) return y >= -0.25 && y <= HEIGHT_WALL_TOP
@@ -232,8 +234,7 @@ export function heightPointSolid(field: HeightField, x: number, y: number, z: nu
   const coord = cellCoord(field, x, z)
   const stair = coord ? stairMap(field).get(`${coord.cx},${coord.cz}`) : undefined
   if (stair) return true
-  if (g <= 0.35) return true
-  return y > g - HEIGHT_SLAB
+  return g <= 0.35
 }
 
 /**

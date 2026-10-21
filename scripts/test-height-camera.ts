@@ -5,20 +5,24 @@ import {
   OTS_CHEST_Y,
   OTS_DIST,
   OTS_ENTRY_PHI,
+  OTS_HEIGHT_AIM,
+  OTS_HEIGHT_AIM_DROP,
+  OTS_HEIGHT_PHI,
   OTS_LOOK_Y,
   OTS_RIGHT,
   fitOtsCamera,
+  heightCamRadius,
   otsCamera,
   otsThetaFromFacing,
 } from '../shared/camera.ts'
 import { groundY, heightCameraBlocked } from '../shared/heightfield.ts'
 import { heightFieldOf } from '../shared/heightmaps.ts'
+import type { Place } from '../shared/dungeon.ts'
+import { meshSegmentBlocked, writeInstanceMatrices } from '../src/scene/occlusion.ts'
 
 function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(msg)
 }
-
-type Tri = [number, number, number, number, number, number, number, number, number]
 
 function readAccessor(
   json: { accessors: { bufferView?: number; byteOffset?: number; componentType: number; count: number; type: string }[]; bufferViews: { byteOffset?: number; byteLength: number; byteStride?: number }[] },
@@ -46,130 +50,36 @@ function readAccessor(
   return { data: out, count: acc.count }
 }
 
-const tris: Tri[] = []
-const grid = new Map<string, number[]>()
-const CELL = 2
+const rootDir = resolve(import.meta.dirname, '..')
+const places = JSON.parse(readFileSync(resolve(rootDir, 'data/heightlab.places.json'), 'utf8')) as {
+  parts: Place[]
+}
+const byModel = new Map<string, Place[]>()
+for (const part of places.parts) {
+  const list = byModel.get(part.model) ?? []
+  list.push(part)
+  byModel.set(part.model, list)
+}
 
-function addModel(file: string, x: number, y: number, z: number, rotY: number) {
+const dungeon = new THREE.Group()
+dungeon.name = 'dungeon-occlusion'
+for (const [model, list] of byModel) {
+  const file = resolve(rootDir, 'public/assets/kaykit/dungeon-1.1', model)
   const raw = JSON.parse(readFileSync(file, 'utf8'))
   const bin = readFileSync(file.replace(/\.gltf$/, '.bin'))
-  const c = Math.cos(rotY)
-  const s = Math.sin(rotY)
   for (const mesh of raw.meshes) {
     for (const prim of mesh.primitives) {
       if (prim.attributes.POSITION == null || prim.indices == null) continue
       const pos = readAccessor(raw, bin, prim.attributes.POSITION)
       const idx = readAccessor(raw, bin, prim.indices)
-      for (let i = 0; i + 2 < idx.count; i += 3) {
-        const vert = (k: number) => {
-          const lx = pos.data[idx.data[k] * 3]
-          const ly = pos.data[idx.data[k] * 3 + 1]
-          const lz = pos.data[idx.data[k] * 3 + 2]
-          return [x + lx * c + lz * s, y + ly, z - lx * s + lz * c] as const
-        }
-        const a = vert(i)
-        const b = vert(i + 1)
-        const d = vert(i + 2)
-        const tri: Tri = [a[0], a[1], a[2], b[0], b[1], b[2], d[0], d[1], d[2]]
-        const id = tris.length
-        tris.push(tri)
-        const minX = Math.floor(Math.min(a[0], b[0], d[0]) / CELL)
-        const maxX = Math.floor(Math.max(a[0], b[0], d[0]) / CELL)
-        const minY = Math.floor(Math.min(a[1], b[1], d[1]) / CELL)
-        const maxY = Math.floor(Math.max(a[1], b[1], d[1]) / CELL)
-        const minZ = Math.floor(Math.min(a[2], b[2], d[2]) / CELL)
-        const maxZ = Math.floor(Math.max(a[2], b[2], d[2]) / CELL)
-        for (let gx = minX; gx <= maxX; gx++) {
-          for (let gy = minY; gy <= maxY; gy++) {
-            for (let gz = minZ; gz <= maxZ; gz++) {
-              const key = `${gx},${gy},${gz}`
-              const list = grid.get(key)
-              if (list) list.push(id)
-              else grid.set(key, [id])
-            }
-          }
-        }
-      }
+      const geometry = new THREE.BufferGeometry()
+      geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos.data), 3))
+      geometry.setIndex(new THREE.BufferAttribute(idx.data.some((n) => n > 65535) ? new Uint32Array(idx.data) : new Uint16Array(idx.data), 1))
+      const inst = new THREE.InstancedMesh(geometry, new THREE.MeshStandardMaterial(), list.length)
+      writeInstanceMatrices(inst, list, new THREE.Matrix4())
+      dungeon.add(inst)
     }
   }
-}
-
-const root = resolve(import.meta.dirname, '..')
-const places = JSON.parse(readFileSync(resolve(root, 'data/heightlab.places.json'), 'utf8')) as {
-  parts: { model: string; x: number; y: number; z: number; rotY?: number }[]
-}
-for (const part of places.parts) {
-  addModel(resolve(root, 'public/assets/kaykit/dungeon-1.1', part.model), part.x, part.y, part.z, part.rotY ?? 0)
-}
-
-function rayTri(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxT: number) {
-  const steps = Math.max(1, Math.ceil(maxT / 0.75))
-  let best = maxT
-  const seen = new Set<number>()
-  const consider = (id: number) => {
-    if (seen.has(id)) return
-    seen.add(id)
-    const tri = tris[id]
-    const ax = tri[0]
-    const ay = tri[1]
-    const az = tri[2]
-    const bx = tri[3]
-    const by = tri[4]
-    const bz = tri[5]
-    const cx = tri[6]
-    const cy = tri[7]
-    const cz = tri[8]
-    const e1x = bx - ax
-    const e1y = by - ay
-    const e1z = bz - az
-    const e2x = cx - ax
-    const e2y = cy - ay
-    const e2z = cz - az
-    const px = dy * e2z - dz * e2y
-    const py = dz * e2x - dx * e2z
-    const pz = dx * e2y - dy * e2x
-    const det = e1x * px + e1y * py + e1z * pz
-    if (Math.abs(det) < 1e-8) return
-    const inv = 1 / det
-    const sx = ox - ax
-    const sy = oy - ay
-    const sz = oz - az
-    const u = (sx * px + sy * py + sz * pz) * inv
-    if (u < 0 || u > 1) return
-    const qx = sy * e1z - sz * e1y
-    const qy = sz * e1x - sx * e1z
-    const qz = sx * e1y - sy * e1x
-    const v = (dx * qx + dy * qy + dz * qz) * inv
-    if (v < 0 || u + v > 1) return
-    const tt = (e2x * qx + e2y * qy + e2z * qz) * inv
-    if (tt > 0.04 && tt < best) best = tt
-  }
-  for (let i = 0; i <= steps; i++) {
-    const t = (maxT * i) / steps
-    const gx = Math.floor((ox + dx * t) / CELL)
-    const gy = Math.floor((oy + dy * t) / CELL)
-    const gz = Math.floor((oz + dz * t) / CELL)
-    for (let ix = gx - 1; ix <= gx + 1; ix++) {
-      for (let iy = gy - 1; iy <= gy + 1; iy++) {
-        for (let iz = gz - 1; iz <= gz + 1; iz++) {
-          const ids = grid.get(`${ix},${iy},${iz}`)
-          if (!ids) continue
-          for (const id of ids) consider(id)
-        }
-      }
-    }
-  }
-  return best
-}
-
-function meshBlocked(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) {
-  const dx = x1 - x0
-  const dy = y1 - y0
-  const dz = z1 - z0
-  const dist = Math.hypot(dx, dy, dz)
-  if (dist < 0.05) return false
-  const hit = rayTri(x0, y0, z0, dx / dist, dy / dist, dz / dist, dist - 0.02)
-  return hit < dist - 0.02
 }
 
 const field = heightFieldOf('heightlab')
@@ -177,14 +87,36 @@ assert(field != null, 'heightlab 要有高度圖')
 if (!field) throw new Error('heightlab')
 
 function blocked(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) {
-  return heightCameraBlocked(field!, x0, y0, z0, x1, y1, z1) || meshBlocked(x0, y0, z0, x1, y1, z1)
+  return heightCameraBlocked(field!, x0, y0, z0, x1, y1, z1) || meshSegmentBlocked(dungeon, x0, y0, z0, x1, y1, z1)
 }
 
 function lineClear(x: number, chestY: number, z: number, camX: number, camY: number, camZ: number) {
-  return !heightCameraBlocked(field!, x, chestY, z, camX, camY, camZ) && !meshBlocked(x, chestY, z, camX, camY, camZ)
+  return !heightCameraBlocked(field!, x, chestY, z, camX, camY, camZ) && !meshSegmentBlocked(dungeon, x, chestY, z, camX, camY, camZ)
 }
 
+const prevStorage = globalThis.localStorage
+globalThis.localStorage = {
+  getItem: () => null,
+  setItem() {},
+  removeItem() {},
+  clear() {},
+  key: () => null,
+  length: 0,
+}
+assert(heightCamRadius(2.5) === OTS_DIST, `沒存過鏡頭距離時高度圖應為 ${OTS_DIST}，實際 ${heightCamRadius(2.5)}`)
+globalThis.localStorage = {
+  getItem: () => '3.25',
+  setItem() {},
+  removeItem() {},
+  clear() {},
+  key: () => null,
+  length: 1,
+}
+assert(Math.abs(heightCamRadius(3.25) - 3.25) < 1e-6, '玩家調過的距離要保留')
+globalThis.localStorage = prevStorage
+
 const theta = otsThetaFromFacing(0)
+const cam = new THREE.PerspectiveCamera(58, 1280 / 720, 0.05, 180)
 
 function place(x: number, z: number) {
   const feet = groundY(field!, x, z)
@@ -199,7 +131,7 @@ function place(x: number, z: number) {
     chestY,
     bodyY: [chestY, hipY],
     theta,
-    phi: OTS_ENTRY_PHI,
+    phi: OTS_HEIGHT_PHI,
     radius: OTS_DIST,
     blocked,
   })
@@ -212,6 +144,15 @@ function place(x: number, z: number) {
     `髖部到鏡頭被擋住 x=${x.toFixed(2)} z=${z.toFixed(2)} r=${fitted.radius.toFixed(2)}`,
   )
   assert(fitted.pose.y > (feet as number) + 0.8, `鏡頭應高過腳 ${fitted.pose.y.toFixed(2)} feet=${feet}`)
+  const view = otsCamera(x, lookY, z, theta, OTS_HEIGHT_PHI, fitted.radius, fitted.shoulder, OTS_HEIGHT_AIM, OTS_HEIGHT_AIM_DROP)
+  cam.position.set(view.x, view.y, view.z)
+  cam.up.set(0, 1, 0)
+  cam.lookAt(view.aimX, view.aimY, view.aimZ)
+  cam.updateMatrixWorld(true)
+  const ndc = new THREE.Vector3(x, chestY, z).project(cam)
+  const aimN = new THREE.Vector3(view.aimX, view.aimY, view.aimZ).project(cam)
+  assert(ndc.x < -0.12 && ndc.y < -0.2 && ndc.z < 1, `角色應在左下 x=${x.toFixed(2)} z=${z.toFixed(2)} ndc=(${ndc.x.toFixed(2)},${ndc.y.toFixed(2)})`)
+  assert(Math.abs(aimN.x) < 0.04 && Math.abs(aimN.y) < 0.04, `準心應在畫面正中 (${aimN.x.toFixed(3)},${aimN.y.toFixed(3)})`)
   return { feet: feet as number, chestY, lookY, fitted }
 }
 
@@ -225,23 +166,21 @@ function walk(x: number, z0: number, z1: number, step = 0.25) {
   return out
 }
 
-// 出生點後方的牆，沒拉近時鏡頭會埋進去。
 {
-  const feet = groundY(field, 14, 6.2) as number
-  const raw = otsCamera(14, feet + OTS_LOOK_Y, 6.2, theta, OTS_ENTRY_PHI, OTS_DIST)
+  const feet = groundY(field, 14, 6) as number
+  const raw = otsCamera(14, feet + OTS_LOOK_Y, 6, theta, OTS_HEIGHT_PHI, OTS_DIST)
   assert(
-    !lineClear(14, feet + OTS_CHEST_Y, 6.2, raw.x, raw.y, raw.z),
-    '出生點全距離鏡頭應該會卡進後牆，測試才有對到這次的問題',
+    meshSegmentBlocked(dungeon, 14, feet + OTS_CHEST_Y, 6, raw.x, raw.y, raw.z),
+    '出生點全距離鏡頭應該打到後牆模型。這條射線要跟畫面用的 Raycaster 相同',
   )
 }
 
-// 樓梯靠牆的那一側，全距離時右肩鏡頭會穿進側牆或樓梯。
 {
   let caught = false
   for (let z = 14.2; z <= 18; z += 0.4) {
     const feet = groundY(field, 11.4, z)
     if (feet == null) continue
-    const raw = otsCamera(11.4, feet + OTS_LOOK_Y, z, theta, OTS_ENTRY_PHI, OTS_DIST)
+    const raw = otsCamera(11.4, feet + OTS_LOOK_Y, z, theta, OTS_HEIGHT_PHI, OTS_DIST)
     if (!lineClear(11.4, feet + OTS_CHEST_Y, z, raw.x, raw.y, raw.z)) {
       caught = true
       break
@@ -250,12 +189,41 @@ function walk(x: number, z0: number, z1: number, step = 0.25) {
   assert(caught, '樓梯靠牆時全距離鏡頭應該會被側牆或樓梯擋住')
 }
 
-const stairs = walk(14, 6.4, 25.2)
+const stairs = walk(14, 6, 25.2)
 const midStair = place(14, 16)
 assert(midStair.fitted.radius > 3.5 && midStair.fitted.shoulder > 1.5, `樓梯中央應維持越肩 r=${midStair.fitted.radius.toFixed(2)} sh=${midStair.fitted.shoulder.toFixed(2)}`)
 const fallen = walk(14, 25.2, 28)
 walk(12.2, 14, 21)
 walk(15.6, 14, 21)
+
+// 摔出邊緣時人在空中，不是貼著 groundY。鏡頭不該縮進身體裡。
+{
+  const x = 14
+  const z = 26.22
+  const feet = 2.42
+  const lookY = feet + OTS_LOOK_Y
+  const chestY = feet + OTS_CHEST_Y
+  const fitted = fitOtsCamera({
+    x,
+    y: lookY,
+    z,
+    chestY,
+    bodyY: [chestY, feet + 0.55],
+    theta,
+    phi: OTS_HEIGHT_PHI,
+    radius: OTS_DIST,
+    blocked,
+  })
+  assert(fitted.radius > 1.4, `摔落時鏡頭縮進身體 r=${fitted.radius.toFixed(2)} sh=${fitted.shoulder.toFixed(2)}`)
+  assert(lineClear(x, chestY, z, fitted.pose.x, fitted.pose.y, fitted.pose.z), '摔落時胸口到鏡頭被擋住')
+  const view = otsCamera(x, lookY, z, theta, OTS_HEIGHT_PHI, fitted.radius, fitted.shoulder, OTS_HEIGHT_AIM, OTS_HEIGHT_AIM_DROP)
+  cam.position.set(view.x, view.y, view.z)
+  cam.up.set(0, 1, 0)
+  cam.lookAt(view.aimX, view.aimY, view.aimZ)
+  cam.updateMatrixWorld(true)
+  const ndc = new THREE.Vector3(x, chestY, z).project(cam)
+  assert(ndc.x < -0.12 && ndc.y < -0.15 && ndc.z < 1, `摔落時角色應在左下 ndc=(${ndc.x.toFixed(2)},${ndc.y.toFixed(2)})`)
+}
 
 const low = stairs[0]
 const onPlatform = place(14, 20)
@@ -263,19 +231,9 @@ assert(onPlatform.fitted.pose.y > low.fitted.pose.y + 2.2, `鏡頭高度應跟�
 assert(fallen[fallen.length - 1].feet < 0.3, '路線終點應已經摔到地面')
 assert(fallen[fallen.length - 1].fitted.pose.y < onPlatform.fitted.pose.y - 2, '摔下去之後鏡頭要跟著降')
 
-// 庭院空地維持越肩：人在左下，準心在前方。
 const open = place(14, 10)
 assert(open.fitted.radius > 4, `空地不該被拉得很近 r=${open.fitted.radius.toFixed(2)}`)
 assert(open.fitted.shoulder > 1.6, `空地應維持右肩偏移 sh=${open.fitted.shoulder.toFixed(2)}`)
-const cam = new THREE.PerspectiveCamera(58, 1280 / 720, 0.05, 180)
-cam.position.set(open.fitted.pose.x, open.fitted.pose.y, open.fitted.pose.z)
-cam.up.set(0, 1, 0)
-cam.lookAt(open.fitted.pose.aimX, open.fitted.pose.aimY, open.fitted.pose.aimZ)
-cam.updateMatrixWorld(true)
-const chest = new THREE.Vector3(14, open.chestY, 10).project(cam)
-const aim = new THREE.Vector3(open.fitted.pose.aimX, open.fitted.pose.aimY, open.fitted.pose.aimZ).project(cam)
-assert(chest.x < -0.15 && chest.y < -0.25, `空地角色應在左下 ndc=(${chest.x.toFixed(2)},${chest.y.toFixed(2)})`)
-assert(Math.abs(aim.x) < 0.04 && Math.abs(aim.y) < 0.04, `準心應在畫面正中 (${aim.x.toFixed(3)},${aim.y.toFixed(3)})`)
 assert(OTS_RIGHT >= 1.4, '右肩偏移太小')
 
 console.log(

@@ -468,6 +468,7 @@ function emitJoin(session: RoomSession) {
         playerId,
         secret: session.secret || getPlayerSecret(),
         timed: session.timed,
+        quiet: new URLSearchParams(location.search).has('shot'),
         resume,
       },
       (snapshot: RoomSnapshot) => {

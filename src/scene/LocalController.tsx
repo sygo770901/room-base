@@ -13,7 +13,7 @@ import { POOP_SLOW_MUL, SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from 
 import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitRescueHold, emitSit, emitSmoke, performAttack } from '../net/socket'
 import { isDowned, nearestDowned } from '../../shared/downed'
 import { DOOR_AUTO_RANGE, DOOR_PROMPT_RANGE, closedDoorAabbs, inspectNearestDoor, nearestDoor } from '../../shared/doors'
-import { OTS_LOOK_Y } from '../../shared/camera'
+import { OTS_HEIGHT_AIM_DROP, OTS_LOOK_Y } from '../../shared/camera'
 import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
 import { resolvePlayerMove } from '../physics/collision'
 import { doorsOf, extraAabbsOf } from '../../shared/mapData'
@@ -318,8 +318,22 @@ export function LocalController({
     }
 
     if (fwd !== 0 || strafe !== 0) {
-      camera.getWorldDirection(forward)
-      forward.y = 0
+      const sceneNow = useAppStore.getState().scene
+      const navNow = heightFieldOf(sceneNow)
+      const lookTarget = orbit?.target
+      if (navNow && lookTarget) {
+        // 越肩鏡頭站在側邊。用鏡頭朝向直接推人，會往肩膀那側漂，撞上高台邊緣。
+        // 準心打在角色前方的水平面上，W 沿著角色到那個點走。
+        camera.getWorldDirection(forward)
+        const dy = forward.y
+        const aimY = lookTarget.y - OTS_HEIGHT_AIM_DROP
+        const aimX = Math.abs(dy) > 1e-4 ? camera.position.x + (forward.x * (aimY - camera.position.y)) / dy : lookTarget.x + forward.x
+        const aimZ = Math.abs(dy) > 1e-4 ? camera.position.z + (forward.z * (aimY - camera.position.y)) / dy : lookTarget.z + forward.z
+        forward.set(aimX - lookTarget.x, 0, aimZ - lookTarget.z)
+      } else {
+        camera.getWorldDirection(forward)
+        forward.y = 0
+      }
       if (forward.lengthSq() < 1e-4) forward.set(0, 0, 1)
       forward.normalize()
       right.crossVectors(forward, up).normalize()
@@ -327,7 +341,8 @@ export function LocalController({
       const len = Math.hypot(fwd, strafe) || 1
       const held =
         player.weapon && (player.weaponUntil ?? 0) > Date.now() ? player.weapon : 'sword'
-      const speedMul = WEAPON_STATS[held].speed
+      const shotWalk = new URLSearchParams(location.search).has('shot') ? 0.38 : 1
+      const speedMul = WEAPON_STATS[held].speed * shotWalk
       const poopSlow = Date.now() < useAppStore.getState().poopSlowUntil ? POOP_SLOW_MUL : 1
       const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * speedMul * poopSlow * dt
       const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * poopSlow * dt

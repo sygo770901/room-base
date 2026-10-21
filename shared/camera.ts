@@ -10,6 +10,10 @@ export const OTS_RIGHT = 1.85
 export const OTS_AIM_AHEAD = 7.5
 /** 進房當下的俯角。越小鏡頭越高，角色越靠畫面下方。 */
 export const OTS_ENTRY_PHI = 1.2
+/** 高度圖沒有天花板，鏡頭再低一點，高台邊緣才不會整畫面變成天空。 */
+export const OTS_HEIGHT_PHI = 1.05
+export const OTS_HEIGHT_AIM = 4.5
+export const OTS_HEIGHT_AIM_DROP = 1.1
 export const OTS_LOOK_Y = 1.5
 export const OTS_MIN_RADIUS = 2.5
 export const OTS_MAX_RADIUS = 6
@@ -32,6 +36,19 @@ export function clampCamDist(n: number) {
 export function readCamDist() {
   if (typeof localStorage === 'undefined') return OTS_DIST
   return clampCamDist(Number(localStorage.getItem(CAM_DIST_KEY)))
+}
+
+/**
+ * 高度圖的想要距離。
+ * localStorage 沒有這個鍵時 getItem 是 null，Number(null) 是 0，
+ * 再被夾成最近距離。測試直接用 OTS_DIST，畫面卻一直停在最近距離。
+ * 玩家沒調過鏡頭時，高度圖用越肩預設。平面地圖仍走 readCamDist。
+ */
+export function heightCamRadius(stored = readCamDist()) {
+  if (typeof localStorage === 'undefined') return clampCamDist(stored)
+  const raw = localStorage.getItem(CAM_DIST_KEY)
+  if (raw == null || raw === '') return OTS_DIST
+  return clampCamDist(Number(raw))
 }
 
 /** 角色面向 +π，鏡頭在背後。 */
@@ -62,6 +79,7 @@ export function otsCamera(
   radius: number,
   shoulder = OTS_RIGHT,
   aimAhead = OTS_AIM_AHEAD,
+  aimDrop = 0,
 ): OtsPose {
   const sinPhi = Math.sin(phi)
   const ox = radius * sinPhi * Math.sin(theta)
@@ -78,7 +96,7 @@ export function otsCamera(
     y: y + oy,
     z: z + oz + rz * shoulder,
     aimX: x + fx * aimAhead,
-    aimY: y,
+    aimY: y - aimDrop,
     aimZ: z + fz * aimAhead,
   }
 }

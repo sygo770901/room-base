@@ -119,6 +119,8 @@ export interface RoomState {
   poopImmuneUntil: Record<string, number>
   doorNearAt: Record<string, number>
   doorAuto: Record<string, boolean>
+  /** ?shot=1 截圖時不生怪，避免騎士擋在樓梯上。 */
+  quiet?: boolean
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -467,6 +469,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           mode?: string
           playerId?: string
           secret?: string
+          quiet?: boolean
           timed?: boolean
           resume?: {
             position?: Vec3
@@ -531,6 +534,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         }
 
         const isFirst = Object.keys(room.players).length === 0
+        if (isFirst && payload.quiet) room.quiet = true
         if (isFirst && isSceneId(payload.scene)) {
           room.scene = payload.scene
           room.doors = createDoors(doorsOf(room.scene))
@@ -539,8 +543,13 @@ export function attachSocketServer(httpServer: HttpServer) {
         if (isFirst && !isGameMode(payload.mode)) room.started = true
         if (isFirst && isGameMode(payload.mode)) {
           room.mode = payload.mode
-          room.monsters =
-            payload.mode === 'boss' ? createBossMonsters() : payload.mode === 'tag' ? [] : createMonsters(room.scene)
+          room.monsters = room.quiet
+            ? []
+            : payload.mode === 'boss'
+              ? createBossMonsters()
+              : payload.mode === 'tag'
+                ? []
+                : createMonsters(room.scene)
           room.matchOver = null
           room.damage = {}
           room.projectiles = []
@@ -875,8 +884,8 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.barrels = createBarrels(room.scene)
       room.drops = []
       if (heightFieldOf(prevScene) || heightFieldOf(room.scene)) {
-        if (room.mode === 'boss') room.monsters = createBossMonsters()
-        else if (room.mode === 'tag') room.monsters = []
+        if (room.quiet || room.mode === 'tag') room.monsters = []
+        else if (room.mode === 'boss') room.monsters = createBossMonsters()
         else room.monsters = createMonsters(room.scene)
         Object.keys(room.players).forEach((id, i) => {
           const p = room.players[id]
