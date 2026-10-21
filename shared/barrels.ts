@@ -1,4 +1,5 @@
 import { FLOOR_CENTERS, HIDE_SPOTS, SPAWN_POINTS, isWalkableWorld } from './dungeon.ts'
+import { heightFieldOf } from './heightmaps.ts'
 import { extraAabbsOf } from './mapData.ts'
 
 /** 木桶與掉寶數值。先定，方便日後調整。 */
@@ -47,6 +48,7 @@ function overlapsWall(x: number, z: number, r: number, boxes: { minX: number; ma
 }
 
 export function barrelSpotsOf(scene?: string | null) {
+  if (heightFieldOf(scene)) return []
   const extra = extraAabbsOf(scene)
   const pad = BARREL_RADIUS + 0.2
   const spots: { x: number; z: number }[] = []

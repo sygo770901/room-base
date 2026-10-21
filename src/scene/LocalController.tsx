@@ -5,6 +5,8 @@ import { HIDE_RANGE, HIDE_SPOTS } from '../../shared/dungeon'
 import { isMobileDevice } from '../perf/device'
 import { WEAPON_STATS } from '../../shared/barrels'
 import { DASH_DISTANCE, DASH_DURATION_MS, JUMP_CEILING, dashCooldownMs } from '../../shared/movement'
+import { groundY } from '../../shared/heightfield'
+import { heightFieldOf } from '../../shared/heightmaps'
 import { GRAVITY, HIDE_MAX_Y, JUMP_SPEED, platformsFor, supportY } from '../../shared/platforms'
 import { PLAYER_RADIUS } from '../../shared/furniture'
 import { POOP_SLOW_MUL, SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
@@ -254,7 +256,8 @@ export function LocalController({
     const stickCamera = (x: number, y: number, z: number) => {
       const target = orbit?.target
       if (!target) return
-      const lookY = OTS_LOOK_Y + y * 0.12
+      const nav = heightFieldOf(useAppStore.getState().scene)
+      const lookY = nav ? y + OTS_LOOK_Y : OTS_LOOK_Y + y * 0.12
       camera.position.x += x - target.x
       camera.position.y += lookY - target.y
       camera.position.z += z - target.z
@@ -332,6 +335,7 @@ export function LocalController({
       const sceneId = useAppStore.getState().scene
       const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors, doorsOf(sceneId)))
       const plats = platformsFor(sceneId)
+      const nav = heightFieldOf(sceneId)
       const result = resolvePlayerMove(
         pos.current.x,
         pos.current.z,
@@ -342,6 +346,7 @@ export function LocalController({
         extra,
         pos.current.y,
         plats,
+        nav,
       )
       const movedX = result.x - pos.current.x
       const movedZ = result.z - pos.current.z
@@ -380,6 +385,7 @@ export function LocalController({
         extra,
         pos.current.y,
         platformsFor(sceneId),
+        heightFieldOf(sceneId),
       )
       pos.current.x = result.x
       pos.current.z = result.z
@@ -393,6 +399,8 @@ export function LocalController({
       pos.current.y = JUMP_CEILING
       if (vy.current > 0) vy.current = 0
     }
+    const groundNav = heightFieldOf(useAppStore.getState().scene)
+    const terrain = groundNav ? (groundY(groundNav, pos.current.x, pos.current.z) ?? 0) : 0
     const feet = supportY(
       pos.current.x,
       pos.current.z,
@@ -400,6 +408,7 @@ export function LocalController({
       prevY,
       PLAYER_RADIUS,
       platformsFor(useAppStore.getState().scene),
+      terrain,
     )
     if (pos.current.y <= feet && vy.current <= 0.05) {
       pos.current.y = feet

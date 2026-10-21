@@ -1,7 +1,9 @@
 import type { Server } from 'socket.io'
 import { ATTACK_COOLDOWN_MS, ATTACK_RANGE, meleeHits, PLAYER_MAX_HP, type MatchOver } from '../shared/combat.ts'
 import { nextComboStep } from '../shared/anim.ts'
-import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
+import { HIDE_RANGE, HIDE_SPOTS } from '../shared/dungeon.ts'
+import { heightBlocksSight, canMoveTo, groundY } from '../shared/heightfield.ts'
+import { heightFieldOf, spawnOf } from '../shared/heightmaps.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
 import {
   DASH_DISTANCE,
@@ -156,7 +158,20 @@ export function playerViewFor(room: TagRoom, viewerId: string, p: PlayerState): 
       { x: p.position[0], z: p.position[2] },
       doorsOf(room.scene),
     )
-  if (!hidingCoords && !smoked && !behindDoor) return stripPlayer(p, away)
+  const heightHide =
+    p.team === 'hider' &&
+    Boolean(p.position) &&
+    Boolean(viewer?.position) &&
+    heightBlocksSight(
+      heightFieldOf(room.scene),
+      viewer!.position[0],
+      viewer!.position[1] ?? 0,
+      viewer!.position[2],
+      p.position[0],
+      p.position[1] ?? 0,
+      p.position[2],
+    )
+  if (!hidingCoords && !smoked && !behindDoor && !heightHide) return stripPlayer(p, away)
   const { position: _pos, phrase: _phrase, ...rest } = p
   return { ...rest, away } as PlayerState
 }
@@ -425,12 +440,12 @@ export function resetPlayersForTagRestart(room: TagRoom) {
   const ids = Object.keys(room.players)
   ids.forEach((id, i) => {
     const p = room.players[id]
-    const sp = SPAWN_POINTS[i % SPAWN_POINTS.length]
+    const sp = spawnOf(room.scene, i)
     p.hp = PLAYER_MAX_HP
     p.hidden = false
     p.team = 'hider'
     p.seated = null
-    p.position = [sp.x, 0, sp.z]
+    p.position = [sp.x, sp.y, sp.z]
     p.rotationY = 0
   })
 }
@@ -600,10 +615,23 @@ export function acceptMove(
   const jumping = Boolean(grant?.jumpUntil && now <= grant.jumpUntil)
   const prevY = player.position[1] ?? 0
   const platforms = platformsOf(room.scene)
-  const floor = supportY(x, z, rawY, prevY, PLAYER_FOOT_RADIUS, platforms)
+  const nav = heightFieldOf(room.scene)
+  const px = player.position[0]
+  const pz = player.position[2]
+  if (nav && !canMoveTo(nav, px, pz, x, z, PLAYER_FOOT_RADIUS)) return false
+  const terrain = nav ? (groundY(nav, x, z) ?? 0) : 0
+  const startT = nav ? (groundY(nav, px, pz) ?? prevY) : 0
+  const floor = supportY(x, z, rawY, prevY, PLAYER_FOOT_RADIUS, platforms, terrain)
   let y = rawY
-  if (!jumping && y > floor + JUMP_GROUND_EPS) y = floor
-  if (y > JUMP_CEILING + 0.2 || y < -0.08) return false
+  if (!jumping && y > floor + JUMP_GROUND_EPS) {
+    const falling = Boolean(nav) && y < startT - 0.05 && y + 0.2 >= terrain
+    if (!falling) y = floor
+  }
+  if (nav) {
+    const low = Math.min(startT, terrain)
+    const high = Math.max(startT, terrain)
+    if (y > high + JUMP_CEILING + 0.2 || y < low - 0.25) return false
+  } else if (y > JUMP_CEILING + 0.2 || y < -0.08) return false
 
   const slowed = now < (room.poopSlowUntil?.[player.id] ?? 0)
   const prev = room.lastMoveAt[player.id]
@@ -613,7 +641,12 @@ export function acceptMove(
   const dist = Math.hypot(x - player.position[0], z - player.position[2])
   const rise = y - prevY
   const drop = prevY - y
-  if (rise > allow.vert || drop > JUMP_MAX_DELTA + MOVE_Y_PAD) return false
+  if (nav) {
+    const terrainRise = Math.max(0, terrain - startT)
+    const terrainDrop = Math.max(0, startT - terrain)
+    if (rise > allow.vert + terrainRise + 0.08) return false
+    if (drop > JUMP_MAX_DELTA + MOVE_Y_PAD + terrainDrop) return false
+  } else if (rise > allow.vert || drop > JUMP_MAX_DELTA + MOVE_Y_PAD) return false
 
   if (!room.moveBank) room.moveBank = {}
   let bank = room.moveBank[player.id]

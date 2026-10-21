@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { PLAYER_CLASS } from '../../shared/classes'
+import { heightFieldOf } from '../../shared/heightmaps'
 import { useAppStore } from '../store'
 import type { PlayerState } from '../types'
 import { KayKitHero } from './KayKitHero'
@@ -41,7 +42,9 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
     }
     const py = p[1] ?? 0
     if (isSelf || !ready.current) {
-      g.position.set(p[0], py, p[2])
+      const nav = heightFieldOf(useAppStore.getState().scene)
+      const ny = isSelf && nav && ready.current ? THREE.MathUtils.damp(g.position.y, py, 12, dt) : py
+      g.position.set(p[0], ny, p[2])
       g.rotation.y = player.rotationY
       ready.current = true
       speed.current = 0

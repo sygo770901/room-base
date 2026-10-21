@@ -1,4 +1,5 @@
 import { isWalkableWorld } from '../../shared/dungeon'
+import { canMoveTo, type HeightField } from '../../shared/heightfield'
 import { KAYKIT_EXTRA_WALLS } from '../../shared/kaykitScene'
 import { blocksAtHeight, type Platform } from '../../shared/platforms'
 import {
@@ -119,6 +120,7 @@ function tryMove(
   extra: Aabb[],
   y = 0,
   platforms: Platform[] = [],
+  nav: HeightField | null = null,
 ): MoveResult {
   const r = radius
   let nx = fromX + dx
@@ -127,11 +129,15 @@ function tryMove(
   nx = clamped.x
   nz = clamped.z
 
-  if (!isWalkableWorld(nx, nz, r)) return { x: fromX, z: fromZ }
+  if (nav) {
+    if (!canMoveTo(nav, fromX, fromZ, nx, nz, r)) return { x: fromX, z: fromZ }
+  } else if (!isWalkableWorld(nx, nz, r)) return { x: fromX, z: fromZ }
   if (blocksAtHeight(nx, nz, y, r, platforms)) return { x: fromX, z: fromZ }
 
-  for (const w of STATIC_AABBS) {
-    if (circleHitsAabb(nx, nz, r, w)) return { x: fromX, z: fromZ }
+  if (!nav) {
+    for (const w of STATIC_AABBS) {
+      if (circleHitsAabb(nx, nz, r, w)) return { x: fromX, z: fromZ }
+    }
   }
   for (const w of extra) {
     if (circleHitsAabb(nx, nz, r, w)) return { x: fromX, z: fromZ }
@@ -170,20 +176,21 @@ export function resolvePlayerMove(
   extra: Aabb[] = [],
   y = 0,
   platforms: Platform[] = [],
+  nav: HeightField | null = null,
 ): MoveResult {
   let x = fromX
   let z = fromZ
   let pushed: MoveResult['pushed']
 
   if (dx !== 0) {
-    const rx = tryMove(x, z, dx, 0, furniture, radius, extra, y, platforms)
+    const rx = tryMove(x, z, dx, 0, furniture, radius, extra, y, platforms, nav)
     x = rx.x
     z = rx.z
     if (rx.pushed) pushed = rx.pushed
   }
   if (dz !== 0) {
     const furn = withPushed(furniture, pushed)
-    const rz = tryMove(x, z, 0, dz, furn, radius, extra, y, platforms)
+    const rz = tryMove(x, z, 0, dz, furn, radius, extra, y, platforms, nav)
     x = rz.x
     z = rz.z
     if (rz.pushed) pushed = rz.pushed

@@ -2,7 +2,8 @@ import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import type { Socket } from 'socket.io'
 import { BOSS_COUNTDOWN_MS, PLAYER_MAX_HP, ROOM_MAX_PLAYERS, type ProjectileState } from '../shared/combat.ts'
-import { SPAWN_POINTS } from '../shared/dungeon.ts'
+import { groundY } from '../shared/heightfield.ts'
+import { heightFieldOf, spawnOf } from '../shared/heightmaps.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
 import { createBossMonsters, createMonsters, handleAttack, publicMonsters, scaleBossHealth, standPlayer, tickRoom } from './combat.ts'
 import {
@@ -539,7 +540,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         if (isFirst && isGameMode(payload.mode)) {
           room.mode = payload.mode
           room.monsters =
-            payload.mode === 'boss' ? createBossMonsters() : payload.mode === 'tag' ? [] : createMonsters()
+            payload.mode === 'boss' ? createBossMonsters() : payload.mode === 'tag' ? [] : createMonsters(room.scene)
           room.matchOver = null
           room.damage = {}
           room.projectiles = []
@@ -569,13 +570,13 @@ export function attachSocketServer(httpServer: HttpServer) {
           if (role === 'host') room.hostId = playerId
           const color = COLORS[Object.keys(room.players).length % COLORS.length]
           const spawnIndex = Object.keys(room.players).length
-          const sp = SPAWN_POINTS[spawnIndex % SPAWN_POINTS.length]
+          const sp = spawnOf(room.scene, spawnIndex)
           player = {
             id: playerId,
             name,
             color,
             classId: PLAYER_CLASS,
-            position: [sp.x, 0, sp.z],
+            position: [sp.x, sp.y, sp.z],
             rotationY: 0,
             seated: null,
             role,
@@ -657,7 +658,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       const ids = Object.keys(room.players)
       ids.forEach((id, i) => {
         const p = room.players[id]
-        const sp = SPAWN_POINTS[i % SPAWN_POINTS.length]
+        const sp = spawnOf(room.scene, i)
         p.hp = PLAYER_MAX_HP
         p.hidden = false
         p.phrase = null
@@ -669,7 +670,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           p.seated = null
         }
         if (room.mode !== 'tag') {
-          p.position = [sp.x, 0, sp.z]
+          p.position = [sp.x, sp.y, sp.z]
           p.rotationY = 0
         }
         recordMoveOrigin(room, id, Date.now())
@@ -868,10 +869,23 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (room.hostId !== playerId) return
       if ((room.mode === 'boss' || room.mode === 'tag') && room.started && !room.matchOver) return
       if (!isSceneId(payload.scene)) return
+      const prevScene = room.scene
       room.scene = payload.scene
       room.doors = createDoors(doorsOf(room.scene))
       room.barrels = createBarrels(room.scene)
       room.drops = []
+      if (heightFieldOf(prevScene) || heightFieldOf(room.scene)) {
+        if (room.mode === 'boss') room.monsters = createBossMonsters()
+        else if (room.mode === 'tag') room.monsters = []
+        else room.monsters = createMonsters(room.scene)
+        Object.keys(room.players).forEach((id, i) => {
+          const p = room.players[id]
+          const sp = spawnOf(room.scene, i)
+          p.position = [sp.x, sp.y, sp.z]
+          p.rotationY = 0
+          recordMoveOrigin(room, id, Date.now())
+        })
+      }
       emitState(room, io)
     })
 
@@ -927,7 +941,9 @@ export function attachSocketServer(httpServer: HttpServer) {
       const { room, player, playerId } = ctx
       if (player.seated || player.hidden || player.team === 'spectator' || isDowned(player)) return
       const [x, y, z] = player.position
-      if (!canStartJump(x, z, y ?? 0, platformsOf(room.scene))) return
+      const jumpField = heightFieldOf(room.scene)
+      const jumpTerrain = jumpField ? (groundY(jumpField, x, z) ?? 0) : 0
+      if (!canStartJump(x, z, y ?? 0, platformsOf(room.scene), jumpTerrain)) return
       const now = Date.now()
       room.moveGrant[playerId] = { ...room.moveGrant[playerId], jumpUntil: now + JUMP_AIR_MS }
     })

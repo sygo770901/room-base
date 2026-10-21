@@ -10,6 +10,7 @@ import {
   type Place,
 } from '../../shared/dungeon'
 import { isBakedDoorMesh } from '../../shared/doorways'
+import { HEIGHTLAB_PLACES } from '../../shared/heightlab'
 import { KAYKIT_PLACES } from '../../shared/kaykitScene'
 import { usesKaykitKit } from '../../shared/mapData'
 import { isMobileDevice } from '../perf/device'
@@ -135,16 +136,22 @@ function KitModel({ root, model, places }: { root: string; model: string; places
   )
 }
 
+function kitFor(scene: string) {
+  if (scene === 'heightlab') return { root: KAYKIT_ROOT, places: HEIGHTLAB_PLACES }
+  if (usesKaykitKit(scene)) return { root: KAYKIT_ROOT, places: KAYKIT_PLACES }
+  return { root: KENNEY_ROOT, places: KENNEY_PLACES }
+}
+
 export function dungeonModelUrls(scene: string) {
-  const root = usesKaykitKit(scene) ? KAYKIT_ROOT : KENNEY_ROOT
-  const places = usesKaykitKit(scene) ? KAYKIT_PLACES : KENNEY_PLACES
-  return [...new Set(places.map((p) => `${root}/${p.model}`))]
+  const kit = kitFor(scene)
+  return [...new Set(kit.places.map((p) => `${kit.root}/${p.model}`))]
 }
 
 export function Dungeon(_props: { focusX: number; focusZ: number }) {
   const scene = useAppStore((s) => s.scene)
-  const root = usesKaykitKit(scene) ? KAYKIT_ROOT : KENNEY_ROOT
-  const places = usesKaykitKit(scene) ? KAYKIT_PLACES : KENNEY_PLACES
+  const kit = kitFor(scene)
+  const root = kit.root
+  const places = kit.places
   const groups = useMemo(() => {
     const map = new Map<string, Place[]>()
     for (const place of places) {

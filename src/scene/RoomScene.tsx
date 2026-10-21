@@ -3,7 +3,8 @@ import { useGLTF } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, useProgress } from '@react-three/drei'
 import * as THREE from 'three'
-import { rayOcclusion, SPAWN_POINTS } from '../../shared/dungeon'
+import { rayOcclusion } from '../../shared/dungeon'
+import { heightFieldOf, spawnOf } from '../../shared/heightmaps'
 import { KAYKIT_TORCHES } from '../../shared/kaykitScene'
 import { doorsOf, extraAabbsOf, occludersOf, usesKaykitKit } from '../../shared/mapData'
 import { closedDoorAabbs } from '../../shared/doors'
@@ -50,7 +51,6 @@ import { fileLabel, sceneAssetUrls } from '../load/mapLoad'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
-const SPAWN = SPAWN_POINTS[0] ?? { x: 80, z: 22 }
 // Three.js 預設 minPolarAngle 是 0（頭頂正上方）、rotateSpeed 是 1（拖滿一整個螢幕等於轉 360°）。
 // 這裡把垂直角鎖在斜上方到接近水平，旋轉改慢，避免短距離拖曳就被甩到頭頂。
 const MIN_PHI = OTS_MIN_PHI
@@ -93,8 +93,9 @@ function FollowLight({ mobile }: { mobile: boolean }) {
 
   useFrame(() => {
     const p = selfId ? players[selfId] : null
-    const x = p?.position?.[0] ?? SPAWN.x
-    const z = p?.position?.[2] ?? SPAWN.z
+    const spawn = spawnOf(sceneId, 0)
+    const x = p?.position?.[0] ?? spawn.x
+    const z = p?.position?.[2] ?? spawn.z
     if (light.current) {
       light.current.position.set(x + 10, 16, z + 8)
       target.position.set(x, 0, z)
@@ -123,7 +124,7 @@ function FollowLight({ mobile }: { mobile: boolean }) {
   return (
     <>
       <primitive object={target} />
-      {!mobile && sceneId !== 'kaykit' && (
+      {!mobile && sceneId !== 'kaykit' && sceneId !== 'heightlab' && (
         <pointLight ref={fill} color="#ffe2c4" intensity={36} distance={28} decay={2} />
       )}
       {!mobile &&
@@ -308,9 +309,18 @@ function CameraRig() {
       const dz = pose.z - target.z
       const dist = Math.hypot(dx, dy, dz)
       if (dist < 1.25) break
-      const hit = rayOcclusion(target.x, target.y, target.z, dx / dist, dy / dist, dz / dist, dist, extra, {
-        skipCeilingY: OTS_CEILING_Y,
-      })
+      const nav = heightFieldOf(state.scene)
+      const hit = rayOcclusion(
+        target.x,
+        target.y,
+        target.z,
+        dx / dist,
+        dy / dist,
+        dz / dist,
+        dist,
+        extra,
+        nav ? undefined : { skipCeilingY: OTS_CEILING_Y },
+      )
       if (hit >= dist - 0.12) break
       const next = Math.max(OTS_MIN_PULL, Math.min(radius, hit - 0.28))
       if (next >= radius - 0.01) break
@@ -376,17 +386,25 @@ function SceneContent() {
   }, [self, localPose])
 
   const isHost = !!selfId && hostId === selfId
-  const lookAt = useMemo(() => new THREE.Vector3(SPAWN.x, LOOK_Y, SPAWN.z), [])
+  const spawn = spawnOf(sceneId, 0)
+  const lookAt = useMemo(() => new THREE.Vector3(spawn.x, LOOK_Y + (heightFieldOf(sceneId) ? spawn.y : 0), spawn.z), [sceneId, spawn.x, spawn.y, spawn.z])
   const assetUrls = useMemo(() => sceneAssetUrls(sceneId), [sceneId])
 
   return (
     <>
       <BlockContextMenu />
-      <color attach="background" args={[sceneId === 'jungle' ? '#1c2a1c' : sceneId === 'kaykit' ? '#2a2428' : '#3a3544']} />
+      <color
+        attach="background"
+        args={[sceneId === 'jungle' ? '#1c2a1c' : sceneId === 'kaykit' || sceneId === 'heightlab' ? '#2a2428' : '#3a3544']}
+      />
       <fog
         attach="fog"
         args={
-          sceneId === 'jungle' ? ['#1c2a1c', 16, 62] : sceneId === 'kaykit' ? ['#2a2428', 18, 70] : ['#3a3544', 28, 92]
+          sceneId === 'jungle'
+            ? ['#1c2a1c', 16, 62]
+            : sceneId === 'kaykit' || sceneId === 'heightlab'
+              ? ['#2a2428', 18, 70]
+              : ['#3a3544', 28, 92]
         }
       />
       <hemisphereLight
@@ -400,7 +418,7 @@ function SceneContent() {
       <Suspense fallback={null}>
         <WarmAssets urls={assetUrls} />
         <DungeonBoundary>
-          <Dungeon focusX={displaySelf?.position?.[0] ?? SPAWN.x} focusZ={displaySelf?.position?.[2] ?? SPAWN.z} />
+          <Dungeon focusX={displaySelf?.position?.[0] ?? spawn.x} focusZ={displaySelf?.position?.[2] ?? spawn.z} />
         </DungeonBoundary>
         <ModelBoundary file="/assets/kaykit/dungeon-1.1/wall.gltf" fallback={null}>
           {sceneId === 'jungle' ? <JungleFoliage /> : null}
@@ -449,13 +467,16 @@ function SceneContent() {
 
 function sceneClear(sceneId: string) {
   if (sceneId === 'jungle') return '#1c2a1c'
-  if (sceneId === 'kaykit') return '#2a2428'
+  if (sceneId === 'kaykit' || sceneId === 'heightlab') return '#2a2428'
   return '#3a3544'
 }
 
 export function RoomScene() {
   const mobile = isMobileDevice()
-  const boot = otsCamera(SPAWN.x, OTS_LOOK_Y, SPAWN.z, otsThetaFromFacing(0), OTS_ENTRY_PHI, useAppStore.getState().camDist)
+  const sceneId = useAppStore((s) => s.scene)
+  const spawn = spawnOf(sceneId, 0)
+  const lookY = heightFieldOf(sceneId) ? spawn.y + OTS_LOOK_Y : OTS_LOOK_Y
+  const boot = otsCamera(spawn.x, lookY, spawn.z, otsThetaFromFacing(0), OTS_ENTRY_PHI, useAppStore.getState().camDist)
   return (
     <Canvas
       shadows={!mobile}

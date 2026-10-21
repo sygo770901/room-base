@@ -11,6 +11,8 @@ export interface MonsterState {
   kind: MonsterKind
   x: number
   z: number
+  /** 有高度圖時才帶。平面地圖不送，客戶端仍站在 0。 */
+  y?: number
   rotationY: number
   hp: number
   maxHp: number

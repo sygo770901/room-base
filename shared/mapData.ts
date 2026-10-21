@@ -1,6 +1,8 @@
 import { KAYKIT_DOORWAYS, KAYKIT_EXTRA_WALLS, KAYKIT_OCCLUDERS } from './kaykitScene'
 import { DOORWAY_DEFS, doorwayPlaces } from './doorways'
 import { platformsFor } from './platforms'
+import { heightOccluders } from './heightfield'
+import { heightFieldOf } from './heightmaps'
 import type { WallBox, OccBox } from './dungeon'
 import type { SceneId } from './scenes'
 import type { DoorDef } from './doors'
@@ -12,8 +14,10 @@ function copyDoors(): DoorDef[] {
 const KENNEY_DOORS: DoorDef[] = copyDoors()
 const KAYKIT_DOORS: DoorDef[] = copyDoors()
 const JUNGLE_DOORS: DoorDef[] = copyDoors()
+const HEIGHTLAB_DOORS: DoorDef[] = []
 
 export function doorsOf(scene?: SceneId | string | null): DoorDef[] {
+  if (scene === 'heightlab') return HEIGHTLAB_DOORS
   if (scene === 'kaykit') return KAYKIT_DOORS
   if (scene === 'jungle') return JUNGLE_DOORS
   return KENNEY_DOORS
@@ -60,8 +64,10 @@ export function extraAabbsOf(scene?: SceneId | string | null) {
 }
 
 export function occludersOf(scene?: SceneId | string | null): OccBox[] {
-  if (scene === 'kaykit' || scene === 'jungle') return KAYKIT_OCCLUDERS
-  return []
+  const base = scene === 'kaykit' || scene === 'jungle' ? KAYKIT_OCCLUDERS : []
+  const field = heightFieldOf(scene)
+  if (!field) return base
+  return base.concat(heightOccluders(field))
 }
 
 export function platformsOf(scene?: SceneId | string | null) {

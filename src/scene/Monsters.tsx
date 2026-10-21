@@ -11,18 +11,20 @@ import { KayKitHero } from './KayKitHero'
 
 function MonsterView({ monster }: { monster: MonsterState }) {
   const ref = useRef<THREE.Group>(null)
-  const pos = useRef(new THREE.Vector3(monster.x, 0, monster.z))
+  const pos = useRef(new THREE.Vector3(monster.x, monster.y ?? 0, monster.z))
   const speed = useRef(0)
 
   useFrame((_, dt) => {
     const g = ref.current
     if (!g) return
     const nx = THREE.MathUtils.damp(pos.current.x, monster.x, 10, dt)
+    const ny = THREE.MathUtils.damp(pos.current.y, monster.y ?? 0, 10, dt)
     const nz = THREE.MathUtils.damp(pos.current.z, monster.z, 10, dt)
     speed.current = Math.hypot(nx - pos.current.x, nz - pos.current.z) / Math.max(dt, 1 / 120)
     pos.current.x = nx
+    pos.current.y = ny
     pos.current.z = nz
-    g.position.set(pos.current.x, 0, pos.current.z)
+    g.position.set(pos.current.x, ny, pos.current.z)
     g.rotation.y = monster.rotationY
   })
 

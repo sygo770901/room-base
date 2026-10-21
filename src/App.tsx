@@ -29,7 +29,7 @@ class SceneErrorBoundary extends Component<{ children: ReactNode }, { failed: bo
 
 function sceneShell(scene: string) {
   if (scene === 'jungle') return '#1c2a1c'
-  if (scene === 'kaykit') return '#2a2428'
+  if (scene === 'kaykit' || scene === 'heightlab') return '#2a2428'
   return '#3a3544'
 }
 
