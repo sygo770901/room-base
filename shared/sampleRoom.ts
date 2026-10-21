@@ -196,6 +196,11 @@ torch({ gx: 4, gz: 1 }, 'e', 0)
 torch({ gx: 2, gz: 0 }, 's', 0)
 torch({ gx: 6, gz: 4 }, 'n', SAMPLE_PLATFORM_Y)
 torch({ gx: 7, gz: 2 }, 'e', SAMPLE_PLATFORM_Y)
+// 樓梯口兩側，火舌朝西，站在梯底往上看得到，也照到踏面與平台邊緣。
+places.push(
+  { x: 39.02, y: 5.9, z: 227.55, rotY: -Math.PI / 2, model: 'torch_mounted.gltf' },
+  { x: 39.02, y: 5.9, z: 236.45, rotY: -Math.PI / 2, model: 'torch_mounted.gltf' },
+)
 
 type Prop = Place & { hx?: number; hz?: number }
 
@@ -378,8 +383,8 @@ export const SAMPLE_SHOTS = {
     up: [0, 1, 0] as [number, number, number],
   },
   stairs: {
-    pos: [26.2, 1.55, 229.4] as [number, number, number],
-    look: [46, 5.4, 232.4] as [number, number, number],
+    pos: [30.6, 1.85, 232] as [number, number, number],
+    look: [40.8, 3.7, 232] as [number, number, number],
     up: [0, 1, 0] as [number, number, number],
   },
 }
