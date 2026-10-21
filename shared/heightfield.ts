@@ -219,6 +219,51 @@ export function unreachableFromSpawn(field: HeightField, radius = 0.26): string[
   return missing
 }
 
+/** 牆柱高度。高台上的側牆大約再高 4 公尺，8 蓋得住。 */
+export const HEIGHT_WALL_TOP = 8
+/** 高台樓板的厚度。樓板底下的空氣看得到人，只有貼著板子的那一層算擋住。 */
+export const HEIGHT_SLAB = 0.45
+
+/** 這點在牆裡、樓梯體裡、地面下，或貼著高台樓板。 */
+export function heightPointSolid(field: HeightField, x: number, y: number, z: number) {
+  const g = groundY(field, x, z)
+  if (g == null) return y >= -0.25 && y <= HEIGHT_WALL_TOP
+  if (y >= g - 0.05) return false
+  const coord = cellCoord(field, x, z)
+  const stair = coord ? stairMap(field).get(`${coord.cx},${coord.cz}`) : undefined
+  if (stair) return true
+  if (g <= 0.35) return true
+  return y > g - HEIGHT_SLAB
+}
+
+/**
+ * 胸口到鏡頭（含一點餘裕）有沒有穿進地面或牆柱。
+ * 只看高度圖，不看平面地圖的牆盒。樓梯斜面以上的空氣不算擋住。
+ */
+export function heightCameraBlocked(
+  field: HeightField,
+  x0: number,
+  y0: number,
+  z0: number,
+  x1: number,
+  y1: number,
+  z1: number,
+) {
+  const dx = x1 - x0
+  const dy = y1 - y0
+  const dz = z1 - z0
+  const dist = Math.hypot(dx, dy, dz)
+  if (dist < 0.04) return false
+  const steps = Math.max(1, Math.ceil(dist / 0.08))
+  for (let i = 1; i <= steps; i++) {
+    const along = (dist * i) / steps
+    if (along < 0.12) continue
+    const t = i / steps
+    if (heightPointSolid(field, x0 + dx * t, y0 + dy * t, z0 + dz * t)) return true
+  }
+  return false
+}
+
 /** 視線：牆擋住，或射線穿進地面體積（樓板）也擋住。沒有高度圖時不擋。 */
 export function heightBlocksSight(
   field: HeightField | null,

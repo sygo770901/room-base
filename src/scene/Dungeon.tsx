@@ -142,6 +142,9 @@ function kitFor(scene: string) {
   return { root: KENNEY_ROOT, places: KENNEY_PLACES }
 }
 
+/** 鏡頭射線只打這組，不會打到角色自己。 */
+export const DUNGEON_OCCLUSION = 'dungeon-occlusion'
+
 export function dungeonModelUrls(scene: string) {
   const kit = kitFor(scene)
   return [...new Set(kit.places.map((p) => `${kit.root}/${p.model}`))]
@@ -163,7 +166,7 @@ export function Dungeon(_props: { focusX: number; focusZ: number }) {
   }, [places])
 
   return (
-    <group>
+    <group name={DUNGEON_OCCLUSION}>
       {groups.map(([model, list]) => (
         <KitModel key={`${root}/${model}`} root={root} model={model} places={list} />
       ))}

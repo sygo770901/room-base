@@ -166,8 +166,8 @@ async function main() {
     const open = await freshState(ghostSock, hiderSock)
     assert(sees(open.a, hiderId) && sees(open.b!, ghostId), '同一層、沒有樓板擋住時，雙方都該看得到對方')
 
-    const hiderPos = byId[hiderId].position
-    const ghostPos = byId[ghostId].position
+    const hiderPos = open.a.players[hiderId]?.position ?? open.b?.players[hiderId]?.position
+    const ghostPos = open.a.players[ghostId]?.position ?? open.b?.players[ghostId]?.position
     assert(hiderPos != null && ghostPos != null, '開局座標')
     await walkVia(hiderSock, hiderId, hiderPos, [
       { x: 14, z: hiderPos[2] },

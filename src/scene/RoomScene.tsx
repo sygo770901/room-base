@@ -4,6 +4,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, useProgress } from '@react-three/drei'
 import * as THREE from 'three'
 import { rayOcclusion } from '../../shared/dungeon'
+import { heightCameraBlocked } from '../../shared/heightfield'
 import { heightFieldOf, spawnOf } from '../../shared/heightmaps'
 import { KAYKIT_TORCHES } from '../../shared/kaykitScene'
 import { doorsOf, extraAabbsOf, occludersOf, usesKaykitKit } from '../../shared/mapData'
@@ -18,6 +19,7 @@ import {
 import { POINTER_LOOK_SCALE } from '../../shared/input'
 import {
   OTS_CEILING_Y,
+  OTS_CHEST_Y,
   OTS_ENTRY_PHI,
   OTS_LOOK_Y,
   OTS_MAX_PHI,
@@ -25,6 +27,9 @@ import {
   OTS_MIN_PHI,
   OTS_MIN_PULL,
   OTS_MIN_RADIUS,
+  OTS_RIGHT,
+  bodyViewBlocked,
+  fitOtsCamera,
   otsCamera,
   otsThetaFromFacing,
 } from '../../shared/camera'
@@ -33,7 +38,7 @@ import { canvasDpr, isMobileDevice } from '../perf/device'
 import { bindPointerLockWatch, exitGameLock, isAltHeld, isPointerInWindow, requestGameLock, setPointerInWindow } from './pointerLock'
 import { typingInField } from './inputLock'
 import { NotePlacementPlane, StickyNotes3D } from './Furniture'
-import { Dungeon } from './Dungeon'
+import { DUNGEON_OCCLUSION, Dungeon } from './Dungeon'
 import { DungeonBoundary } from './DungeonBoundary'
 import { JungleFoliage } from './JungleFoliage'
 import { SceneDecor } from './Decor'
@@ -160,14 +165,43 @@ function FollowLight({ mobile }: { mobile: boolean }) {
   )
 }
 
+const camRayOrigin = new THREE.Vector3()
+const camRayDir = new THREE.Vector3()
+const camRaycaster = new THREE.Raycaster()
+
+/** 射向地城模型。打中代表這段穿進牆、樓梯或樓板。 */
+function meshSegmentBlocked(
+  root: THREE.Object3D | null,
+  x0: number,
+  y0: number,
+  z0: number,
+  x1: number,
+  y1: number,
+  z1: number,
+) {
+  if (!root) return false
+  const dx = x1 - x0
+  const dy = y1 - y0
+  const dz = z1 - z0
+  const dist = Math.hypot(dx, dy, dz)
+  if (dist < 0.05) return false
+  camRayOrigin.set(x0, y0, z0)
+  camRayDir.set(dx / dist, dy / dist, dz / dist)
+  camRaycaster.set(camRayOrigin, camRayDir)
+  camRaycaster.near = 0.12
+  camRaycaster.far = dist - 0.02
+  return camRaycaster.intersectObject(root, true).length > 0
+}
+
 function CameraRig() {
-  const { camera, controls, gl } = useThree()
+  const { camera, controls, gl, scene } = useThree()
   const saved = useRef({
     theta: otsThetaFromFacing(0),
     phi: OTS_ENTRY_PHI,
     radius: useAppStore.getState().camDist,
     facingReady: false,
   })
+  const camHold = useRef({ radius: useAppStore.getState().camDist, shoulder: OTS_RIGHT })
   const drag = useRef<{ id: number; x: number; y: number; mode: 'look' | 'zoom' } | null>(null)
   const touches = useRef(new Map<number, { x: number; y: number }>())
   const pinchDist = useRef(0)
@@ -282,7 +316,7 @@ function CameraRig() {
   }, [gl])
 
   // 角度只存在這裡。走路、擋牆拉近都不會寫回 theta/phi。
-  useFrame(() => {
+  useFrame((_, dt) => {
     const target = (controls as { target?: THREE.Vector3 } | null)?.target
     if (!target) return
     const shot = saved.current
@@ -296,36 +330,77 @@ function CameraRig() {
     }
     shot.radius = THREE.MathUtils.clamp(st.camDist, MIN_RADIUS, MAX_RADIUS)
     shot.phi = THREE.MathUtils.clamp(shot.phi, MIN_PHI, MAX_PHI)
-    let radius = shot.radius
-    let pose = otsCamera(target.x, target.y, target.z, shot.theta, shot.phi, radius)
     const state = useAppStore.getState()
-    const extra = occludersOf(state.scene).concat(
-      extraAabbsOf(state.scene).map((b) => ({ ...b, minY: 0, maxY: 4 })),
-      closedDoorAabbs(state.doors, doorsOf(state.scene)).map((b) => ({ ...b, minY: 0, maxY: 3.2 })),
-    )
-    for (let i = 0; i < 2; i++) {
-      const dx = pose.x - target.x
-      const dy = pose.y - target.y
-      const dz = pose.z - target.z
-      const dist = Math.hypot(dx, dy, dz)
-      if (dist < 1.25) break
-      const nav = heightFieldOf(state.scene)
-      const hit = rayOcclusion(
-        target.x,
-        target.y,
-        target.z,
-        dx / dist,
-        dy / dist,
-        dz / dist,
-        dist,
-        extra,
-        nav ? undefined : { skipCeilingY: OTS_CEILING_Y },
+    const nav = heightFieldOf(state.scene)
+    let pose = otsCamera(target.x, target.y, target.z, shot.theta, shot.phi, shot.radius)
+    if (nav) {
+      const feetY = target.y - OTS_LOOK_Y
+      const chestY = feetY + OTS_CHEST_Y
+      const bodyY = [chestY, feetY + 0.55]
+      const dungeon = scene.getObjectByName(DUNGEON_OCCLUSION)
+      const blocked = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) =>
+        heightCameraBlocked(nav, x0, y0, z0, x1, y1, z1) ||
+        meshSegmentBlocked(dungeon ?? null, x0, y0, z0, x1, y1, z1)
+      const fitted = fitOtsCamera({
+        x: target.x,
+        y: target.y,
+        z: target.z,
+        chestY,
+        bodyY,
+        theta: shot.theta,
+        phi: shot.phi,
+        radius: shot.radius,
+        blocked,
+      })
+      const hold = camHold.current
+      const holdPose = otsCamera(target.x, target.y, target.z, shot.theta, shot.phi, hold.radius, hold.shoulder)
+      const holdBlocked = bodyViewBlocked(target.x, target.z, holdPose, bodyY, blocked)
+      if (holdBlocked || fitted.radius < hold.radius - 0.001 || fitted.shoulder < hold.shoulder - 0.001) {
+        hold.radius = fitted.radius
+        hold.shoulder = fitted.shoulder
+      } else if (fitted.radius > hold.radius + 0.3 || fitted.shoulder > hold.shoulder + 0.15) {
+        const k = 1 - Math.exp(-4.5 * Math.min(0.05, Math.max(0, dt)))
+        const nextRadius = Math.min(fitted.radius, hold.radius + (fitted.radius - hold.radius) * k)
+        const nextShoulder = Math.min(fitted.shoulder, hold.shoulder + (fitted.shoulder - hold.shoulder) * k)
+        const eased = otsCamera(target.x, target.y, target.z, shot.theta, shot.phi, nextRadius, nextShoulder)
+        if (bodyViewBlocked(target.x, target.z, eased, bodyY, blocked)) {
+          hold.radius = fitted.radius
+          hold.shoulder = fitted.shoulder
+        } else {
+          hold.radius = nextRadius
+          hold.shoulder = nextShoulder
+        }
+      }
+      pose = otsCamera(target.x, target.y, target.z, shot.theta, shot.phi, hold.radius, hold.shoulder)
+    } else {
+      let radius = shot.radius
+      const extra = occludersOf(state.scene).concat(
+        extraAabbsOf(state.scene).map((b) => ({ ...b, minY: 0, maxY: 4 })),
+        closedDoorAabbs(state.doors, doorsOf(state.scene)).map((b) => ({ ...b, minY: 0, maxY: 3.2 })),
       )
-      if (hit >= dist - 0.12) break
-      const next = Math.max(OTS_MIN_PULL, Math.min(radius, hit - 0.28))
-      if (next >= radius - 0.01) break
-      radius = next
-      pose = otsCamera(target.x, target.y, target.z, shot.theta, shot.phi, radius)
+      for (let i = 0; i < 2; i++) {
+        const dx = pose.x - target.x
+        const dy = pose.y - target.y
+        const dz = pose.z - target.z
+        const dist = Math.hypot(dx, dy, dz)
+        if (dist < 1.25) break
+        const hit = rayOcclusion(
+          target.x,
+          target.y,
+          target.z,
+          dx / dist,
+          dy / dist,
+          dz / dist,
+          dist,
+          extra,
+          { skipCeilingY: OTS_CEILING_Y },
+        )
+        if (hit >= dist - 0.12) break
+        const next = Math.max(OTS_MIN_PULL, Math.min(radius, hit - 0.28))
+        if (next >= radius - 0.01) break
+        radius = next
+        pose = otsCamera(target.x, target.y, target.z, shot.theta, shot.phi, radius)
+      }
     }
     camera.position.set(pose.x, pose.y, pose.z)
     camera.up.set(0, 1, 0)

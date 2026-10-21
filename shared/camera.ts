@@ -14,6 +14,11 @@ export const OTS_LOOK_Y = 1.5
 export const OTS_MIN_RADIUS = 2.5
 export const OTS_MAX_RADIUS = 6
 export const OTS_MIN_PULL = 1.5
+/** 角色胸口。擋牆時用這點連到鏡頭，不連到更高的注視點，才不會從樓梯上方穿過去。 */
+export const OTS_CHEST_Y = 1.05
+/** 鏡頭要停在牆或樓梯表面前這麼遠，近裁面才不會埋進模型。 */
+export const OTS_CAM_CLEARANCE = 0.32
+export const OTS_FIT_MIN_RADIUS = 0.4
 export const OTS_MIN_PHI = 1.18
 export const OTS_MAX_PHI = 1.42
 export const OTS_CEILING_Y = 2.85
@@ -76,4 +81,80 @@ export function otsCamera(
     aimY: y,
     aimZ: z + fz * aimAhead,
   }
+}
+
+export type SegmentBlocked = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) => boolean
+
+/** 身體上的一點連到鏡頭，並再往外伸出一點餘裕。這段被擋住就代表鏡頭太貼牆。 */
+export function shoulderViewBlocked(
+  x: number,
+  bodyY: number,
+  z: number,
+  pose: OtsPose,
+  blocked: SegmentBlocked,
+) {
+  const dx = pose.x - x
+  const dy = pose.y - bodyY
+  const dz = pose.z - z
+  const dist = Math.hypot(dx, dy, dz) || 1
+  const scale = (dist + OTS_CAM_CLEARANCE) / dist
+  return blocked(x, bodyY, z, x + dx * scale, bodyY + dy * scale, z + dz * scale)
+}
+
+/** 胸口和較低的身體點都要看得見，樓梯稜線才不會把人腰以下裁掉。 */
+export function bodyViewBlocked(x: number, z: number, pose: OtsPose, bodyY: number[], blocked: SegmentBlocked) {
+  return bodyY.some((y) => shoulderViewBlocked(x, y, z, pose, blocked))
+}
+
+/**
+ * 在既有越肩取景裡找最遠的距離：角色仍在畫面左下、準心仍看向前方。
+ * 牆或樓梯擋住胸口到鏡頭時，先縮距離、必要時再把肩偏移收一點。
+ * 回傳的姿勢一定是 blocked 認為通的；縮短後的每一段都再檢查一次，避免二分搜到仍被擋住的距離。
+ */
+export function fitOtsCamera(opts: {
+  x: number
+  y: number
+  z: number
+  chestY: number
+  /** 預設只看胸口。多傳髖部等較低的點，避免樓梯只露出頭。 */
+  bodyY?: number[]
+  theta: number
+  phi: number
+  radius: number
+  shoulder?: number
+  blocked: SegmentBlocked
+}): { radius: number; shoulder: number; pose: OtsPose } {
+  const wantShoulder = opts.shoulder ?? OTS_RIGHT
+  const wantRadius = Math.max(OTS_FIT_MIN_RADIUS, opts.radius)
+  const bodyY = opts.bodyY?.length ? opts.bodyY : [opts.chestY]
+  // 肩偏移跟距離一起縮，走近時視線不會突然甩向旁邊，走路還是往前。
+  const shoulderAt = (radius: number, scale: number) => wantShoulder * scale * (radius / wantRadius)
+  const poseAt = (radius: number, scale: number) =>
+    otsCamera(opts.x, opts.y, opts.z, opts.theta, opts.phi, radius, shoulderAt(radius, scale))
+  const blockedAt = (radius: number, scale: number) =>
+    bodyViewBlocked(opts.x, opts.z, poseAt(radius, scale), bodyY, opts.blocked)
+  const largest = (scale: number) => {
+    if (!blockedAt(wantRadius, scale)) return wantRadius
+    if (blockedAt(OTS_FIT_MIN_RADIUS, scale)) return null
+    let lo = OTS_FIT_MIN_RADIUS
+    let hi = wantRadius
+    for (let i = 0; i < 11; i++) {
+      const mid = (lo + hi) / 2
+      if (blockedAt(mid, scale)) hi = mid
+      else lo = mid
+    }
+    if (!blockedAt(lo, scale)) return lo
+    for (let i = 10; i >= 0; i--) {
+      const radius = OTS_FIT_MIN_RADIUS + ((wantRadius - OTS_FIT_MIN_RADIUS) * i) / 10
+      if (!blockedAt(radius, scale)) return radius
+    }
+    return null
+  }
+  for (const scale of [1, 0.65, 0.35, 0]) {
+    const radius = largest(scale)
+    if (radius == null) continue
+    const shoulder = shoulderAt(radius, scale)
+    return { radius, shoulder, pose: poseAt(radius, scale) }
+  }
+  return { radius: OTS_FIT_MIN_RADIUS, shoulder: 0, pose: poseAt(OTS_FIT_MIN_RADIUS, 0) }
 }
