@@ -3,10 +3,22 @@ import { ATTACK_COOLDOWN_MS, ATTACK_RANGE, meleeHits, PLAYER_MAX_HP, type MatchO
 import { nextComboStep } from '../shared/anim.ts'
 import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
-import { JUMP_CEILING, JUMP_MAX_DELTA, MOVE_Y_PAD, moveAllowance, type MoveGrant } from '../shared/movement.ts'
+import {
+  DASH_DISTANCE,
+  JUMP_CEILING,
+  JUMP_MAX_DELTA,
+  MOVE_DT_CAP_SEC,
+  MOVE_PAD,
+  MOVE_SLACK,
+  MOVE_Y_PAD,
+  PLAYER_SPEED,
+  cappedMoveDt,
+  moveAllowance,
+  type MoveGrant,
+} from '../shared/movement.ts'
 import { HIDE_MAX_Y, JUMP_GROUND_EPS, supportY, PLAYER_FOOT_RADIUS } from '../shared/platforms.ts'
 import { doorsOf, platformsOf } from '../shared/mapData.ts'
-import { smokeHidesFrom, type SmokeCloud } from '../shared/smoke.ts'
+import { POOP_SLOW_MUL, smokeHidesFrom, type SmokeCloud } from '../shared/smoke.ts'
 import { doorHidesFrom, type DoorState } from '../shared/doors.ts'
 import {
   TAG_BOX_MAX_MS,
@@ -25,6 +37,30 @@ import { announce } from './feed.ts'
 import type { PlayerState, Vec3 } from './types.ts'
 
 export type { TagState }
+
+export type MoveBank = {
+  accruedAt: number
+  walk: number
+  dash: number
+  pad: boolean
+  dashMark?: number
+}
+
+/** 進房第一包可能和記點同一個時間戳，先留一筆正常步伐（約 0.2 秒走路）的預算。 */
+const FIRST_STEP_SEC = 0.2
+
+export function recordMoveOrigin(
+  room: { lastMoveAt?: Record<string, number>; moveBank?: Record<string, MoveBank> },
+  playerId: string,
+  now: number,
+) {
+  if (!room.lastMoveAt) room.lastMoveAt = {}
+  if (!room.moveBank) room.moveBank = {}
+  const cap = PLAYER_SPEED * MOVE_DT_CAP_SEC * MOVE_SLACK + MOVE_PAD
+  const normal = Math.min(cap, PLAYER_SPEED * FIRST_STEP_SEC * MOVE_SLACK + MOVE_PAD)
+  room.lastMoveAt[playerId] = now
+  room.moveBank[playerId] = { accruedAt: now, walk: normal, dash: 0, pad: true }
+}
 
 export interface TagRoom {
   roomId: string
@@ -47,6 +83,8 @@ export interface TagRoom {
   tag?: TagState
   lastMoveAt?: Record<string, number>
   moveGrant?: Record<string, MoveGrant>
+  /** 同一段時間裡連續送到的移動，共用這份走路／衝刺預算。 */
+  moveBank?: Record<string, MoveBank>
   smokes?: SmokeCloud[]
   doors?: DoorState[]
   scene?: string | null
@@ -567,20 +605,44 @@ export function acceptMove(
   if (!jumping && y > floor + JUMP_GROUND_EPS) y = floor
   if (y > JUMP_CEILING + 0.2 || y < -0.08) return false
 
-  const prev = room.lastMoveAt[player.id]
-  if (prev == null) {
-    player.position = [x, y, z]
-    player.rotationY = payload.rotationY
-    room.lastMoveAt[player.id] = now
-    return true
-  }
-
   const slowed = now < (room.poopSlowUntil?.[player.id] ?? 0)
-  const allow = moveAllowance(now - prev, grant, now, { poopSlow: slowed })
+  const prev = room.lastMoveAt[player.id]
+  // 垂直仍看距離上一筆接受的時間。水平改記在預算裡，連發的合法步伐一起扣。
+  const elapsed = prev == null ? 0 : now - prev
+  const allow = moveAllowance(elapsed, grant, now, { poopSlow: slowed })
   const dist = Math.hypot(x - player.position[0], z - player.position[2])
   const rise = y - prevY
   const drop = prevY - y
-  if (dist > allow.horiz || rise > allow.vert || drop > JUMP_MAX_DELTA + MOVE_Y_PAD) return false
+  if (rise > allow.vert || drop > JUMP_MAX_DELTA + MOVE_Y_PAD) return false
+
+  if (!room.moveBank) room.moveBank = {}
+  let bank = room.moveBank[player.id]
+  if (!bank || (prev != null && prev > bank.accruedAt)) {
+    bank = { accruedAt: prev ?? now, walk: 0, dash: 0, pad: false }
+    room.moveBank[player.id] = bank
+  }
+  if (now >= bank.accruedAt) {
+    const rate = slowed ? PLAYER_SPEED * POOP_SLOW_MUL : PLAYER_SPEED * MOVE_SLACK
+    const pad = slowed ? 0.08 : MOVE_PAD
+    const cap = rate * MOVE_DT_CAP_SEC + pad
+    let gain = rate * cappedMoveDt(now - bank.accruedAt)
+    if (!bank.pad) {
+      gain += pad
+      bank.pad = true
+    }
+    bank.walk = Math.min(cap, bank.walk + gain)
+    bank.accruedAt = now
+  }
+  if (grant?.dashUntil && now <= grant.dashUntil && bank.dashMark !== grant.dashUntil) {
+    bank.dash += DASH_DISTANCE * MOVE_SLACK
+    bank.dashMark = grant.dashUntil
+  }
+  if (dist > bank.walk + bank.dash) return false
+  let rest = dist
+  const fromWalk = Math.min(bank.walk, rest)
+  bank.walk -= fromWalk
+  rest -= fromWalk
+  bank.dash = Math.max(0, bank.dash - rest)
 
   player.position = [x, y, z]
   player.rotationY = payload.rotationY

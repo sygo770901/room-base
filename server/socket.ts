@@ -7,6 +7,8 @@ import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
 import { createBossMonsters, createMonsters, handleAttack, publicMonsters, scaleBossHealth, standPlayer, tickRoom } from './combat.ts'
 import {
   acceptMove,
+  recordMoveOrigin,
+  type MoveBank,
   emitPlayerHidden,
   emitPlayerJoined,
   emitPlayerMoved,
@@ -367,6 +369,17 @@ function applyResume(
   }
 }
 
+/** 重連先套回進房座標，再把那個座標記成移動起點，第一筆正常步伐才不會被拉回。 */
+export function resumeJoinedPlayer(
+  room: { lastMoveAt?: Record<string, number>; moveBank?: Record<string, MoveBank> },
+  player: PlayerState,
+  resume: Parameters<typeof applyResume>[1],
+  now: number,
+) {
+  applyResume(player, resume)
+  recordMoveOrigin(room, player.id, now)
+}
+
 function applyLiveHost(room: RoomState, prefer?: string) {
   const next = pickLiveHost(Object.keys(room.players), Object.keys(room.awayUntil), room.hostId, prefer)
   if (room.hostId && room.players[room.hostId] && room.hostId !== next) {
@@ -578,11 +591,11 @@ export function attachSocketServer(httpServer: HttpServer) {
           room.players[playerId] = player
           room.doorAuto[playerId] = true
           resumed = false
+          recordMoveOrigin(room, playerId, Date.now())
         } else {
-          applyResume(player, payload.resume)
+          resumeJoinedPlayer(room, player, payload.resume, Date.now())
           if (room.doorAuto[playerId] == null) room.doorAuto[playerId] = true
         }
-        room.lastMoveAt[playerId] = Date.now()
         if (secret) room.secrets[playerId] = secret
 
         cancelLeave(room, playerId)
@@ -659,7 +672,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           p.position = [sp.x, 0, sp.z]
           p.rotationY = 0
         }
-        room.lastMoveAt[id] = Date.now()
+        recordMoveOrigin(room, id, Date.now())
         delete room.moveGrant[id]
         delete room.nextDash[id]
         delete room.nextSmoke[id]
@@ -715,6 +728,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (player.seated) return
       const now = Date.now()
       if (player.hidden) return
+      // 地城、打鴨王、鬼抓人都走 acceptMove。站著再久也不放寬單步。
       const ok = acceptMove(room, player, payload, now)
       if (!ok) {
         io.to(playerId).emit('player:moved', {

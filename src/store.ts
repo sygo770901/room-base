@@ -14,6 +14,7 @@ import { LOOK_SENS_DEFAULT, LOOK_SENS_MAX, LOOK_SENS_MIN } from '../shared/input
 import { CAM_DIST_KEY, clampCamDist, readCamDist } from '../shared/camera'
 import { MINIMAP_HEADING_KEY, readMinimapHeadingUp } from '../shared/minimap'
 import { loadSession } from './net/session'
+import { nextMapLoadOnEnter } from './load/mapLoadState'
 
 function readLookSens() {
   if (typeof localStorage === 'undefined') return LOOK_SENS_DEFAULT
@@ -23,6 +24,16 @@ function readLookSens() {
 }
 
 const boot = typeof localStorage === 'undefined' ? null : loadSession()
+
+function modelFileName(input: string) {
+  const text = String(input || '')
+  const matched = text.match(/([^/?#\\\s"'()]+\.(?:gltf|glb|bin|png|jpe?g|webp))/i)
+  if (matched) return matched[1]
+  const parts = text.split(/[/\\]/).filter(Boolean)
+  const last = parts[parts.length - 1] || ''
+  if (last && last.length <= 96 && !/\s/.test(last)) return last
+  return '未知檔案'
+}
 
 export type NoteAsk =
   | { kind: 'place'; position: Vec3; text: string; fontSize: number }
@@ -271,11 +282,7 @@ export const useAppStore = create<AppState>((set) => ({
       startInMs: snapshot.startInMs ?? 0,
       started: snapshot.started ?? false,
       joinError: null,
-      mapLoadFailed: false,
-      mapLoadErrors: [],
-      mapLoadSlow: false,
-      mapLoadActive: true,
-      mapLoadRetry: s.mapLoadRetry + 1,
+      ...nextMapLoadOnEnter(s, snapshot.scene ?? 'kenney'),
       tagHud: snapshot.tagHud ?? null,
       players: snapshot.players,
       localX: snapshot.players[selfId]?.position?.[0] ?? 0,
@@ -428,9 +435,11 @@ export const useAppStore = create<AppState>((set) => ({
   setMapLoadProgress: (progress, active) => set({ mapLoadProgress: progress, mapLoadActive: active }),
   setMapLoadFailed: (failed) => set({ mapLoadFailed: failed }),
   addMapLoadError: (file) =>
-    set((s) =>
-      s.mapLoadErrors.includes(file) ? s : { mapLoadErrors: [...s.mapLoadErrors, file], mapLoadFailed: true },
-    ),
+    set((s) => {
+      const name = modelFileName(file)
+      if (s.mapLoadErrors.includes(name)) return { mapLoadFailed: true }
+      return { mapLoadErrors: [...s.mapLoadErrors, name], mapLoadFailed: true }
+    }),
   setMapLoadSlow: (slow) => set({ mapLoadSlow: slow }),
   setMapLoadCounts: (loaded, total) => set({ mapLoadLoaded: loaded, mapLoadTotal: total }),
   requestMapRetry: () =>

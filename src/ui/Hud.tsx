@@ -3,6 +3,7 @@ import { OTS_MAX_RADIUS, OTS_MIN_RADIUS } from '../../shared/camera'
 import { LOOK_SENS_MAX, LOOK_SENS_MIN, LOOK_SENS_STEP } from '../../shared/input'
 import { disconnectSocket, emitAddNote, emitCheck, emitDoorAuto, emitDoorToggle, emitHide, emitPhrase, emitRemoveNote, emitRescueHold, emitRestart, emitScene, emitStart, emitUpdateNote, performAttack } from '../net/socket'
 import { QUICK_PHRASES } from '../../shared/phrases'
+import { showMapLoadOverlay, showMapLoadSlow } from '../load/mapLoadState'
 import { typingInField } from '../scene/inputLock'
 import { SCENE_IDS, SCENE_LABELS } from '../../shared/scenes'
 import { setMicEnabled } from '../net/voice'
@@ -221,30 +222,8 @@ export function Hud() {
   return (
     <div className="hud">
       {!matchOver && started && <div className="crosshair" aria-hidden />}
-      {mapLoadActive && (
-        <div className="map-load">
-          <p>
-            載入地圖中… {mapLoadTotal ? `${mapLoadLoaded}/${mapLoadTotal}` : ''} {Math.round(mapLoadProgress)}%
-          </p>
-          <div className="map-load-bar">
-            <span
-              style={{
-                width: `${Math.max(4, Math.min(100, mapLoadProgress || (mapLoadTotal ? (mapLoadLoaded / mapLoadTotal) * 100 : 4)))}%`,
-              }}
-            />
-          </div>
-          {mapLoadSlow && <p className="map-load-slow">載入較慢，還在載…</p>}
-          {mapLoadErrors.length > 0 && (
-            <ul className="map-load-files">
-              {mapLoadErrors.map((file) => (
-                <li key={file}>載不到：{file}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-      {mapLoadFailed && (
-        <div className="map-load fail">
+      {mapLoadFailed ? (
+        <div className="map-load fail" role="alert">
           <p>載入失敗：{mapLoadErrors[0] || '未知檔案'}</p>
           {mapLoadErrors.length > 1 && (
             <ul className="map-load-files">
@@ -257,6 +236,36 @@ export function Hud() {
             重試
           </button>
         </div>
+      ) : (
+        showMapLoadOverlay({
+          active: mapLoadActive,
+          failed: mapLoadFailed,
+          loaded: mapLoadLoaded,
+          total: mapLoadTotal,
+          progress: mapLoadProgress,
+          slow: mapLoadSlow,
+        }) && (
+          <div className="map-load">
+            <p>
+              載入地圖中… {mapLoadTotal ? `${mapLoadLoaded}/${mapLoadTotal}` : ''} {Math.round(mapLoadProgress)}%
+            </p>
+            <div className="map-load-bar">
+              <span
+                style={{
+                  width: `${Math.max(4, Math.min(100, mapLoadProgress || (mapLoadTotal ? (mapLoadLoaded / mapLoadTotal) * 100 : 4)))}%`,
+                }}
+              />
+            </div>
+            {showMapLoadSlow({
+              active: mapLoadActive,
+              failed: mapLoadFailed,
+              loaded: mapLoadLoaded,
+              total: mapLoadTotal,
+              progress: mapLoadProgress,
+              slow: mapLoadSlow,
+            }) && <p className="map-load-slow">載入較慢，還在載…</p>}
+          </div>
+        )
       )}
       <div className="hud-top">
         <div className="pill">

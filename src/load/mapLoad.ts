@@ -1,9 +1,13 @@
 import * as THREE from 'three'
 import { useGLTF } from '@react-three/drei'
+import { DECOR_URL } from '../../shared/decor'
 import { dungeonModelUrls } from '../scene/Dungeon'
 import { heroModelUrls } from '../scene/KayKitHero'
 import { DUCK_URL } from '../scene/DuckKing'
+import { showMapLoadOverlay } from './mapLoadState'
 import { useAppStore } from '../store'
+
+const BARREL_URL = '/assets/kaykit/barrel.gltf.glb'
 
 export const MAP_LOAD_SLOW_MS = 8000
 const FILE_TIMEOUT_MS = 10000
@@ -29,6 +33,11 @@ export function criticalModelUrls(scene: string) {
   return [...new Set([...dungeonModelUrls(scene), ...heroModelUrls(), DUCK_URL])]
 }
 
+/** 進房就要進快取的模型。揮擊只用這份，不會再臨時抓檔。 */
+export function sceneAssetUrls(scene: string) {
+  return [...new Set([...criticalModelUrls(scene), ...Object.values(DECOR_URL), BARREL_URL])]
+}
+
 function fetchWithTimeout(url: string, ms: number) {
   const ctrl = new AbortController()
   const timer = window.setTimeout(() => ctrl.abort(), ms)
@@ -42,9 +51,19 @@ function fetchWithTimeout(url: string, ms: number) {
 
 let preloadGen = 0
 
-export function startCriticalPreload(scene: string) {
+export function startCriticalPreload(scene: string, clearCache = false) {
   const gen = ++preloadGen
-  const urls = criticalModelUrls(scene)
+  const urls = sceneAssetUrls(scene)
+  if (clearCache) {
+    for (const url of urls) {
+      try {
+        useGLTF.clear(url)
+      } catch {
+        /* 清快取失敗仍重抓 */
+      }
+      THREE.Cache.remove(url)
+    }
+  }
   const total = Math.max(1, urls.length)
   let finished = 0
   THREE.Cache.enabled = true
@@ -57,9 +76,11 @@ export function startCriticalPreload(scene: string) {
   const tick = () => {
     if (gen !== preloadGen) return
     const pct = asMapPercent(0, finished, total)
-    useAppStore.getState().setMapLoadCounts(finished, urls.length)
-    useAppStore.getState().setMapLoadProgress(pct, finished < total)
-    if (finished >= total) useAppStore.getState().setMapLoadProgress(100, false)
+    const storeNow = useAppStore.getState()
+    storeNow.setMapLoadCounts(finished, urls.length)
+    const complete = finished >= total
+    storeNow.setMapLoadProgress(complete ? 100 : pct, !complete)
+    if (complete) storeNow.setMapLoadSlow(false)
   }
 
   for (const url of urls) {
@@ -89,7 +110,16 @@ export function startCriticalPreload(scene: string) {
 
   const slowId = window.setTimeout(() => {
     if (gen !== preloadGen) return
-    if (useAppStore.getState().mapLoadActive) useAppStore.getState().setMapLoadSlow(true)
+    const current = useAppStore.getState()
+    if (showMapLoadOverlay({
+      active: current.mapLoadActive,
+      failed: current.mapLoadFailed,
+      loaded: current.mapLoadLoaded,
+      total: current.mapLoadTotal,
+      progress: current.mapLoadProgress,
+    })) {
+      current.setMapLoadSlow(true)
+    }
   }, MAP_LOAD_SLOW_MS)
 
   return () => {

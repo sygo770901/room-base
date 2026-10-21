@@ -128,7 +128,7 @@ class DuckBoundary extends Component<{ children: ReactNode; fallback: ReactNode 
   }
   componentDidCatch(error: Error) {
     const store = useAppStore.getState()
-    store.addMapLoadError(error.message ? `${DUCK_URL}（${error.message}）` : DUCK_URL)
+    store.addMapLoadError(DUCK_URL)
     store.setMapLoadFailed(true)
   }
   render() {

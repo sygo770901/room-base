@@ -13,3 +13,10 @@ export const DOORWAY_DEFS: DoorDef[] = [
 export function doorwayPlaces() {
   return DOORWAY_DEFS.map((d) => ({ id: d.id, x: d.x, z: d.z, rotY: d.rotY }))
 }
+
+/** wall_doorway.gltf 自帶一扇不會動的門板。互動門另畫，這片要拿掉，否則一個門口兩扇門。 */
+export function isBakedDoorMesh(name: string) {
+  const n = name.toLowerCase()
+  if (!n || n === 'wall_doorway') return false
+  return n.includes('doorway_door') || n.endsWith('_door') || n.endsWith('.door')
+}

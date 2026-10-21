@@ -45,6 +45,25 @@ function clipOf(gltf: { animations: THREE.AnimationClip[] }, name: string) {
 
 const normBone = (s: string) => s.toLowerCase().replace(/[.\s_:\/\[\]]/g, '')
 
+function gripBone(root: THREE.Object3D, side: 'r' | 'l') {
+  const found: THREE.Object3D[] = []
+  const consider = (o: THREE.Object3D) => {
+    const n = o.name.toLowerCase().replace(/[.\s_:]/g, '')
+    if (!n.includes('hand') || !n.endsWith(side)) return
+    found.push(o)
+  }
+  root.traverse((o) => {
+    consider(o)
+    const skinned = o as THREE.SkinnedMesh
+    if (skinned.isSkinnedMesh && skinned.skeleton) skinned.skeleton.bones.forEach(consider)
+  })
+  const unique: THREE.Object3D[] = []
+  for (const bone of found) {
+    if (!unique.includes(bone)) unique.push(bone)
+  }
+  return unique.find((o) => o.name.toLowerCase().includes('slot')) ?? unique[0]
+}
+
 function findBone(root: THREE.Object3D, name: string) {
   const want = normBone(name)
   let found: THREE.Object3D | undefined
@@ -73,6 +92,45 @@ function handBones(root: THREE.Object3D) {
     }
   })
   return [...new Set(names)]
+}
+
+/** 劍刃沿模型最長軸。轉成局部 +Y，手槽的 +Y 在待機與揮擊時朝角色前方。 */
+const _aimParentQ = new THREE.Quaternion()
+const _aimRootQ = new THREE.Quaternion()
+const _aimFwd = new THREE.Vector3()
+const _aimWorldQ = new THREE.Quaternion()
+const _aimUp = new THREE.Vector3(0, 1, 0)
+
+/** 劍尖沿角色前方。手槽在揮擊時會抬起來，這裡每幀把劍扳回前方。 */
+function aimBladeForward(held: THREE.Object3D, root: THREE.Object3D) {
+  const bone = held.parent
+  if (!bone) return
+  root.updateWorldMatrix(true, false)
+  bone.updateWorldMatrix(true, false)
+  bone.getWorldQuaternion(_aimParentQ)
+  _aimFwd.set(0, 0, 1).applyQuaternion(root.getWorldQuaternion(_aimRootQ))
+  _aimFwd.y = 0
+  if (_aimFwd.lengthSq() < 1e-8) return
+  _aimFwd.normalize()
+  _aimWorldQ.setFromUnitVectors(_aimUp, _aimFwd)
+  held.quaternion.copy(_aimParentQ).invert().multiply(_aimWorldQ)
+}
+
+function orientBladeToPlusY(root: THREE.Object3D) {
+  root.position.set(0, 0, 0)
+  root.rotation.set(0, 0, 0)
+  root.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(root)
+  const size = box.getSize(new THREE.Vector3())
+  let axis: 'x' | 'y' | 'z' = 'y'
+  if (size.x > size[axis]) axis = 'x'
+  if (size.z > size[axis]) axis = 'z'
+  const tipIsMax = Math.abs(box.max[axis]) >= Math.abs(box.min[axis])
+  if (axis === 'y' && tipIsMax) return
+  if (axis === 'y') root.rotation.x = Math.PI
+  else if (axis === 'z') root.rotation.x = tipIsMax ? -Math.PI / 2 : Math.PI / 2
+  else root.rotation.z = tipIsMax ? Math.PI / 2 : -Math.PI / 2
+  root.updateMatrixWorld(true)
 }
 
 function prepareHeld(src: THREE.Object3D) {
@@ -335,6 +393,14 @@ export function KayKitHero({
   )
 
   useFrame((_, dt) => {
+    const stepMixer = () => {
+      try {
+        mixer.update(Math.min(dt, 1 / 20))
+      } catch {
+        /* 動作軌壞掉時留下目前姿勢，不要拆掉模型和地圖 */
+      }
+      aimBladeForward(rightWeapon, root)
+    }
     const phase = deathAnimTrigger(wasDowned.current, Boolean(downed))
     wasDowned.current = Boolean(downed)
     if (phase === 'play' && actions.death) {
@@ -343,11 +409,11 @@ export function KayKitHero({
       current.current?.fadeOut(0.06)
       actions.death.reset().fadeIn(0.06).play()
       current.current = actions.death
-      mixer.update(dt)
+      stepMixer()
       return
     }
     if (phase === 'hold') {
-      mixer.update(dt)
+      stepMixer()
       return
     }
     if (phase === 'idle') {
@@ -382,22 +448,23 @@ export function KayKitHero({
         }
       }
     }
-    mixer.update(dt)
+    stepMixer()
   })
 
   useLayoutEffect(() => {
-    const rightBone = findBone(root, 'handslot.r') ?? findBone(root, 'hand.r')
-    const leftBone = findBone(root, 'handslot.l') ?? findBone(root, 'hand.l')
+    const rightBone = gripBone(root, 'r')
+    const leftBone = gripBone(root, 'l')
     const mount = (bone: THREE.Object3D | undefined, held: THREE.Object3D, label: string) => {
       if (!held.children.length) return
       if (!bone) {
         console.warn(`[weapon] 找不到 ${label}`, handBones(root))
         return
       }
-      bone.add(held)
       held.position.set(0, 0, 0)
       held.rotation.set(0, 0, 0)
       held.scale.setScalar(1)
+      if (label === 'handslot.r') orientBladeToPlusY(held)
+      bone.add(held)
       held.updateMatrix()
       root.updateMatrixWorld(true)
       bone.updateWorldMatrix(true, true)
@@ -413,6 +480,16 @@ export function KayKitHero({
         root.updateMatrixWorld(true)
         held.getWorldPosition(world)
         held.getWorldScale(scale)
+      }
+      if (label === 'handslot.r') {
+        const tip = new THREE.Vector3(0, 1, 0).applyQuaternion(held.getWorldQuaternion(new THREE.Quaternion()))
+        const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(root.getWorldQuaternion(new THREE.Quaternion()))
+        tip.y = 0
+        fwd.y = 0
+        if (tip.lengthSq() > 1e-4 && fwd.lengthSq() > 1e-4 && tip.normalize().dot(fwd.normalize()) < 0) {
+          held.rotateX(Math.PI)
+          held.updateMatrix()
+        }
       }
       console.log(`[weapon] bone=${bone.name} pos=${world.x.toFixed(2)},${world.y.toFixed(2)},${world.z.toFixed(2)} scale=${scale.x.toFixed(3)}`)
     }

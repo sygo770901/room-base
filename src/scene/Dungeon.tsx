@@ -9,6 +9,7 @@ import {
   WALL_PLACES,
   type Place,
 } from '../../shared/dungeon'
+import { isBakedDoorMesh } from '../../shared/doorways'
 import { KAYKIT_PLACES } from '../../shared/kaykitScene'
 import { usesKaykitKit } from '../../shared/mapData'
 import { isMobileDevice } from '../perf/device'
@@ -44,6 +45,7 @@ function partsOf(scene: THREE.Object3D, glow = false): Part[] {
   scene.traverse((obj) => {
     const mesh = obj as THREE.Mesh
     if (!mesh.isMesh) return
+    if (isBakedDoorMesh(mesh.name) || isBakedDoorMesh(obj.name) || isBakedDoorMesh(obj.parent?.name || '')) return
     let material = mesh.material
     if (glow) {
       const src = Array.isArray(material) ? material[0] : material
@@ -152,8 +154,6 @@ export function Dungeon(_props: { focusX: number; focusZ: number }) {
     }
     return [...map.entries()]
   }, [places])
-
-  for (const [model] of groups) useGLTF.preload(`${root}/${model}`)
 
   return (
     <group>
