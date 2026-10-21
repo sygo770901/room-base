@@ -12,6 +12,7 @@ import {
 import { isBakedDoorMesh } from '../../shared/doorways'
 import { KAYKIT_PLACES } from '../../shared/kaykitScene'
 import { usesKaykitKit } from '../../shared/mapData'
+import { SAMPLE_PLACES } from '../../shared/sampleRoom'
 import { isMobileDevice } from '../perf/device'
 import { useAppStore } from '../store'
 
@@ -39,20 +40,20 @@ type Part = {
   matrix: THREE.Matrix4
 }
 
-function partsOf(scene: THREE.Object3D, glow = false): Part[] {
+function partsOf(scene: THREE.Object3D, glow = 0, keepDoor = false): Part[] {
   scene.updateMatrixWorld(true)
   const parts: Part[] = []
   scene.traverse((obj) => {
     const mesh = obj as THREE.Mesh
     if (!mesh.isMesh) return
-    if (isBakedDoorMesh(mesh.name) || isBakedDoorMesh(obj.name) || isBakedDoorMesh(obj.parent?.name || '')) return
+    if (!keepDoor && (isBakedDoorMesh(mesh.name) || isBakedDoorMesh(obj.name) || isBakedDoorMesh(obj.parent?.name || ''))) return
     let material = mesh.material
-    if (glow) {
+    if (glow > 0) {
       const src = Array.isArray(material) ? material[0] : material
       if (src && 'emissive' in src) {
         const lit = (src as THREE.MeshStandardMaterial).clone()
         lit.emissive = new THREE.Color('#ff8a3a')
-        lit.emissiveIntensity = 1.15
+        lit.emissiveIntensity = glow
         material = lit
       }
     }
@@ -99,9 +100,30 @@ function InstanceChunk({ part, places, cast }: { part: Part; places: Place[]; ca
   )
 }
 
-function KitModel({ root, model, places }: { root: string; model: string; places: Place[] }) {
+function KitModel({
+  root,
+  model,
+  places,
+  glow,
+  openDoor,
+}: {
+  root: string
+  model: string
+  places: Place[]
+  glow: number
+  openDoor: boolean
+}) {
   const gltf = useGLTF(`${root}/${model}`)
-  const parts = useMemo(() => partsOf(gltf.scene, model.startsWith('torch')), [gltf, model])
+  const parts = useMemo(() => {
+    const src = openDoor ? gltf.scene.clone(true) : gltf.scene
+    if (openDoor) {
+      src.traverse((obj) => {
+        if (obj.name === 'wall_doorway_door') obj.rotation.y = -Math.PI / 2
+      })
+      src.updateMatrixWorld(true)
+    }
+    return partsOf(src, model.startsWith('torch') ? glow : 0, openDoor)
+  }, [gltf, model, glow, openDoor])
   const chunks = useMemo(() => {
     const map = new Map<string, Place[]>()
     for (const place of places) {
@@ -118,7 +140,11 @@ function KitModel({ root, model, places }: { root: string; model: string; places
     (model.startsWith('template-detail') ||
       model.startsWith('pillar') ||
       model.startsWith('crates') ||
-      model.startsWith('stairs'))
+      model.startsWith('stairs') ||
+      model.startsWith('skeleton') ||
+      model.startsWith('chest') ||
+      model.startsWith('barrel') ||
+      model.startsWith('box_'))
   return (
     <group>
       {chunks.map((chunk, chunkIndex) =>
@@ -135,30 +161,45 @@ function KitModel({ root, model, places }: { root: string; model: string; places
   )
 }
 
+function placesFor(scene: string) {
+  if (scene === 'sample') return SAMPLE_PLACES
+  if (usesKaykitKit(scene)) return KAYKIT_PLACES
+  return KENNEY_PLACES
+}
+
 export function dungeonModelUrls(scene: string) {
-  const root = usesKaykitKit(scene) ? KAYKIT_ROOT : KENNEY_ROOT
-  const places = usesKaykitKit(scene) ? KAYKIT_PLACES : KENNEY_PLACES
-  return [...new Set(places.map((p) => `${root}/${p.model}`))]
+  const fallback = usesKaykitKit(scene) || scene === 'sample' ? KAYKIT_ROOT : KENNEY_ROOT
+  return [...new Set(placesFor(scene).map((p) => `${p.root ?? fallback}/${p.model}`))]
 }
 
 export function Dungeon(_props: { focusX: number; focusZ: number }) {
   const scene = useAppStore((s) => s.scene)
-  const root = usesKaykitKit(scene) ? KAYKIT_ROOT : KENNEY_ROOT
-  const places = usesKaykitKit(scene) ? KAYKIT_PLACES : KENNEY_PLACES
+  const root = usesKaykitKit(scene) || scene === 'sample' ? KAYKIT_ROOT : KENNEY_ROOT
+  const places = placesFor(scene)
+  const glow = scene === 'sample' ? 2.6 : 1.15
   const groups = useMemo(() => {
-    const map = new Map<string, Place[]>()
+    const map = new Map<string, { root: string; model: string; places: Place[] }>()
     for (const place of places) {
-      const list = map.get(place.model) ?? []
-      list.push(place)
-      map.set(place.model, list)
+      const placeRoot = place.root ?? root
+      const key = `${placeRoot}/${place.model}`
+      const hit = map.get(key)
+      if (hit) hit.places.push(place)
+      else map.set(key, { root: placeRoot, model: place.model, places: [place] })
     }
-    return [...map.entries()]
-  }, [places])
+    return [...map.values()]
+  }, [places, root])
 
   return (
     <group>
-      {groups.map(([model, list]) => (
-        <KitModel key={`${root}/${model}`} root={root} model={model} places={list} />
+      {groups.map((group) => (
+        <KitModel
+          key={`${group.root}/${group.model}`}
+          root={group.root}
+          model={group.model}
+          places={group.places}
+          glow={glow}
+          openDoor={scene === 'sample' && group.model === 'wall_doorway.gltf'}
+        />
       ))}
     </group>
   )

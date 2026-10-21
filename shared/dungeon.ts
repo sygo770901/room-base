@@ -16,6 +16,8 @@ export interface Place {
   rotY: number
   model: string
   scale?: number
+  /** 預設走地城包目錄。骷髏等另外放。 */
+  root?: string
 }
 
 export interface DungeonProp {

@@ -67,12 +67,11 @@ import {
   type MonsterState,
   type ProjectileState,
 } from '../shared/combat.ts'
-import { doorsOf, extraAabbsOf, extraWallsOf } from '../shared/mapData.ts'
+import { doorsOf, extraAabbsOf, extraWallsOf, spawnPointsOf } from '../shared/mapData.ts'
 import {
   BOSS_DEFS,
   FLOOR_CENTERS,
   MONSTER_DEFS,
-  SPAWN_POINTS,
   hasLineOfSight,
   isWalkableWorld,
   type MonsterDef,
@@ -324,7 +323,8 @@ function bossAwards(room: CombatRoom) {
 }
 
 export function respawnPlayer(room: CombatRoom, io: Server, player: PlayerState, now: number, reason?: string) {
-  const sp = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)]
+  const spawns = spawnPointsOf(room.scene)
+  const sp = spawns[Math.floor(Math.random() * spawns.length)]
   player.hp = PLAYER_MAX_HP
   player.downedUntil = 0
   player.position = [sp.x, 0, sp.z]

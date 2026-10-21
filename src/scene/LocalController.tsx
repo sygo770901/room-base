@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { HIDE_RANGE, HIDE_SPOTS } from '../../shared/dungeon'
 import { isMobileDevice } from '../perf/device'
 import { WEAPON_STATS } from '../../shared/barrels'
-import { DASH_DISTANCE, DASH_DURATION_MS, JUMP_CEILING, dashCooldownMs } from '../../shared/movement'
+import { DASH_DISTANCE, DASH_DURATION_MS, jumpCeilingFor, dashCooldownMs } from '../../shared/movement'
 import { GRAVITY, HIDE_MAX_Y, JUMP_SPEED, platformsFor, supportY } from '../../shared/platforms'
 import { PLAYER_RADIUS } from '../../shared/furniture'
 import { POOP_SLOW_MUL, SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
@@ -15,10 +15,18 @@ import { OTS_LOOK_Y } from '../../shared/camera'
 import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
 import { resolvePlayerMove } from '../physics/collision'
 import { doorsOf, extraAabbsOf } from '../../shared/mapData'
+import { SAMPLE_BOUNDS, sampleWalkable } from '../../shared/sampleRoom'
+import type { MoveSpace } from '../physics/collision'
 import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
 const SPEED = 5.2
+
+function moveSpace(sceneId: string): MoveSpace | undefined {
+  if (sceneId !== 'sample') return undefined
+  return { ...SAMPLE_BOUNDS, walkable: sampleWalkable }
+}
+
 const up = new THREE.Vector3(0, 1, 0)
 const forward = new THREE.Vector3()
 const right = new THREE.Vector3()
@@ -332,6 +340,7 @@ export function LocalController({
       const sceneId = useAppStore.getState().scene
       const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors, doorsOf(sceneId)))
       const plats = platformsFor(sceneId)
+      const space = moveSpace(sceneId)
       const result = resolvePlayerMove(
         pos.current.x,
         pos.current.z,
@@ -342,6 +351,7 @@ export function LocalController({
         extra,
         pos.current.y,
         plats,
+        space,
       )
       const movedX = result.x - pos.current.x
       const movedZ = result.z - pos.current.z
@@ -380,6 +390,7 @@ export function LocalController({
         extra,
         pos.current.y,
         platformsFor(sceneId),
+        moveSpace(sceneId),
       )
       pos.current.x = result.x
       pos.current.z = result.z
@@ -389,8 +400,9 @@ export function LocalController({
     const prevY = pos.current.y
     vy.current -= GRAVITY * dt
     pos.current.y += vy.current * dt
-    if (pos.current.y > JUMP_CEILING) {
-      pos.current.y = JUMP_CEILING
+    const ceiling = jumpCeilingFor(useAppStore.getState().scene)
+    if (pos.current.y > ceiling) {
+      pos.current.y = ceiling
       if (vy.current > 0) vy.current = 0
     }
     const feet = supportY(

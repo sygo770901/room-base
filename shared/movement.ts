@@ -27,6 +27,11 @@ export const JUMP_MAX_DELTA = 2.4
 export const JUMP_AIR_MS = 1100
 export const JUMP_CEILING = 2.6
 
+/** 既有地圖維持 2.6。寶物房樣本要走上高台，只放寬這一張。 */
+export function jumpCeilingFor(scene?: string | null) {
+  return scene === 'sample' ? 8.2 : JUMP_CEILING
+}
+
 export type MoveGrant = {
   dashUntil?: number
   jumpUntil?: number

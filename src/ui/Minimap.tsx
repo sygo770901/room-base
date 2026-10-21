@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { BOSS_ROOM, CELL, MAP_H, MAP_W, isFloorCell } from '../../shared/dungeon'
+import { SAMPLE_BOUNDS, SAMPLE_FLOOR_RECTS } from '../../shared/sampleRoom'
 import {
   MINIMAP_DESKTOP_PX,
   MINIMAP_FOV_RAD,
@@ -11,7 +12,27 @@ import {
 import { isMobileDevice } from '../perf/device'
 import { useAppStore } from '../store'
 
-function drawFloor(ctx: CanvasRenderingContext2D, size: number, pad: number) {
+function projectSample(x: number, z: number, size: number, pad: number) {
+  const spanX = SAMPLE_BOUNDS.maxX - SAMPLE_BOUNDS.minX
+  const spanZ = SAMPLE_BOUNDS.maxZ - SAMPLE_BOUNDS.minZ
+  const s = Math.min((size - pad * 2) / spanX, (size - pad * 2) / spanZ)
+  return {
+    x: pad + (x - SAMPLE_BOUNDS.minX) * s,
+    y: pad + (SAMPLE_BOUNDS.maxZ - z) * s,
+    s,
+  }
+}
+
+function drawFloor(ctx: CanvasRenderingContext2D, size: number, pad: number, sample: boolean) {
+  if (sample) {
+    ctx.fillStyle = '#3a322c'
+    for (const rect of SAMPLE_FLOOR_RECTS) {
+      const p = projectSample(rect.minX, rect.maxZ, size, pad)
+      const w = projectSample(rect.maxX, rect.minZ, size, pad)
+      ctx.fillRect(p.x, p.y, w.x - p.x, w.y - p.y)
+    }
+    return
+  }
   const origin = worldToMinimap(0, 0, size, pad)
   const cell = origin.s * CELL
   ctx.fillStyle = '#2c2824'
@@ -64,12 +85,14 @@ export function Minimap() {
       ctx.fillStyle = 'rgba(12, 10, 12, 0.92)'
       ctx.fillRect(0, 0, size, size)
       const state = useAppStore.getState()
+      const sample = state.scene === 'sample'
+      const project = (x: number, z: number) => (sample ? projectSample(x, z, size, pad) : worldToMinimap(x, z, size, pad))
       const headingUp = state.minimapHeadingUp
       const selfId = state.selfId
       const self = selfId ? state.players[selfId] : null
       const sx = self ? state.localX || self.position?.[0] || 0 : 0
       const sz = self ? state.localZ || self.position?.[2] || 0 : 0
-      const selfMap = worldToMinimap(sx, sz, size, pad)
+      const selfMap = project(sx, sz)
       const yaw = state.lookYaw
       const fov = MINIMAP_FOV_RAD
 
@@ -79,13 +102,13 @@ export function Minimap() {
         ctx.rotate(headingUpRotation(yaw))
         ctx.translate(-selfMap.x, -selfMap.y)
       }
-      drawFloor(ctx, size, pad)
+      drawFloor(ctx, size, pad, sample)
       for (const p of Object.values(state.players)) {
         if (!p.position || p.team === 'spectator') continue
         const isSelf = p.id === selfId
         const wx = isSelf ? sx : p.position[0]
         const wz = isSelf ? sz : p.position[2]
-        const pos = worldToMinimap(wx, wz, size, pad)
+        const pos = project(wx, wz)
         ctx.fillStyle = p.color || '#fff'
         ctx.beginPath()
         ctx.arc(pos.x, pos.y, isSelf ? 4.2 : 3.1, 0, Math.PI * 2)
