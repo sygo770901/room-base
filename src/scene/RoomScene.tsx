@@ -106,8 +106,8 @@ function FollowLight({ mobile }: { mobile: boolean }) {
     const p = selfId ? players[selfId] : null
     const home = spawnFor(sceneId)
     const shot = shotMode()
-    // 截圖鏡頭在梯底，人還在走廊出生點。燈光要跟視角，兩側火把才照得到踏面。
-    const x = sceneId === 'sample' && shot === 'stairs' ? 37 : (p?.position?.[0] ?? home.x)
+    // 截圖人在走廊出生點，鏡頭在梯底。燈光跟梯底，火把才落在階梯上。
+    const x = sceneId === 'sample' && shot === 'stairs' ? 30.6 : (p?.position?.[0] ?? home.x)
     const z = sceneId === 'sample' && shot === 'stairs' ? 232 : (p?.position?.[2] ?? home.z)
     if (light.current) {
       light.current.position.set(x + 10, 16, z + 8)
@@ -132,10 +132,9 @@ function FollowLight({ mobile }: { mobile: boolean }) {
       const w =
         src.d >= TORCH_LIGHT_RANGE ? 0 : src.d <= fadeStart ? 1 : 1 - (src.d - fadeStart) / TORCH_LIGHT_FADE
       lamp.position.set(src.x, src.y, src.z)
-      const onStairs = sceneId === 'sample' && src.x > 34 && src.z < 242 && src.z > 220
-      lamp.distance = sceneId === 'sample' ? (onStairs ? 20 : 16) : 14
-      lamp.decay = onStairs ? 1.15 : 2
-      lamp.intensity = TORCH_LIGHT_INTENSITY * (sceneId === 'sample' ? (onStairs ? 6.5 : 2.15) : 1) * w
+      lamp.distance = sceneId === 'sample' ? 9 : 14
+      lamp.decay = 2
+      lamp.intensity = TORCH_LIGHT_INTENSITY * (sceneId === 'sample' ? 1.15 : 1) * w
     }
   })
 
@@ -153,17 +152,17 @@ function FollowLight({ mobile }: { mobile: boolean }) {
             ref={(el) => {
               torches.current[i] = el
             }}
-            color={sceneId === 'sample' ? '#ff8a32' : '#ffb366'}
+            color={sceneId === 'sample' ? '#ffb070' : '#ffb366'}
             intensity={0}
-            distance={sceneId === 'sample' ? 16 : 14}
+            distance={sceneId === 'sample' ? 9 : 14}
             decay={2}
           />
         ))}
       <directionalLight
         ref={light}
-        color={sceneId === 'sample' ? '#e7b184' : '#fff6ea'}
+        color={sceneId === 'sample' ? '#d2c0a8' : '#fff6ea'}
         castShadow={!mobile}
-        intensity={sceneId === 'sample' ? (mobile ? 0.42 : 0.62) : mobile ? 1.15 : 1.6}
+        intensity={sceneId === 'sample' ? (mobile ? 0.32 : 0.2) : mobile ? 1.15 : 1.6}
         shadow-mapSize-width={DESKTOP_SHADOW_MAP}
         shadow-mapSize-height={DESKTOP_SHADOW_MAP}
         shadow-bias={-0.0004}
@@ -434,7 +433,7 @@ function SceneContent() {
             : sceneId === 'sample'
               ? shot === 'overview'
                 ? ['#121722', 80, 210]
-                : ['#1a1412', 14, 46]
+                : ['#141318', 12, 40]
               : sceneId === 'kaykit'
                 ? ['#2a2428', 18, 70]
                 : ['#3a3544', 28, 92]
@@ -445,16 +444,23 @@ function SceneContent() {
           sceneId === 'jungle'
             ? ['#d8ecbe', '#2a3a24', 1.7]
             : sceneId === 'sample'
-              ? ['#6e6258', '#4a2a18', 0.42]
+              ? ['#a09080', '#34281e', 0.28]
               : ['#e4d6c4', '#3a2c24', 1.75]
         }
       />
-      <ambientLight intensity={sceneId === 'sample' ? (shot === 'overview' ? 0.62 : 0.14) : 1.35} />
+      <ambientLight
+        color={sceneId === 'sample' && shot !== 'overview' ? '#e4d0b8' : '#ffffff'}
+        intensity={sceneId === 'sample' ? (shot === 'overview' ? 0.62 : 0.36) : 1.35}
+      />
       <directionalLight
         position={[40, 60, 20]}
-        intensity={sceneId === 'sample' ? 0.22 : 0.55}
-        color={sceneId === 'sample' ? '#c9a27a' : '#fff2d8'}
+        intensity={sceneId === 'sample' ? 0.08 : 0.55}
+        color={sceneId === 'sample' ? '#c8bfb4' : '#fff2d8'}
       />
+      {sceneId === 'sample' && shot !== 'overview' ? (
+        // 踏步立面朝西，東側火把照不到。暖灰補光只抬立面，不把牆染成橘色。
+        <directionalLight position={[-24, 10, 6]} intensity={1.55} color="#d2b496" />
+      ) : null}
       {sceneId === 'sample' && shot === 'overview' ? (
         <directionalLight position={[18, 42, 10]} intensity={1.45} color="#f3eee4" />
       ) : null}

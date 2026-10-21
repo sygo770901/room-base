@@ -176,7 +176,7 @@ export function Dungeon(_props: { focusX: number; focusZ: number }) {
   const scene = useAppStore((s) => s.scene)
   const root = usesKaykitKit(scene) || scene === 'sample' ? KAYKIT_ROOT : KENNEY_ROOT
   const places = placesFor(scene)
-  const glow = scene === 'sample' ? 4.8 : 1.15
+  const glow = scene === 'sample' ? 2.6 : 1.15
   const groups = useMemo(() => {
     const map = new Map<string, { root: string; model: string; places: Place[] }>()
     for (const place of places) {
