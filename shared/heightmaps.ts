@@ -1,6 +1,7 @@
 import raw from '../data/heightlab.json'
 import { SPAWN_POINTS } from './dungeon.ts'
 import { groundY, parseHeightField, type HeightField } from './heightfield.ts'
+import { SAMPLE_SPAWNS } from './sampleRoom.ts'
 
 const HEIGHTLAB = parseHeightField(raw)
 
@@ -16,6 +17,7 @@ export function spawnOf(scene: string | null | undefined, index: number) {
     const s = field.spawns[index % field.spawns.length]
     return { x: s.x, y: groundY(field, s.x, s.z) ?? s.y ?? 0, z: s.z }
   }
-  const sp = SPAWN_POINTS[index % SPAWN_POINTS.length]
+  const list = scene === 'sample' ? SAMPLE_SPAWNS : SPAWN_POINTS
+  const sp = list[index % list.length]
   return { x: sp.x, y: 0, z: sp.z }
 }

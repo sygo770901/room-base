@@ -880,20 +880,32 @@ export function attachSocketServer(httpServer: HttpServer) {
       if ((room.mode === 'boss' || room.mode === 'tag') && room.started && !room.matchOver) return
       if (!isSceneId(payload.scene)) return
       const prevScene = room.scene
+      if (payload.scene === prevScene) return
       room.scene = payload.scene
       room.doors = createDoors(doorsOf(room.scene))
       room.barrels = createBarrels(room.scene)
       room.drops = []
-      if (heightFieldOf(prevScene) || heightFieldOf(room.scene)) {
+      if (heightFieldOf(prevScene) || heightFieldOf(room.scene) || prevScene === 'sample' || room.scene === 'sample') {
         if (room.quiet || room.mode === 'tag') room.monsters = []
         else if (room.mode === 'boss') room.monsters = createBossMonsters()
         else room.monsters = createMonsters(room.scene)
         Object.keys(room.players).forEach((id, i) => {
           const p = room.players[id]
           const sp = spawnOf(room.scene, i)
+          if (p.seated) {
+            room.seats[p.seated] = null
+            p.seated = null
+          }
           p.position = [sp.x, sp.y, sp.z]
           p.rotationY = 0
+          delete room.moveGrant[id]
           recordMoveOrigin(room, id, Date.now())
+          io.to(room.roomId).emit('player:moved', {
+            id,
+            position: p.position,
+            rotationY: p.rotationY,
+            snap: true,
+          })
         })
       }
       emitState(room, io)

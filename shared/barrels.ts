@@ -48,7 +48,7 @@ function overlapsWall(x: number, z: number, r: number, boxes: { minX: number; ma
 }
 
 export function barrelSpotsOf(scene?: string | null) {
-  if (heightFieldOf(scene)) return []
+  if (heightFieldOf(scene) || scene === 'sample') return []
   const extra = extraAabbsOf(scene)
   const pad = BARREL_RADIUS + 0.2
   const spots: { x: number; z: number }[] = []

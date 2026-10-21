@@ -7,7 +7,6 @@ import { heightFieldOf, spawnOf } from '../shared/heightmaps.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
 import {
   DASH_DISTANCE,
-  JUMP_CEILING,
   JUMP_MAX_DELTA,
   MOVE_DT_CAP_SEC,
   MOVE_PAD,
@@ -15,6 +14,7 @@ import {
   MOVE_Y_PAD,
   PLAYER_SPEED,
   cappedMoveDt,
+  jumpCeilingFor,
   moveAllowance,
   type MoveGrant,
 } from '../shared/movement.ts'
@@ -626,6 +626,7 @@ export function acceptMove(
   const startT = nav ? (groundY(nav, px, pz) ?? prevY) : 0
   const floor = supportY(x, z, rawY, prevY, PLAYER_FOOT_RADIUS, platforms, terrain)
   let y = rawY
+  const ceiling = jumpCeilingFor(room.scene)
   if (!jumping && y > floor + JUMP_GROUND_EPS) {
     const falling = Boolean(nav) && y < startT - 0.05 && y + 0.2 >= terrain
     if (!falling) y = floor
@@ -633,8 +634,8 @@ export function acceptMove(
   if (nav) {
     const low = Math.min(startT, terrain)
     const high = Math.max(startT, terrain)
-    if (y > high + JUMP_CEILING + 0.2 || y < low - 0.25) return false
-  } else if (y > JUMP_CEILING + 0.2 || y < -0.08) return false
+    if (y > high + ceiling + 0.2 || y < low - 0.25) return false
+  } else if (y > ceiling + 0.2 || y < -0.08) return false
 
   const slowed = now < (room.poopSlowUntil?.[player.id] ?? 0)
   const prev = room.lastMoveAt[player.id]

@@ -19,6 +19,13 @@
 - 網址：https://kaylousberg.itch.io/kaykit-dungeon
 - 授權：CC0 1.0
 - 用途：kaykit 場景的石磚、門框、鐵柵、樓梯、天花板、火把、木桶與裝飾
+- 寶物房樣本另用同一套 CC0 模組（金箱、錢幣、木箱、酒桶、旗幟、尖刺地板、碎石、裂牆、斷牆、柱）。部分檔名來自 KayKit Dungeon Remastered 1.0 的 gltf，比例與 1.1 牆地相同，授權同為 CC0。
+
+## KayKit Character Pack: Skeletons 1.0
+- 作者：Kay Lousberg
+- 網址：https://kaylousberg.itch.io/kaykit-skeletons
+- 授權：CC0 1.0（原文見 public/assets/kaykit/skeletons/License.txt）
+- 用途：寶物房樣本的倒下、站立、小骷髏。動畫已烤成靜態姿勢，方便手機載入。
 
 ## KayKit Adventurers
 - 作者：Kay Lousberg

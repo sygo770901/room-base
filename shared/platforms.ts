@@ -1,3 +1,5 @@
+import { SAMPLE_PLATFORMS } from './sampleRoom'
+
 /** 跳躍與平台（先定，昱豪可改）。牆頂不可站。 */
 export const GRAVITY = 20
 export const JUMP_SPEED = 9.2
@@ -33,6 +35,7 @@ export const JUNGLE_ROCKS: Platform[] = [
 ]
 
 export function platformsFor(scene?: string | null): Platform[] {
+  if (scene === 'sample') return SAMPLE_PLATFORMS
   if (scene === 'kaykit') return KAYKIT_PLATFORMS
   if (scene === 'jungle') return KAYKIT_PLATFORMS.concat(JUNGLE_ROCKS)
   return []

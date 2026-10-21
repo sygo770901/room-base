@@ -56,10 +56,18 @@ export function aabbOverlap(a: Aabb, b: Aabb) {
   return a.minX < b.maxX && a.maxX > b.minX && a.minZ < b.maxZ && a.maxZ > b.minZ
 }
 
-function clampToRoom(x: number, z: number, hx = 0, hz = 0) {
+export type MoveSpace = {
+  minX: number
+  maxX: number
+  minZ: number
+  maxZ: number
+  walkable: (x: number, z: number, r: number) => boolean
+}
+
+function clampToRoom(x: number, z: number, hx = 0, hz = 0, bounds = ROOM_BOUNDS) {
   return {
-    x: Math.max(ROOM_BOUNDS.minX + hx, Math.min(ROOM_BOUNDS.maxX - hx, x)),
-    z: Math.max(ROOM_BOUNDS.minZ + hz, Math.min(ROOM_BOUNDS.maxZ - hz, z)),
+    x: Math.max(bounds.minX + hx, Math.min(bounds.maxX - hx, x)),
+    z: Math.max(bounds.minZ + hz, Math.min(bounds.maxZ - hz, z)),
   }
 }
 
@@ -121,20 +129,24 @@ function tryMove(
   y = 0,
   platforms: Platform[] = [],
   nav: HeightField | null = null,
+  space?: MoveSpace,
 ): MoveResult {
   const r = radius
   let nx = fromX + dx
   let nz = fromZ + dz
-  const clamped = clampToRoom(nx, nz)
+  const clamped = clampToRoom(nx, nz, 0, 0, space ?? ROOM_BOUNDS)
   nx = clamped.x
   nz = clamped.z
 
   if (nav) {
     if (!canMoveTo(nav, fromX, fromZ, nx, nz, r, y, y)) return { x: fromX, z: fromZ }
+  } else if (space) {
+    if (!space.walkable(nx, nz, r)) return { x: fromX, z: fromZ }
   } else if (!isWalkableWorld(nx, nz, r)) return { x: fromX, z: fromZ }
-  if (blocksAtHeight(nx, nz, y, r, platforms)) return { x: fromX, z: fromZ }
+  // 有高度圖時地面高低由高度圖決定。平台厚塊會把樓梯踏面擋成牆。
+  if (!nav && blocksAtHeight(nx, nz, y, r, platforms)) return { x: fromX, z: fromZ }
 
-  if (!nav) {
+  if (!nav && !space) {
     for (const w of STATIC_AABBS) {
       if (circleHitsAabb(nx, nz, r, w)) return { x: fromX, z: fromZ }
     }
@@ -177,20 +189,21 @@ export function resolvePlayerMove(
   y = 0,
   platforms: Platform[] = [],
   nav: HeightField | null = null,
+  space?: MoveSpace,
 ): MoveResult {
   let x = fromX
   let z = fromZ
   let pushed: MoveResult['pushed']
 
   if (dx !== 0) {
-    const rx = tryMove(x, z, dx, 0, furniture, radius, extra, y, platforms, nav)
+    const rx = tryMove(x, z, dx, 0, furniture, radius, extra, y, platforms, nav, space)
     x = rx.x
     z = rx.z
     if (rx.pushed) pushed = rx.pushed
   }
   if (dz !== 0) {
     const furn = withPushed(furniture, pushed)
-    const rz = tryMove(x, z, 0, dz, furn, radius, extra, y, platforms, nav)
+    const rz = tryMove(x, z, 0, dz, furn, radius, extra, y, platforms, nav, space)
     x = rz.x
     z = rz.z
     if (rz.pushed) pushed = rz.pushed
