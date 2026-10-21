@@ -12,6 +12,7 @@ import type { SceneId } from '../../shared/scenes'
 import type { BarrelState, LootDrop } from '../../shared/barrels'
 import type { SmokeCloud } from '../../shared/smoke'
 import type { DoorState } from '../../shared/doors'
+import { clientSendsQuiet } from '../../shared/quiet'
 import { spawnBarrelShards } from '../scene/Barrels'
 import { playSfx, unlockSfx } from '../audio/sfx'
 import { useAppStore } from '../store'
@@ -199,6 +200,20 @@ function bindListeners(s: Socket) {
       rotationY: payload.rotationY,
     })
     if (payload.snap && payload.id === selfId) {
+      const from = lastPose?.position
+      const correction = {
+        t: performance.now(),
+        from: from ? [from[0], from[1], from[2]] : null,
+        to: [payload.position[0], payload.position[1], payload.position[2]] as Vec3,
+        yaw: payload.rotationY,
+      }
+      if (import.meta.env.DEV) {
+        const slot = window as Window & { __snaps?: unknown[] }
+        const list = slot.__snaps ?? []
+        list.push(correction)
+        slot.__snaps = list
+      }
+      console.info('[move] server correction', correction)
       lastPose = { position: payload.position, rotationY: payload.rotationY }
       useAppStore.getState().bumpPoseSync()
     }
@@ -468,6 +483,7 @@ function emitJoin(session: RoomSession) {
         playerId,
         secret: session.secret || getPlayerSecret(),
         timed: session.timed,
+        ...(clientSendsQuiet(import.meta.env.PROD, location.search) ? { quiet: true } : {}),
         resume,
       },
       (snapshot: RoomSnapshot) => {

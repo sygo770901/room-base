@@ -126,6 +126,7 @@ interface AppState {
   mapLoadSlow: boolean
   mapLoadLoaded: number
   mapLoadTotal: number
+  mapSceneReady: boolean
   mapLoadRetry: number
   autoOpenDoors: boolean
   setLobby: (name: string, roomId: string) => void
@@ -185,6 +186,7 @@ interface AppState {
   addMapLoadError: (file: string) => void
   setMapLoadSlow: (slow: boolean) => void
   setMapLoadCounts: (loaded: number, total: number) => void
+  setMapSceneReady: (ready: boolean) => void
   requestMapRetry: () => void
   setAutoOpenDoors: (on: boolean) => void
   setConnection: (status: ConnectionStatus) => void
@@ -265,6 +267,7 @@ export const useAppStore = create<AppState>((set) => ({
   mapLoadSlow: false,
   mapLoadLoaded: 0,
   mapLoadTotal: 0,
+  mapSceneReady: false,
   mapLoadRetry: 0,
   autoOpenDoors: typeof localStorage === 'undefined' ? true : localStorage.getItem('rb-auto-door') !== '0',
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
@@ -365,6 +368,12 @@ export const useAppStore = create<AppState>((set) => ({
       const now = performance.now()
       const hits = s.hits.filter((h) => now - h.at < 800)
       hits.push({ ...hit, key: s.hitSeq, at: now })
+      if (import.meta.env.DEV && typeof window !== 'undefined') {
+        const slot = window as Window & {
+          __lastHit?: { text: string; amount: number; at: number; id: string; kind: string }
+        }
+        slot.__lastHit = { text: `-${hit.amount}`, amount: hit.amount, at: now, id: hit.id, kind: hit.kind }
+      }
       return { hits: hits.slice(-20), hitSeq: s.hitSeq + 1 }
     }),
   setMonsters: (monsters) => set({ monsters }),
@@ -442,6 +451,7 @@ export const useAppStore = create<AppState>((set) => ({
     }),
   setMapLoadSlow: (slow) => set({ mapLoadSlow: slow }),
   setMapLoadCounts: (loaded, total) => set({ mapLoadLoaded: loaded, mapLoadTotal: total }),
+  setMapSceneReady: (ready) => set({ mapSceneReady: ready }),
   requestMapRetry: () =>
     set((s) => ({
       mapLoadRetry: s.mapLoadRetry + 1,

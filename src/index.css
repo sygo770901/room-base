@@ -26,6 +26,20 @@ input {
   background: #3a3544;
 }
 
+.damage-readout {
+  position: absolute;
+  left: 36%;
+  top: 42%;
+  z-index: 6;
+  pointer-events: none;
+  font-size: 52px;
+  font-weight: 800;
+  line-height: 1;
+  color: #ffe8e4;
+  -webkit-text-stroke: 2px #8c140c;
+  text-shadow: 0 2px 0 #8c140c;
+}
+
 .lobby {
   min-height: 100%;
   display: grid;

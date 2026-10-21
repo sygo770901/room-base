@@ -1,6 +1,7 @@
 import { Component, useEffect, useRef, type ReactNode } from 'react'
 import { Lobby } from './ui/Lobby'
 import { Hud } from './ui/Hud'
+import { DamageReadout } from './ui/DamageReadout'
 import { ReconnectBanner } from './ui/ReconnectBanner'
 import { Tutorial } from './ui/Tutorial'
 import { RoomScene } from './scene/RoomScene'
@@ -29,7 +30,7 @@ class SceneErrorBoundary extends Component<{ children: ReactNode }, { failed: bo
 
 function sceneShell(scene: string) {
   if (scene === 'jungle') return '#1c2a1c'
-  if (scene === 'kaykit') return '#2a2428'
+  if (scene === 'kaykit' || scene === 'heightlab') return '#2a2428'
   return '#3a3544'
 }
 
@@ -80,6 +81,7 @@ export default function App() {
         <RoomScene />
       </SceneErrorBoundary>
       <Hud />
+      <DamageReadout />
       <ReconnectBanner />
       <Tutorial />
     </div>

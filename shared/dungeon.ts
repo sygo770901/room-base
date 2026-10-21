@@ -1,4 +1,5 @@
 import { BARB_HP, KNIGHT_HP, MAGE_HP, ROGUE_HP } from './combat'
+import { heightBlocksSight, type HeightField } from './heightfield'
 
 /** Kenney Modular Dungeon Kit（CC0）拼在 4m 格子上。牆厚約 2m，擺在走道外側。 */
 
@@ -568,18 +569,28 @@ export const BOSS_DEFS: MonsterDef[] = [
   },
 ]
 
-export function hasLineOfSight(x0: number, z0: number, x1: number, z1: number, extra: WallBox[] = []) {
+export function hasLineOfSight(
+  x0: number,
+  z0: number,
+  x1: number,
+  z1: number,
+  extra: WallBox[] = [],
+  field: HeightField | null = null,
+  y0 = 0,
+  y1 = 0,
+) {
   const dx = x1 - x0
   const dz = z1 - z0
   const dist = Math.hypot(dx, dz)
   if (dist < 0.2) return true
+  if (field && heightBlocksSight(field, x0, y0, z0, x1, y1, z1)) return false
   const steps = Math.ceil(dist / 0.4)
   const blockers = extra.length ? SIGHT_BLOCKERS.concat(extra) : SIGHT_BLOCKERS
   for (let i = 1; i < steps; i++) {
     const t = i / steps
     const x = x0 + dx * t
     const z = z0 + dz * t
-    if (!isWalkableWorld(x, z, 0)) return false
+    if (!field && !isWalkableWorld(x, z, 0)) return false
     for (const b of blockers) {
       if (x >= b.cx - b.hx && x <= b.cx + b.hx && z >= b.cz - b.hz && z <= b.cz + b.hz) return false
     }

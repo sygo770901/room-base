@@ -9,8 +9,8 @@ export const HIDE_MAX_Y = 0.4
 export const JUMP_GROUND_EPS = 0.18
 export const PLAYER_FOOT_RADIUS = 0.26
 
-export function canStartJump(x: number, z: number, y: number, platforms: Platform[]) {
-  const floor = supportY(x, z, y, y, PLAYER_FOOT_RADIUS, platforms)
+export function canStartJump(x: number, z: number, y: number, platforms: Platform[], terrainY = 0) {
+  const floor = supportY(x, z, y, y, PLAYER_FOOT_RADIUS, platforms, terrainY)
   return y <= floor + JUMP_GROUND_EPS
 }
 
@@ -52,8 +52,9 @@ export function supportY(
   prevY: number,
   radius: number,
   platforms: Platform[],
+  terrainY = 0,
 ) {
-  let best = 0
+  let best = terrainY
   for (const p of platforms) {
     if (!onTop(x, z, radius, p)) continue
     const crossed = prevY >= p.topY - 0.02 && y <= p.topY + LAND_SNAP

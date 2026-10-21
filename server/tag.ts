@@ -2,6 +2,8 @@ import type { Server } from 'socket.io'
 import { ATTACK_COOLDOWN_MS, ATTACK_RANGE, meleeHits, PLAYER_MAX_HP, type MatchOver } from '../shared/combat.ts'
 import { nextComboStep } from '../shared/anim.ts'
 import { HIDE_RANGE, HIDE_SPOTS } from '../shared/dungeon.ts'
+import { heightBlocksSight, canMoveTo, groundY } from '../shared/heightfield.ts'
+import { heightFieldOf, spawnOf } from '../shared/heightmaps.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
 import {
   DASH_DISTANCE,
@@ -17,7 +19,7 @@ import {
   type MoveGrant,
 } from '../shared/movement.ts'
 import { HIDE_MAX_Y, JUMP_GROUND_EPS, supportY, PLAYER_FOOT_RADIUS } from '../shared/platforms.ts'
-import { doorsOf, platformsOf, spawnPointsOf } from '../shared/mapData.ts'
+import { doorsOf, platformsOf } from '../shared/mapData.ts'
 import { POOP_SLOW_MUL, smokeHidesFrom, type SmokeCloud } from '../shared/smoke.ts'
 import { doorHidesFrom, type DoorState } from '../shared/doors.ts'
 import {
@@ -133,9 +135,25 @@ export function playerViewFor(room: TagRoom, viewerId: string, p: PlayerState): 
   const away = Boolean(room.awayUntil?.[p.id])
   if (room.mode !== 'tag') return stripPlayer(p, away)
   if (p.id === viewerId) return stripPlayer(p, away)
+  const viewer = room.players[viewerId]
+  const heightHide =
+    Boolean(p.position) &&
+    Boolean(viewer?.position) &&
+    heightBlocksSight(
+      heightFieldOf(room.scene),
+      viewer!.position[0],
+      viewer!.position[1] ?? 0,
+      viewer!.position[2],
+      p.position[0],
+      p.position[1] ?? 0,
+      p.position[2],
+    )
+  if (heightHide) {
+    const { position: _pos, phrase: _phrase, ...rest } = p
+    return { ...rest, away } as PlayerState
+  }
   if (!seekersOf(room, viewerId)) return stripPlayer(p, away)
   const hidingCoords = hidePhase(room) ? p.team === 'hider' : Boolean(p.hidden && p.team === 'hider')
-  const viewer = room.players[viewerId]
   const smoked =
     p.team === 'hider' &&
     Boolean(p.position) &&
@@ -425,13 +443,12 @@ export function resetPlayersForTagRestart(room: TagRoom) {
   const ids = Object.keys(room.players)
   ids.forEach((id, i) => {
     const p = room.players[id]
-    const spawns = spawnPointsOf(room.scene)
-    const sp = spawns[i % spawns.length]
+    const sp = spawnOf(room.scene, i)
     p.hp = PLAYER_MAX_HP
     p.hidden = false
     p.team = 'hider'
     p.seated = null
-    p.position = [sp.x, 0, sp.z]
+    p.position = [sp.x, sp.y, sp.z]
     p.rotationY = 0
   })
 }
@@ -601,10 +618,24 @@ export function acceptMove(
   const jumping = Boolean(grant?.jumpUntil && now <= grant.jumpUntil)
   const prevY = player.position[1] ?? 0
   const platforms = platformsOf(room.scene)
-  const floor = supportY(x, z, rawY, prevY, PLAYER_FOOT_RADIUS, platforms)
+  const nav = heightFieldOf(room.scene)
+  const px = player.position[0]
+  const pz = player.position[2]
+  if (nav && !canMoveTo(nav, px, pz, x, z, PLAYER_FOOT_RADIUS, jumping ? prevY : undefined, jumping ? rawY : undefined)) return false
+  const terrain = nav ? (groundY(nav, x, z) ?? 0) : 0
+  const startT = nav ? (groundY(nav, px, pz) ?? prevY) : 0
+  const floor = supportY(x, z, rawY, prevY, PLAYER_FOOT_RADIUS, platforms, terrain)
   let y = rawY
-  if (!jumping && y > floor + JUMP_GROUND_EPS) y = floor
-  if (y > jumpCeilingFor(room.scene) + 0.2 || y < -0.08) return false
+  const ceiling = jumpCeilingFor(room.scene)
+  if (!jumping && y > floor + JUMP_GROUND_EPS) {
+    const falling = Boolean(nav) && y < startT - 0.05 && y + 0.2 >= terrain
+    if (!falling) y = floor
+  }
+  if (nav) {
+    const low = Math.min(startT, terrain)
+    const high = Math.max(startT, terrain)
+    if (y > high + ceiling + 0.2 || y < low - 0.25) return false
+  } else if (y > ceiling + 0.2 || y < -0.08) return false
 
   const slowed = now < (room.poopSlowUntil?.[player.id] ?? 0)
   const prev = room.lastMoveAt[player.id]
@@ -614,7 +645,12 @@ export function acceptMove(
   const dist = Math.hypot(x - player.position[0], z - player.position[2])
   const rise = y - prevY
   const drop = prevY - y
-  if (rise > allow.vert || drop > JUMP_MAX_DELTA + MOVE_Y_PAD) return false
+  if (nav) {
+    const terrainRise = Math.max(0, terrain - startT)
+    const terrainDrop = Math.max(0, startT - terrain)
+    if (rise > allow.vert + terrainRise + 0.08) return false
+    if (drop > JUMP_MAX_DELTA + MOVE_Y_PAD + terrainDrop) return false
+  } else if (rise > allow.vert || drop > JUMP_MAX_DELTA + MOVE_Y_PAD) return false
 
   if (!room.moveBank) room.moveBank = {}
   let bank = room.moveBank[player.id]

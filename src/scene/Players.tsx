@@ -3,9 +3,11 @@ import { useFrame } from '@react-three/fiber'
 import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { PLAYER_CLASS } from '../../shared/classes'
+import { heightFieldOf } from '../../shared/heightmaps'
 import { useAppStore } from '../store'
 import type { PlayerState } from '../types'
 import { KayKitHero } from './KayKitHero'
+import { livePose } from './livePose'
 import { ModelBoundary } from './ModelBoundary'
 
 function dampAngle(current: number, target: number, lambda: number, dt: number) {
@@ -34,15 +36,23 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
     const g = group.current
     const p = player.position
     if (!g || !p) return
-    if (hurtUntil > Date.now()) {
+    const nav = heightFieldOf(useAppStore.getState().scene)
+    const selfLive = Boolean(isSelf && livePose.ready)
+    const px = selfLive ? livePose.x : p[0]
+    const py = selfLive ? livePose.y : (p[1] ?? 0)
+    const pz = selfLive ? livePose.z : p[2]
+    const yaw = selfLive ? livePose.yaw : player.rotationY
+    // 受傷閃爍會把整個人藏起來。高度圖上自己這一幀要留在畫面左下，不能跟著閃沒。
+    const blink = hurtUntil > Date.now() && !(isSelf && nav)
+    if (blink) {
       g.visible = Math.floor(Date.now() / 80) % 2 === 0
     } else if (!g.visible) {
       g.visible = true
     }
-    const py = p[1] ?? 0
     if (isSelf || !ready.current) {
-      g.position.set(p[0], py, p[2])
-      g.rotation.y = player.rotationY
+      const ny = isSelf && nav && ready.current ? THREE.MathUtils.damp(g.position.y, py, 12, dt) : py
+      g.position.set(px, ny, pz)
+      g.rotation.y = yaw
       ready.current = true
       speed.current = 0
       return

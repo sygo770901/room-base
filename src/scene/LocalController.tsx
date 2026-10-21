@@ -5,19 +5,22 @@ import { HIDE_RANGE, HIDE_SPOTS } from '../../shared/dungeon'
 import { isMobileDevice } from '../perf/device'
 import { WEAPON_STATS } from '../../shared/barrels'
 import { DASH_DISTANCE, DASH_DURATION_MS, jumpCeilingFor, dashCooldownMs } from '../../shared/movement'
+import { groundY } from '../../shared/heightfield'
+import { heightFieldOf } from '../../shared/heightmaps'
 import { GRAVITY, HIDE_MAX_Y, JUMP_SPEED, platformsFor, supportY } from '../../shared/platforms'
 import { PLAYER_RADIUS } from '../../shared/furniture'
 import { POOP_SLOW_MUL, SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
 import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitRescueHold, emitSit, emitSmoke, performAttack } from '../net/socket'
 import { isDowned, nearestDowned } from '../../shared/downed'
 import { DOOR_AUTO_RANGE, DOOR_PROMPT_RANGE, closedDoorAabbs, inspectNearestDoor, nearestDoor } from '../../shared/doors'
-import { OTS_LOOK_Y } from '../../shared/camera'
+import { OTS_LOOK_Y, heightWalkForward } from '../../shared/camera'
 import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
 import { resolvePlayerMove } from '../physics/collision'
 import { doorsOf, extraAabbsOf } from '../../shared/mapData'
 import { SAMPLE_BOUNDS, sampleWalkable } from '../../shared/sampleRoom'
 import type { MoveSpace } from '../physics/collision'
 import { useAppStore } from '../store'
+import { livePose } from './livePose'
 import type { PlayerState, Vec3 } from '../types'
 
 const SPEED = 5.2
@@ -262,7 +265,8 @@ export function LocalController({
     const stickCamera = (x: number, y: number, z: number) => {
       const target = orbit?.target
       if (!target) return
-      const lookY = OTS_LOOK_Y + y * 0.12
+      const nav = heightFieldOf(useAppStore.getState().scene)
+      const lookY = nav ? y + OTS_LOOK_Y : OTS_LOOK_Y + y * 0.12
       camera.position.x += x - target.x
       camera.position.y += lookY - target.y
       camera.position.z += z - target.z
@@ -323,8 +327,29 @@ export function LocalController({
     }
 
     if (fwd !== 0 || strafe !== 0) {
-      camera.getWorldDirection(forward)
-      forward.y = 0
+      const sceneNow = useAppStore.getState().scene
+      const navNow = heightFieldOf(sceneNow)
+      const lookTarget = orbit?.target
+      if (navNow && lookTarget) {
+        // 越肩鏡頭站在側邊。用鏡頭朝向直接推人，會往肩膀那側漂，撞上高台邊緣。
+        // 準心打在角色前方的水平面上，W 沿著角色到那個點走。
+        camera.getWorldDirection(forward)
+        const aim = heightWalkForward(
+          camera.position.x,
+          camera.position.y,
+          camera.position.z,
+          forward.x,
+          forward.y,
+          forward.z,
+          lookTarget.x,
+          lookTarget.y,
+          lookTarget.z,
+        )
+        forward.set(aim.x, 0, aim.z)
+      } else {
+        camera.getWorldDirection(forward)
+        forward.y = 0
+      }
       if (forward.lengthSq() < 1e-4) forward.set(0, 0, 1)
       forward.normalize()
       right.crossVectors(forward, up).normalize()
@@ -332,7 +357,8 @@ export function LocalController({
       const len = Math.hypot(fwd, strafe) || 1
       const held =
         player.weapon && (player.weaponUntil ?? 0) > Date.now() ? player.weapon : 'sword'
-      const speedMul = WEAPON_STATS[held].speed
+      const shotWalk = import.meta.env.DEV && new URLSearchParams(location.search).has('shot') ? 0.38 : 1
+      const speedMul = WEAPON_STATS[held].speed * shotWalk
       const poopSlow = Date.now() < useAppStore.getState().poopSlowUntil ? POOP_SLOW_MUL : 1
       const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * speedMul * poopSlow * dt
       const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * poopSlow * dt
@@ -340,6 +366,7 @@ export function LocalController({
       const sceneId = useAppStore.getState().scene
       const extra = extraAabbsOf(sceneId).concat(closedDoorAabbs(useAppStore.getState().doors, doorsOf(sceneId)))
       const plats = platformsFor(sceneId)
+      const nav = heightFieldOf(sceneId)
       const space = moveSpace(sceneId)
       const result = resolvePlayerMove(
         pos.current.x,
@@ -351,13 +378,22 @@ export function LocalController({
         extra,
         pos.current.y,
         plats,
+        nav,
         space,
       )
       const movedX = result.x - pos.current.x
       const movedZ = result.z - pos.current.z
       pos.current.x = result.x
       pos.current.z = result.z
-      if (movedX !== 0 || movedZ !== 0) {
+      const inputX = (right.x * strafe) / len + (forward.x * fwd) / len
+      const inputZ = (right.z * strafe) / len + (forward.z * fwd) / len
+      if (nav) {
+        // 貼牆滑動時不要把面向轉去牆。高度圖的面向跟著按鍵，不跟著被撞開的那一步。
+        if (inputX !== 0 || inputZ !== 0) {
+          rotY.current = Math.atan2(inputX, inputZ)
+          lastDir.current = { x: inputX, z: inputZ }
+        }
+      } else if (movedX !== 0 || movedZ !== 0) {
         rotY.current = Math.atan2(movedX, movedZ)
         lastDir.current = { x: movedX, z: movedZ }
       }
@@ -390,6 +426,7 @@ export function LocalController({
         extra,
         pos.current.y,
         platformsFor(sceneId),
+        heightFieldOf(sceneId),
         moveSpace(sceneId),
       )
       pos.current.x = result.x
@@ -405,6 +442,8 @@ export function LocalController({
       pos.current.y = ceiling
       if (vy.current > 0) vy.current = 0
     }
+    const groundNav = heightFieldOf(useAppStore.getState().scene)
+    const terrain = groundNav ? (groundY(groundNav, pos.current.x, pos.current.z) ?? 0) : 0
     const feet = supportY(
       pos.current.x,
       pos.current.z,
@@ -412,6 +451,7 @@ export function LocalController({
       prevY,
       PLAYER_RADIUS,
       platformsFor(useAppStore.getState().scene),
+      terrain,
     )
     if (pos.current.y <= feet && vy.current <= 0.05) {
       pos.current.y = feet
@@ -444,6 +484,28 @@ export function LocalController({
     stickCamera(pos.current.x, pos.current.y, pos.current.z)
 
     const pose: Vec3 = [pos.current.x, pos.current.y, pos.current.z]
+    livePose.x = pose[0]
+    livePose.y = pose[1]
+    livePose.z = pose[2]
+    livePose.yaw = rotY.current
+    livePose.ready = true
+    if (import.meta.env.DEV) {
+      const monsters = useAppStore.getState().monsters
+      const slot = window as Window & {
+        __pose?: { x: number; y: number; z: number; yaw: number; monsters: number }
+        __mobs?: { id: string; x: number; z: number }[]
+        __self?: string | null
+      }
+      slot.__pose = {
+        x: pose[0],
+        y: pose[1],
+        z: pose[2],
+        yaw: rotY.current,
+        monsters: monsters.length,
+      }
+      slot.__mobs = monsters.filter((m) => m.alive).map((m) => ({ id: m.id, x: m.x, z: m.z }))
+      slot.__self = useAppStore.getState().selfId
+    }
     onPose(pose, rotY.current)
     useAppStore.getState().setLocalXZ(pose[0], pose[2])
 

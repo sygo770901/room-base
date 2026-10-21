@@ -1,4 +1,5 @@
 import { isWalkableWorld } from '../../shared/dungeon'
+import { canMoveTo, type HeightField } from '../../shared/heightfield'
 import { KAYKIT_EXTRA_WALLS } from '../../shared/kaykitScene'
 import { blocksAtHeight, type Platform } from '../../shared/platforms'
 import {
@@ -127,27 +128,42 @@ function tryMove(
   extra: Aabb[],
   y = 0,
   platforms: Platform[] = [],
+  nav: HeightField | null = null,
   space?: MoveSpace,
 ): MoveResult {
   const r = radius
   let nx = fromX + dx
   let nz = fromZ + dz
-  const clamped = clampToRoom(nx, nz, 0, 0, space ?? ROOM_BOUNDS)
+  const navBounds = nav
+    ? {
+        minX: nav.originX,
+        maxX: nav.originX + nav.cols * nav.cell,
+        minZ: nav.originZ,
+        maxZ: nav.originZ + nav.rows * nav.cell,
+      }
+    : undefined
+  const clamped = clampToRoom(nx, nz, 0, 0, space ?? navBounds ?? ROOM_BOUNDS)
   nx = clamped.x
   nz = clamped.z
 
-  if (space) {
+  if (nav) {
+    if (!canMoveTo(nav, fromX, fromZ, nx, nz, r, y, y)) return { x: fromX, z: fromZ }
+  } else if (space) {
     if (!space.walkable(nx, nz, r)) return { x: fromX, z: fromZ }
   } else if (!isWalkableWorld(nx, nz, r)) return { x: fromX, z: fromZ }
-  if (blocksAtHeight(nx, nz, y, r, platforms)) return { x: fromX, z: fromZ }
+  // 有高度圖時地面高低由高度圖決定。平台厚塊會把樓梯踏面擋成牆，
+  // 牆也已經是高度圖上的空格。額外的盒子含寶箱，會把出生點封死。
+  if (!nav && blocksAtHeight(nx, nz, y, r, platforms)) return { x: fromX, z: fromZ }
 
-  if (!space) {
+  if (!nav && !space) {
     for (const w of STATIC_AABBS) {
       if (circleHitsAabb(nx, nz, r, w)) return { x: fromX, z: fromZ }
     }
   }
-  for (const w of extra) {
-    if (circleHitsAabb(nx, nz, r, w)) return { x: fromX, z: fromZ }
+  if (!nav) {
+    for (const w of extra) {
+      if (circleHitsAabb(nx, nz, r, w)) return { x: fromX, z: fromZ }
+    }
   }
 
   for (const f of furniture) {
@@ -183,6 +199,7 @@ export function resolvePlayerMove(
   extra: Aabb[] = [],
   y = 0,
   platforms: Platform[] = [],
+  nav: HeightField | null = null,
   space?: MoveSpace,
 ): MoveResult {
   let x = fromX
@@ -190,14 +207,14 @@ export function resolvePlayerMove(
   let pushed: MoveResult['pushed']
 
   if (dx !== 0) {
-    const rx = tryMove(x, z, dx, 0, furniture, radius, extra, y, platforms, space)
+    const rx = tryMove(x, z, dx, 0, furniture, radius, extra, y, platforms, nav, space)
     x = rx.x
     z = rx.z
     if (rx.pushed) pushed = rx.pushed
   }
   if (dz !== 0) {
     const furn = withPushed(furniture, pushed)
-    const rz = tryMove(x, z, 0, dz, furn, radius, extra, y, platforms, space)
+    const rz = tryMove(x, z, 0, dz, furn, radius, extra, y, platforms, nav, space)
     x = rz.x
     z = rz.z
     if (rz.pushed) pushed = rz.pushed

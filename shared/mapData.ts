@@ -1,6 +1,8 @@
 import { KAYKIT_DOORWAYS, KAYKIT_EXTRA_WALLS, KAYKIT_OCCLUDERS } from './kaykitScene'
 import { DOORWAY_DEFS, doorwayPlaces } from './doorways'
 import { platformsFor } from './platforms'
+import { heightOccluders } from './heightfield'
+import { heightFieldOf } from './heightmaps'
 import { SAMPLE_DOORWAYS, SAMPLE_OCCLUDERS, SAMPLE_SPAWNS, SAMPLE_WALLS } from './sampleRoom'
 import { SPAWN_POINTS } from './dungeon'
 import type { WallBox, OccBox } from './dungeon'
@@ -14,9 +16,11 @@ function copyDoors(): DoorDef[] {
 const KENNEY_DOORS: DoorDef[] = copyDoors()
 const KAYKIT_DOORS: DoorDef[] = copyDoors()
 const JUNGLE_DOORS: DoorDef[] = copyDoors()
+const HEIGHTLAB_DOORS: DoorDef[] = []
 const SAMPLE_DOORS: DoorDef[] = []
 
 export function doorsOf(scene?: SceneId | string | null): DoorDef[] {
+  if (scene === 'heightlab') return HEIGHTLAB_DOORS
   if (scene === 'sample') return SAMPLE_DOORS
   if (scene === 'kaykit') return KAYKIT_DOORS
   if (scene === 'jungle') return JUNGLE_DOORS
@@ -71,9 +75,11 @@ export function extraAabbsOf(scene?: SceneId | string | null) {
 }
 
 export function occludersOf(scene?: SceneId | string | null): OccBox[] {
-  if (scene === 'sample') return SAMPLE_OCCLUDERS
-  if (scene === 'kaykit' || scene === 'jungle') return KAYKIT_OCCLUDERS
-  return []
+  const base =
+    scene === 'sample' ? SAMPLE_OCCLUDERS : scene === 'kaykit' || scene === 'jungle' ? KAYKIT_OCCLUDERS : []
+  const field = heightFieldOf(scene)
+  if (!field) return base
+  return base.concat(heightOccluders(field))
 }
 
 export function platformsOf(scene?: SceneId | string | null) {

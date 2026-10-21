@@ -10,11 +10,13 @@ import {
   type Place,
 } from '../../shared/dungeon'
 import { isBakedDoorMesh } from '../../shared/doorways'
+import { HEIGHTLAB_PLACES } from '../../shared/heightlab'
 import { KAYKIT_PLACES } from '../../shared/kaykitScene'
 import { usesKaykitKit } from '../../shared/mapData'
 import { SAMPLE_PLACES } from '../../shared/sampleRoom'
 import { isMobileDevice } from '../perf/device'
 import { useAppStore } from '../store'
+import { writeInstanceMatrices } from './occlusion'
 
 const CHUNK = 32
 const KENNEY_ROOT = '/assets/kenney/dungeon'
@@ -72,20 +74,7 @@ function InstanceChunk({ part, places, cast }: { part: Part; places: Place[]; ca
   useLayoutEffect(() => {
     const mesh = ref.current
     if (!mesh || places.length === 0) return
-    const dummy = new THREE.Object3D()
-    const matrix = new THREE.Matrix4()
-    for (let i = 0; i < places.length; i++) {
-      const place = places[i]
-      dummy.position.set(place.x, place.y, place.z)
-      dummy.rotation.set(0, place.rotY, 0)
-      dummy.scale.setScalar(place.scale ?? 1)
-      dummy.updateMatrix()
-      matrix.multiplyMatrices(dummy.matrix, part.matrix)
-      mesh.setMatrixAt(i, matrix)
-    }
-    mesh.instanceMatrix.needsUpdate = true
-    mesh.computeBoundingSphere()
-    mesh.frustumCulled = true
+    writeInstanceMatrices(mesh, places, part.matrix)
   }, [part, places])
 
   if (places.length === 0) return null
@@ -162,19 +151,23 @@ function KitModel({
 }
 
 function placesFor(scene: string) {
+  if (scene === 'heightlab') return HEIGHTLAB_PLACES
   if (scene === 'sample') return SAMPLE_PLACES
   if (usesKaykitKit(scene)) return KAYKIT_PLACES
   return KENNEY_PLACES
 }
 
+/** 鏡頭射線只打這組，不會打到角色自己。 */
+export const DUNGEON_OCCLUSION = 'dungeon-occlusion'
+
 export function dungeonModelUrls(scene: string) {
-  const fallback = usesKaykitKit(scene) || scene === 'sample' ? KAYKIT_ROOT : KENNEY_ROOT
+  const fallback = scene === 'heightlab' || usesKaykitKit(scene) || scene === 'sample' ? KAYKIT_ROOT : KENNEY_ROOT
   return [...new Set(placesFor(scene).map((p) => `${p.root ?? fallback}/${p.model}`))]
 }
 
 export function Dungeon(_props: { focusX: number; focusZ: number }) {
   const scene = useAppStore((s) => s.scene)
-  const root = usesKaykitKit(scene) || scene === 'sample' ? KAYKIT_ROOT : KENNEY_ROOT
+  const root = scene === 'heightlab' || usesKaykitKit(scene) || scene === 'sample' ? KAYKIT_ROOT : KENNEY_ROOT
   const places = placesFor(scene)
   const glow = scene === 'sample' ? 2.6 : 1.15
   const groups = useMemo(() => {
@@ -190,7 +183,7 @@ export function Dungeon(_props: { focusX: number; focusZ: number }) {
   }, [places, root])
 
   return (
-    <group>
+    <group name={DUNGEON_OCCLUSION}>
       {groups.map((group) => (
         <KitModel
           key={`${group.root}/${group.model}`}

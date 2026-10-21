@@ -60,6 +60,7 @@ import {
   ROGUE_RETREAT_MS,
   ROGUE_SPEED,
   SIGHT,
+  KNIGHT_HP,
   monsterRadius,
   type DuckSpeech,
   type MatchOver,
@@ -68,6 +69,8 @@ import {
   type ProjectileState,
 } from '../shared/combat.ts'
 import { doorsOf, extraAabbsOf, extraWallsOf, spawnPointsOf } from '../shared/mapData.ts'
+import { groundY } from '../shared/heightfield.ts'
+import { heightFieldOf, spawnOf } from '../shared/heightmaps.ts'
 import {
   BOSS_DEFS,
   FLOOR_CENTERS,
@@ -115,6 +118,7 @@ export interface ServerMonster {
   hp: number
   x: number
   z: number
+  y?: number
   rotationY: number
   alive: boolean
   patrol: { x: number; z: number }[]
@@ -222,7 +226,23 @@ function fromDef(d: MonsterDef): ServerMonster {
   }
 }
 
-export function createMonsters(): ServerMonster[] {
+export function createMonsters(scene?: string | null): ServerMonster[] {
+  const field = heightFieldOf(scene)
+  if (field) {
+    if (field.patrol.length >= 2) {
+      const made = fromDef({
+        id: 'knight',
+        name: '騎士',
+        model: 'knight',
+        maxHp: KNIGHT_HP,
+        patrol: field.patrol,
+      })
+      const gy = groundY(field, made.x, made.z)
+      if (gy != null) made.y = gy
+      return [made]
+    }
+    return []
+  }
   return MONSTER_DEFS.map(fromDef)
 }
 
@@ -238,6 +258,7 @@ export function publicMonsters(list: ServerMonster[]): MonsterState[] {
     kind: m.kind,
     x: m.x,
     z: m.z,
+    ...(typeof m.y === 'number' ? { y: m.y } : {}),
     rotationY: m.rotationY,
     hp: m.hp,
     maxHp: m.maxHp,
@@ -277,7 +298,9 @@ function nearestVisible(
     if (inSmoke(room.smokes, p.position[0], p.position[2], Date.now())) continue
     const d = Math.hypot(p.position[0] - mx, p.position[2] - mz)
     if (d > sight || d >= best) continue
-    if (!hasLineOfSight(mx, mz, p.position[0], p.position[2], extraWalls)) continue
+    const field = heightFieldOf(room.scene)
+    const my = field ? (groundY(field, mx, mz) ?? 0) : 0
+    if (!hasLineOfSight(mx, mz, p.position[0], p.position[2], extraWalls, field, my, p.position[1] ?? 0)) continue
     best = d
     target = p
   }
@@ -302,13 +325,48 @@ function stepMonster(
   const mz = (dz / len) * step
   const beforeX = m.x
   const beforeZ = m.z
-  const moved = resolvePlayerMove(m.x, m.z, mx, mz, [], r, extraAabbs)
+  const nav = heightFieldOf(room.scene)
+  const moved = resolvePlayerMove(m.x, m.z, mx, mz, [], r, extraAabbs, 0, [], nav)
+  m.x = moved.x
+  m.z = moved.z
+  if (nav) {
+    const gy = groundY(nav, m.x, m.z)
+    if (gy != null) m.y = gy
+  }
+  if (Math.abs(m.x - beforeX) > 0.001 || Math.abs(m.z - beforeZ) > 0.001) {
+    m.rotationY = Math.atan2(m.x - beforeX, m.z - beforeZ)
+  }
+  return { moved: Math.hypot(m.x - beforeX, m.z - beforeZ), remain: Math.hypot(tx - m.x, tz - m.z) }
+}
+
+/** 測試與高度圖用：同一套步進，不帶地城門。 */
+export function stepMonsterToward(
+  scene: string | null | undefined,
+  m: { x: number; z: number; rotationY: number; kind?: MonsterKind; y?: number },
+  tx: number,
+  tz: number,
+  speed: number,
+  dt: number,
+) {
+  const nav = heightFieldOf(scene)
+  const r = monsterRadius(m.kind)
+  const dx = tx - m.x
+  const dz = tz - m.z
+  const len = Math.hypot(dx, dz) || 1
+  const step = Math.min(speed * dt, len)
+  const beforeX = m.x
+  const beforeZ = m.z
+  const moved = resolvePlayerMove(m.x, m.z, (dx / len) * step, (dz / len) * step, [], r, [], 0, [], nav)
   m.x = moved.x
   m.z = moved.z
   if (Math.abs(m.x - beforeX) > 0.001 || Math.abs(m.z - beforeZ) > 0.001) {
     m.rotationY = Math.atan2(m.x - beforeX, m.z - beforeZ)
   }
-  return { moved: Math.hypot(m.x - beforeX, m.z - beforeZ), remain: Math.hypot(tx - m.x, tz - m.z) }
+  if (nav) {
+    const gy = groundY(nav, m.x, m.z)
+    if (gy != null) m.y = gy
+  }
+  return { moved: Math.hypot(m.x - beforeX, m.z - beforeZ), remain: Math.hypot(tx - m.x, tz - m.z), y: m.y ?? 0 }
 }
 
 function bossAwards(room: CombatRoom) {
@@ -324,10 +382,10 @@ function bossAwards(room: CombatRoom) {
 
 export function respawnPlayer(room: CombatRoom, io: Server, player: PlayerState, now: number, reason?: string) {
   const spawns = spawnPointsOf(room.scene)
-  const sp = spawns[Math.floor(Math.random() * spawns.length)]
+  const sp = spawnOf(room.scene, Math.floor(Math.random() * spawns.length))
   player.hp = PLAYER_MAX_HP
   player.downedUntil = 0
-  player.position = [sp.x, 0, sp.z]
+  player.position = [sp.x, sp.y, sp.z]
   player.seated = null
   room.hurtUntil[player.id] = now + IFRAME_MS
   recordMoveOrigin(room, player.id, now)
@@ -578,8 +636,11 @@ function tickMage(
   patrolToward(room, m, seen, PATROL_SPEED, dt, extraAabbs)
 }
 
-function pointBlocked(x: number, z: number, extraAabbs: ExtraAabb[]) {
-  if (!isWalkableWorld(x, z, 0.12)) return true
+function pointBlocked(x: number, z: number, extraAabbs: ExtraAabb[], scene?: string | null) {
+  const field = heightFieldOf(scene)
+  if (field) {
+    if (groundY(field, x, z) == null) return true
+  } else if (!isWalkableWorld(x, z, 0.12)) return true
   for (const b of extraAabbs) {
     if (x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ) return true
   }
@@ -599,7 +660,7 @@ function tickProjectiles(room: CombatRoom, io: Server, now: number, dt: number, 
     for (let i = 0; i < steps; i++) {
       orb.x += orb.vx * stepDt
       orb.z += orb.vz * stepDt
-      if (pointBlocked(orb.x, orb.z, extraAabbs)) {
+      if (pointBlocked(orb.x, orb.z, extraAabbs, room.scene)) {
         dead = true
         break
       }
@@ -729,7 +790,9 @@ function spawnExtraDispenser(room: CombatRoom, duck: ServerMonster, now: number)
     for (const a of angles) {
       const cx = duck.x + Math.sin(duck.rotationY + a) * r
       const cz = duck.z + Math.cos(duck.rotationY + a) * r
-      if (isWalkableWorld(cx, cz, 0.45)) {
+      const field = heightFieldOf(room.scene)
+      const open = field ? groundY(field, cx, cz) != null : isWalkableWorld(cx, cz, 0.45)
+      if (open) {
         x = cx
         z = cz
         break outer
@@ -919,7 +982,9 @@ function tickBoss(room: CombatRoom, io: Server, now: number, dt: number) {
       const len = Math.hypot(dx, dz) || 1
       tx = duck.x + (dx / len) * 8
       tz = duck.z + (dz / len) * 8
-      if (!isWalkableWorld(tx, tz, 0.2)) {
+      const fleeField = heightFieldOf(room.scene)
+      const fleeOpen = fleeField ? groundY(fleeField, tx, tz) != null : isWalkableWorld(tx, tz, 0.2)
+      if (!fleeOpen) {
         const side = pickWander(duck.x, duck.z, 6)
         tx = side.x
         tz = side.z
@@ -1094,7 +1159,21 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
     best = m
     bestD = dist
   }
-  if (best && !hasLineOfSight(player.position[0], player.position[2], best.x, best.z, sceneWalls(room, now))) {
+  const sightField = heightFieldOf(room.scene)
+  const sightMy = sightField ? (groundY(sightField, best?.x ?? 0, best?.z ?? 0) ?? 0) : 0
+  if (
+    best &&
+    !hasLineOfSight(
+      player.position[0],
+      player.position[2],
+      best.x,
+      best.z,
+      sceneWalls(room, now),
+      sightField,
+      player.position[1] ?? 0,
+      sightMy,
+    )
+  ) {
     best = null
   }
   if (!best) {
