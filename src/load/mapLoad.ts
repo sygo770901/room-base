@@ -72,6 +72,7 @@ export function startCriticalPreload(scene: string, clearCache = false) {
   store.setMapLoadSlow(false)
   store.setMapLoadCounts(0, urls.length)
   store.setMapLoadProgress(0, true)
+  store.setMapSceneReady(false)
 
   const tick = () => {
     if (gen !== preloadGen) return

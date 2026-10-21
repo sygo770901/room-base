@@ -4,6 +4,7 @@ import type { Socket } from 'socket.io'
 import { BOSS_COUNTDOWN_MS, PLAYER_MAX_HP, ROOM_MAX_PLAYERS, type ProjectileState } from '../shared/combat.ts'
 import { groundY } from '../shared/heightfield.ts'
 import { heightFieldOf, spawnOf } from '../shared/heightmaps.ts'
+import { serverAcceptsQuiet } from '../shared/quiet.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
 import { createBossMonsters, createMonsters, handleAttack, publicMonsters, scaleBossHealth, standPlayer, tickRoom } from './combat.ts'
 import {
@@ -534,7 +535,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         }
 
         const isFirst = Object.keys(room.players).length === 0
-        if (isFirst && payload.quiet) room.quiet = true
+        if (isFirst && serverAcceptsQuiet(payload.quiet)) room.quiet = true
         if (isFirst && isSceneId(payload.scene)) {
           room.scene = payload.scene
           room.doors = createDoors(doorsOf(room.scene))

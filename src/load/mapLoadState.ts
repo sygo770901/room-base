@@ -5,12 +5,15 @@ export interface MapLoadView {
   total: number
   progress: number
   slow?: boolean
+  /** false：檔案到了但場景還沒掛上，進度卡留著，避免出生後先看到空畫面。沒傳則維持原本只看檔案。 */
+  sceneReady?: boolean
 }
 
 /** 檔案都到了就把進度卡關掉。之後就算 active 被打開，也不再蓋住畫面。 */
 export function showMapLoadOverlay(view: MapLoadView) {
   if (view.failed) return false
-  if (view.total > 0 && view.loaded >= view.total) return false
+  const filesDone = view.total > 0 && view.loaded >= view.total
+  if (filesDone && view.sceneReady !== false) return false
   return view.active
 }
 

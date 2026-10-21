@@ -12,11 +12,14 @@ import {
   OTS_RIGHT,
   fitOtsCamera,
   heightCamRadius,
+  heightWalkForward,
   otsCamera,
   otsThetaFromFacing,
 } from '../shared/camera.ts'
 import { groundY, heightCameraBlocked } from '../shared/heightfield.ts'
 import { heightFieldOf } from '../shared/heightmaps.ts'
+import { heightTerrainBlocked, heightWallBlocksPoint } from '../shared/heightlab.ts'
+import { resolvePlayerMove } from '../src/physics/collision.ts'
 import type { Place } from '../shared/dungeon.ts'
 import { meshSegmentBlocked, writeInstanceMatrices } from '../src/scene/occlusion.ts'
 
@@ -87,7 +90,7 @@ assert(field != null, 'heightlab 要有高度圖')
 if (!field) throw new Error('heightlab')
 
 function blocked(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) {
-  return heightCameraBlocked(field!, x0, y0, z0, x1, y1, z1) || meshSegmentBlocked(dungeon, x0, y0, z0, x1, y1, z1)
+  return heightTerrainBlocked(field!, x0, y0, z0, x1, y1, z1) || meshSegmentBlocked(dungeon, x0, y0, z0, x1, y1, z1)
 }
 
 function lineClear(x: number, chestY: number, z: number, camX: number, camY: number, camZ: number) {
@@ -173,6 +176,11 @@ function walk(x: number, z0: number, z1: number, step = 0.25) {
     meshSegmentBlocked(dungeon, 14, feet + OTS_CHEST_Y, 6, raw.x, raw.y, raw.z),
     '出生點全距離鏡頭應該打到後牆模型。這條射線要跟畫面用的 Raycaster 相同',
   )
+  assert(heightWallBlocksPoint(raw.x, raw.y, raw.z), `全距離鏡頭應在牆體裡 z=${raw.z.toFixed(2)}`)
+  assert(
+    heightTerrainBlocked(field, 14, feet + OTS_CHEST_Y, 6, raw.x, raw.y, raw.z),
+    '網格還沒載入時，牆的範圍也要把出生點全距離鏡頭擋下來',
+  )
 }
 
 {
@@ -223,6 +231,72 @@ walk(15.6, 14, 21)
   cam.updateMatrixWorld(true)
   const ndc = new THREE.Vector3(x, chestY, z).project(cam)
   assert(ndc.x < -0.12 && ndc.y < -0.15 && ndc.z < 1, `摔落時角色應在左下 ndc=(${ndc.x.toFixed(2)},${ndc.y.toFixed(2)})`)
+}
+
+{
+  const spawnView = place(14, 6)
+  assert(
+    spawnView.fitted.pose.z > 2.85,
+    `出生鏡頭要站在後牆前面 z=${spawnView.fitted.pose.z.toFixed(2)} r=${spawnView.fitted.radius.toFixed(2)}`,
+  )
+  let x = 14
+  let z = 6
+  let yaw = 0
+  const rig = new THREE.PerspectiveCamera(58, 1280 / 720, 0.05, 180)
+  for (let step = 0; step < 120 && z < 28; step++) {
+    const feetNow = groundY(field, x, z)
+    if (feetNow == null) break
+    const lookY = feetNow + OTS_LOOK_Y
+    const chestY = feetNow + OTS_CHEST_Y
+    const fitted = fitOtsCamera({
+      x,
+      y: lookY,
+      z,
+      chestY,
+      bodyY: [chestY, feetNow + 0.55],
+      theta,
+      phi: OTS_HEIGHT_PHI,
+      radius: OTS_DIST,
+      blocked,
+    })
+    const view = otsCamera(x, lookY, z, theta, OTS_HEIGHT_PHI, fitted.radius, fitted.shoulder, OTS_HEIGHT_AIM, OTS_HEIGHT_AIM_DROP)
+    rig.position.set(view.x, view.y, view.z)
+    rig.up.set(0, 1, 0)
+    rig.lookAt(view.aimX, view.aimY, view.aimZ)
+    rig.updateMatrixWorld(true)
+    const dir = new THREE.Vector3()
+    rig.getWorldDirection(dir)
+    const fwd = heightWalkForward(view.x, view.y, view.z, dir.x, dir.y, dir.z, x, lookY, z, OTS_HEIGHT_AIM_DROP)
+    yaw = Math.atan2(fwd.x, fwd.z)
+    const moved = resolvePlayerMove(x, z, fwd.x * 0.25, fwd.z * 0.25, [], undefined, [], feetNow, [], field)
+    x = moved.x
+    z = moved.z
+  }
+  assert(Math.abs(x - 14) < 0.2, `按住 W 不該橫漂 x=${x.toFixed(2)} z=${z.toFixed(2)} yaw=${yaw.toFixed(3)}`)
+  assert(Math.abs(yaw) < 0.05, `按住 W 不該轉向 yaw=${yaw.toFixed(3)}`)
+  assert(z > 26, `按住 W 應走過平台摔下去 z=${z.toFixed(2)}`)
+}
+
+{
+  const x = 14
+  const z = 29.7
+  const feet = groundY(field, x, z)
+  assert(feet != null, '終點牆前還有地面')
+  const lookY = (feet as number) + OTS_LOOK_Y
+  const chestY = (feet as number) + OTS_CHEST_Y
+  const fitted = fitOtsCamera({
+    x,
+    y: lookY,
+    z,
+    chestY,
+    bodyY: [chestY, (feet as number) + 0.55],
+    theta,
+    phi: OTS_HEIGHT_PHI,
+    radius: OTS_DIST,
+    blocked,
+  })
+  assert(fitted.radius > 2.5, `貼上終點牆時鏡頭縮進身體 r=${fitted.radius.toFixed(2)} camZ=${fitted.pose.z.toFixed(2)}`)
+  assert(fitted.pose.z < z - 1.2, `貼牆時鏡頭應留在身後 camZ=${fitted.pose.z.toFixed(2)}`)
 }
 
 const low = stairs[0]

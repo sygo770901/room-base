@@ -4,7 +4,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, useProgress } from '@react-three/drei'
 import * as THREE from 'three'
 import { rayOcclusion } from '../../shared/dungeon'
-import { heightCameraBlocked } from '../../shared/heightfield'
+import { heightTerrainBlocked } from '../../shared/heightlab'
 import { heightFieldOf, spawnOf } from '../../shared/heightmaps'
 import { KAYKIT_TORCHES } from '../../shared/kaykitScene'
 import { doorsOf, extraAabbsOf, occludersOf, usesKaykitKit } from '../../shared/mapData'
@@ -38,6 +38,7 @@ import {
   otsCamera,
   otsThetaFromFacing,
 } from '../../shared/camera'
+import { groundY } from '../../shared/heightfield'
 import { minimapYawFromForward } from '../../shared/minimap'
 import { canvasDpr, isMobileDevice } from '../perf/device'
 import { bindPointerLockWatch, exitGameLock, isAltHeld, isPointerInWindow, requestGameLock, setPointerInWindow } from './pointerLock'
@@ -189,6 +190,7 @@ function CameraRig() {
   const drag = useRef<{ id: number; x: number; y: number; mode: 'look' | 'zoom' } | null>(null)
   const touches = useRef(new Map<number, { x: number; y: number }>())
   const pinchDist = useRef(0)
+  const skipLook = useRef(0)
 
   useEffect(() => {
     const el = gl.domElement
@@ -218,6 +220,10 @@ function CameraRig() {
     }
     const lookLocked = (e: MouseEvent) => {
       if (!document.pointerLockElement) return
+      if (skipLook.current > 0) {
+        skipLook.current -= 1
+        return
+      }
       if (isAltHeld() || !isPointerInWindow()) return
       if (typingInField()) return
       const sens = useAppStore.getState().lookSensitivity
@@ -271,6 +277,9 @@ function CameraRig() {
       e.preventDefault()
       arm(e.deltaY > 0 ? 1.08 : 0.92)
     }
+    const onLock = () => {
+      if (document.pointerLockElement) skipLook.current = 2
+    }
     const onBlur = () => setPointerInWindow(false)
     const onFocus = () => setPointerInWindow(true)
     el.addEventListener('pointerdown', down)
@@ -286,6 +295,7 @@ function CameraRig() {
     window.addEventListener('blur', onBlur)
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVis)
+    document.addEventListener('pointerlockchange', onLock)
     return () => {
       unwatch()
       el.removeEventListener('pointerdown', down)
@@ -298,6 +308,7 @@ function CameraRig() {
       window.removeEventListener('blur', onBlur)
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVis)
+      document.removeEventListener('pointerlockchange', onLock)
     }
   }, [gl])
 
@@ -332,7 +343,7 @@ function CameraRig() {
       const bodyY = [chestY, feetY + 0.55]
       const dungeon = scene.getObjectByName(DUNGEON_OCCLUSION)
       const blocked = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) =>
-        heightCameraBlocked(nav, x0, y0, z0, x1, y1, z1) ||
+        heightTerrainBlocked(nav, x0, y0, z0, x1, y1, z1) ||
         meshSegmentBlocked(dungeon ?? null, x0, y0, z0, x1, y1, z1)
       const fitted = fitOtsCamera({
         x: target.x,
@@ -408,6 +419,21 @@ function CameraRig() {
     camera.position.set(pose.x, pose.y, pose.z)
     camera.up.set(0, 1, 0)
     camera.lookAt(pose.aimX, pose.aimY, pose.aimZ)
+    if (import.meta.env.DEV) {
+      const slot = window as Window & {
+        __pose?: { x: number; y: number; z: number; yaw: number }
+        __cam?: { x: number; y: number; z: number; theta: number; phi: number; radius: number; shoulder: number }
+      }
+      slot.__cam = {
+        x: pose.x,
+        y: pose.y,
+        z: pose.z,
+        theta: shot.theta,
+        phi: shot.phi,
+        radius: nav ? camHold.current.radius : shot.radius,
+        shoulder: nav ? camHold.current.shoulder : OTS_RIGHT,
+      }
+    }
     useAppStore.getState().setLookYaw(minimapYawFromForward(pose.aimX - pose.x, pose.aimZ - pose.z))
   }, 0)
   return null
@@ -415,6 +441,8 @@ function CameraRig() {
 
 function CameraGuard() {
   const { camera, gl, scene } = useThree()
+  const seen = useRef(0)
+  const pixel = useRef(new Uint8Array(4))
   // priority > 0 會關掉 Fiber 的自動 render，這一層必須自己畫，否則畫布維持透明。
   useFrame(() => {
     const feel = useAppStore.getState()
@@ -426,6 +454,28 @@ function CameraGuard() {
       camera.position.z += (Math.random() - 0.5) * amp
     }
     gl.render(scene, camera)
+    if (feel.mapSceneReady || feel.scene !== 'heightlab') return
+    const dungeon = scene.getObjectByName(DUNGEON_OCCLUSION)
+    if (!dungeon || dungeon.children.length === 0) return
+    const ctx = gl.getContext()
+    const w = ctx.drawingBufferWidth
+    const h = ctx.drawingBufferHeight
+    if (w < 2 || h < 2) return
+    const buf = pixel.current
+    let varied = 0
+    for (const [u, v] of [
+      [0.5, 0.42],
+      [0.32, 0.28],
+      [0.5, 0.22],
+      [0.22, 0.35],
+      [0.68, 0.45],
+    ]) {
+      ctx.readPixels((u * (w - 1)) | 0, (v * (h - 1)) | 0, 1, 1, ctx.RGBA, ctx.UNSIGNED_BYTE, buf)
+      if (Math.abs(buf[0] - 0x2a) > 22 || Math.abs(buf[1] - 0x24) > 22 || Math.abs(buf[2] - 0x28) > 22) varied += 1
+    }
+    seen.current = varied >= 2 ? seen.current + 1 : 0
+    // 著色器編完、畫面不再是整片清空色，才收起進度卡。
+    if (seen.current >= 2) useAppStore.getState().setMapSceneReady(true)
   }, 1)
   return null
 }
@@ -555,20 +605,45 @@ export function RoomScene() {
   const spawn = spawnOf(sceneId, 0)
   const lookY = heightFieldOf(sceneId) ? spawn.y + OTS_LOOK_Y : OTS_LOOK_Y
   const bootRadius = heightFieldOf(sceneId) ? heightCamRadius(useAppStore.getState().camDist) : useAppStore.getState().camDist
-  const heightBoot = !!heightFieldOf(sceneId)
+  const heightBoot = heightFieldOf(sceneId)
   const bootPhi = heightBoot ? OTS_HEIGHT_PHI : OTS_ENTRY_PHI
-  const boot = otsCamera(
+  const bootTheta = otsThetaFromFacing(0)
+  let boot = otsCamera(
     spawn.x,
     lookY,
     spawn.z,
-    otsThetaFromFacing(0),
+    bootTheta,
     bootPhi,
     bootRadius,
     OTS_RIGHT,
     heightBoot ? OTS_HEIGHT_AIM : OTS_AIM_AHEAD,
     heightBoot ? OTS_HEIGHT_AIM_DROP : 0,
   )
-  const shot = new URLSearchParams(location.search).has('shot')
+  if (heightBoot) {
+    const feet = groundY(heightBoot, spawn.x, spawn.z) ?? spawn.y
+    const fitted = fitOtsCamera({
+      x: spawn.x,
+      y: feet + OTS_LOOK_Y,
+      z: spawn.z,
+      chestY: feet + OTS_CHEST_Y,
+      bodyY: [feet + OTS_CHEST_Y, feet + 0.55],
+      theta: bootTheta,
+      phi: OTS_HEIGHT_PHI,
+      radius: bootRadius,
+      blocked: (x0, y0, z0, x1, y1, z1) => heightTerrainBlocked(heightBoot, x0, y0, z0, x1, y1, z1),
+    })
+    boot = otsCamera(
+      spawn.x,
+      feet + OTS_LOOK_Y,
+      spawn.z,
+      bootTheta,
+      OTS_HEIGHT_PHI,
+      fitted.radius,
+      fitted.shoulder,
+      OTS_HEIGHT_AIM,
+      OTS_HEIGHT_AIM_DROP,
+    )
+  }
   return (
     <Canvas
       shadows={!mobile}
@@ -578,7 +653,7 @@ export function RoomScene() {
         powerPreference: 'high-performance',
         antialias: !mobile,
         alpha: false,
-        preserveDrawingBuffer: shot,
+        preserveDrawingBuffer: true,
       }}
       camera={{ position: [boot.x, boot.y, boot.z], fov: 58, near: 0.05, far: 180 }}
       style={{ width: '100%', height: '100%', touchAction: 'none', background: sceneClear(useAppStore.getState().scene) }}

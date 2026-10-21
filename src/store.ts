@@ -126,6 +126,7 @@ interface AppState {
   mapLoadSlow: boolean
   mapLoadLoaded: number
   mapLoadTotal: number
+  mapSceneReady: boolean
   mapLoadRetry: number
   autoOpenDoors: boolean
   setLobby: (name: string, roomId: string) => void
@@ -185,6 +186,7 @@ interface AppState {
   addMapLoadError: (file: string) => void
   setMapLoadSlow: (slow: boolean) => void
   setMapLoadCounts: (loaded: number, total: number) => void
+  setMapSceneReady: (ready: boolean) => void
   requestMapRetry: () => void
   setAutoOpenDoors: (on: boolean) => void
   setConnection: (status: ConnectionStatus) => void
@@ -265,6 +267,7 @@ export const useAppStore = create<AppState>((set) => ({
   mapLoadSlow: false,
   mapLoadLoaded: 0,
   mapLoadTotal: 0,
+  mapSceneReady: false,
   mapLoadRetry: 0,
   autoOpenDoors: typeof localStorage === 'undefined' ? true : localStorage.getItem('rb-auto-door') !== '0',
   setLobby: (name, roomId) => set({ displayName: name, roomId }),
@@ -442,6 +445,7 @@ export const useAppStore = create<AppState>((set) => ({
     }),
   setMapLoadSlow: (slow) => set({ mapLoadSlow: slow }),
   setMapLoadCounts: (loaded, total) => set({ mapLoadLoaded: loaded, mapLoadTotal: total }),
+  setMapSceneReady: (ready) => set({ mapSceneReady: ready }),
   requestMapRetry: () =>
     set((s) => ({
       mapLoadRetry: s.mapLoadRetry + 1,

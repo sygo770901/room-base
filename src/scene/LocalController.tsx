@@ -13,7 +13,7 @@ import { POOP_SLOW_MUL, SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from 
 import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitRescueHold, emitSit, emitSmoke, performAttack } from '../net/socket'
 import { isDowned, nearestDowned } from '../../shared/downed'
 import { DOOR_AUTO_RANGE, DOOR_PROMPT_RANGE, closedDoorAabbs, inspectNearestDoor, nearestDoor } from '../../shared/doors'
-import { OTS_HEIGHT_AIM_DROP, OTS_LOOK_Y } from '../../shared/camera'
+import { OTS_LOOK_Y, heightWalkForward } from '../../shared/camera'
 import { attackBlocked, hudBlocksPointer, pointerJustUnlocked, typingInField } from './inputLock'
 import { resolvePlayerMove } from '../physics/collision'
 import { doorsOf, extraAabbsOf } from '../../shared/mapData'
@@ -325,11 +325,18 @@ export function LocalController({
         // 越肩鏡頭站在側邊。用鏡頭朝向直接推人，會往肩膀那側漂，撞上高台邊緣。
         // 準心打在角色前方的水平面上，W 沿著角色到那個點走。
         camera.getWorldDirection(forward)
-        const dy = forward.y
-        const aimY = lookTarget.y - OTS_HEIGHT_AIM_DROP
-        const aimX = Math.abs(dy) > 1e-4 ? camera.position.x + (forward.x * (aimY - camera.position.y)) / dy : lookTarget.x + forward.x
-        const aimZ = Math.abs(dy) > 1e-4 ? camera.position.z + (forward.z * (aimY - camera.position.y)) / dy : lookTarget.z + forward.z
-        forward.set(aimX - lookTarget.x, 0, aimZ - lookTarget.z)
+        const aim = heightWalkForward(
+          camera.position.x,
+          camera.position.y,
+          camera.position.z,
+          forward.x,
+          forward.y,
+          forward.z,
+          lookTarget.x,
+          lookTarget.y,
+          lookTarget.z,
+        )
+        forward.set(aim.x, 0, aim.z)
       } else {
         camera.getWorldDirection(forward)
         forward.y = 0
@@ -341,7 +348,7 @@ export function LocalController({
       const len = Math.hypot(fwd, strafe) || 1
       const held =
         player.weapon && (player.weaponUntil ?? 0) > Date.now() ? player.weapon : 'sword'
-      const shotWalk = new URLSearchParams(location.search).has('shot') ? 0.38 : 1
+      const shotWalk = import.meta.env.DEV && new URLSearchParams(location.search).has('shot') ? 0.38 : 1
       const speedMul = WEAPON_STATS[held].speed * shotWalk
       const poopSlow = Date.now() < useAppStore.getState().poopSlowUntil ? POOP_SLOW_MUL : 1
       const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * speedMul * poopSlow * dt
@@ -367,7 +374,15 @@ export function LocalController({
       const movedZ = result.z - pos.current.z
       pos.current.x = result.x
       pos.current.z = result.z
-      if (movedX !== 0 || movedZ !== 0) {
+      const inputX = (right.x * strafe) / len + (forward.x * fwd) / len
+      const inputZ = (right.z * strafe) / len + (forward.z * fwd) / len
+      if (nav) {
+        // 貼牆滑動時不要把面向轉去牆。高度圖的面向跟著按鍵，不跟著被撞開的那一步。
+        if (inputX !== 0 || inputZ !== 0) {
+          rotY.current = Math.atan2(inputX, inputZ)
+          lastDir.current = { x: inputX, z: inputZ }
+        }
+      } else if (movedX !== 0 || movedZ !== 0) {
         rotY.current = Math.atan2(movedX, movedZ)
         lastDir.current = { x: movedX, z: movedZ }
       }
@@ -456,6 +471,18 @@ export function LocalController({
     stickCamera(pos.current.x, pos.current.y, pos.current.z)
 
     const pose: Vec3 = [pos.current.x, pos.current.y, pos.current.z]
+    if (import.meta.env.DEV) {
+      const slot = window as Window & {
+        __pose?: { x: number; y: number; z: number; yaw: number; monsters: number }
+      }
+      slot.__pose = {
+        x: pose[0],
+        y: pose[1],
+        z: pose[2],
+        yaw: rotY.current,
+        monsters: useAppStore.getState().monsters.length,
+      }
+    }
     onPose(pose, rotY.current)
     useAppStore.getState().setLocalXZ(pose[0], pose[2])
 

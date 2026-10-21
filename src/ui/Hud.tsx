@@ -78,6 +78,7 @@ export function Hud() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const feed = useAppStore((s) => s.feed)
   const mapLoadActive = useAppStore((s) => s.mapLoadActive)
+  const mapSceneReady = useAppStore((s) => s.mapSceneReady)
   const mapLoadProgress = useAppStore((s) => s.mapLoadProgress)
   const mapLoadFailed = useAppStore((s) => s.mapLoadFailed)
   const mapLoadErrors = useAppStore((s) => s.mapLoadErrors)
@@ -244,6 +245,7 @@ export function Hud() {
           total: mapLoadTotal,
           progress: mapLoadProgress,
           slow: mapLoadSlow,
+          sceneReady: scene === 'heightlab' ? mapSceneReady : undefined,
         }) && (
           <div className="map-load">
             <p>
@@ -263,6 +265,7 @@ export function Hud() {
               total: mapLoadTotal,
               progress: mapLoadProgress,
               slow: mapLoadSlow,
+              sceneReady: scene === 'heightlab' ? mapSceneReady : undefined,
             }) && <p className="map-load-slow">載入較慢，還在載…</p>}
           </div>
         )

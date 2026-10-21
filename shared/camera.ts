@@ -56,6 +56,33 @@ export function otsThetaFromFacing(rotationY: number) {
   return rotationY + Math.PI
 }
 
+/**
+ * 高度圖按住 W 的水平方向。
+ * 越肩鏡頭站在側邊，直接用鏡頭朝向會往肩膀那側漂。
+ * 把視線交到瞄準高度，再取角色到那個點的水平方向，人就朝準心正前方走。
+ */
+export function heightWalkForward(
+  camX: number,
+  camY: number,
+  camZ: number,
+  dirX: number,
+  dirY: number,
+  dirZ: number,
+  targetX: number,
+  targetY: number,
+  targetZ: number,
+  aimDrop = OTS_HEIGHT_AIM_DROP,
+) {
+  const aimY = targetY - aimDrop
+  const aimX = Math.abs(dirY) > 1e-4 ? camX + (dirX * (aimY - camY)) / dirY : targetX + dirX
+  const aimZ = Math.abs(dirY) > 1e-4 ? camZ + (dirZ * (aimY - camZ)) / dirY : targetZ + dirZ
+  let x = aimX - targetX
+  let z = aimZ - targetZ
+  const len = Math.hypot(x, z)
+  if (len < 1e-4) return { x: 0, z: 1 }
+  return { x: x / len, z: z / len }
+}
+
 export interface OtsPose {
   x: number
   y: number
