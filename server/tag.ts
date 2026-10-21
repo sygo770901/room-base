@@ -1,11 +1,10 @@
 import type { Server } from 'socket.io'
 import { ATTACK_COOLDOWN_MS, ATTACK_RANGE, meleeHits, PLAYER_MAX_HP, type MatchOver } from '../shared/combat.ts'
 import { nextComboStep } from '../shared/anim.ts'
-import { HIDE_RANGE, HIDE_SPOTS, SPAWN_POINTS } from '../shared/dungeon.ts'
+import { HIDE_RANGE, HIDE_SPOTS } from '../shared/dungeon.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
 import {
   DASH_DISTANCE,
-  JUMP_CEILING,
   JUMP_MAX_DELTA,
   MOVE_DT_CAP_SEC,
   MOVE_PAD,
@@ -13,11 +12,12 @@ import {
   MOVE_Y_PAD,
   PLAYER_SPEED,
   cappedMoveDt,
+  jumpCeilingFor,
   moveAllowance,
   type MoveGrant,
 } from '../shared/movement.ts'
 import { HIDE_MAX_Y, JUMP_GROUND_EPS, supportY, PLAYER_FOOT_RADIUS } from '../shared/platforms.ts'
-import { doorsOf, platformsOf } from '../shared/mapData.ts'
+import { doorsOf, platformsOf, spawnPointsOf } from '../shared/mapData.ts'
 import { POOP_SLOW_MUL, smokeHidesFrom, type SmokeCloud } from '../shared/smoke.ts'
 import { doorHidesFrom, type DoorState } from '../shared/doors.ts'
 import {
@@ -425,7 +425,8 @@ export function resetPlayersForTagRestart(room: TagRoom) {
   const ids = Object.keys(room.players)
   ids.forEach((id, i) => {
     const p = room.players[id]
-    const sp = SPAWN_POINTS[i % SPAWN_POINTS.length]
+    const spawns = spawnPointsOf(room.scene)
+    const sp = spawns[i % spawns.length]
     p.hp = PLAYER_MAX_HP
     p.hidden = false
     p.team = 'hider'
@@ -603,7 +604,7 @@ export function acceptMove(
   const floor = supportY(x, z, rawY, prevY, PLAYER_FOOT_RADIUS, platforms)
   let y = rawY
   if (!jumping && y > floor + JUMP_GROUND_EPS) y = floor
-  if (y > JUMP_CEILING + 0.2 || y < -0.08) return false
+  if (y > jumpCeilingFor(room.scene) + 0.2 || y < -0.08) return false
 
   const slowed = now < (room.poopSlowUntil?.[player.id] ?? 0)
   const prev = room.lastMoveAt[player.id]

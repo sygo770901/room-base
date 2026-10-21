@@ -2,7 +2,6 @@ import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import type { Socket } from 'socket.io'
 import { BOSS_COUNTDOWN_MS, PLAYER_MAX_HP, ROOM_MAX_PLAYERS, type ProjectileState } from '../shared/combat.ts'
-import { SPAWN_POINTS } from '../shared/dungeon.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
 import { createBossMonsters, createMonsters, handleAttack, publicMonsters, scaleBossHealth, standPlayer, tickRoom } from './combat.ts'
 import {
@@ -61,7 +60,7 @@ import {
 import { defaultSettings, isGameMode, type GameMode, type RoomSettings } from '../shared/modes.ts'
 import { isSceneId, type SceneId } from '../shared/scenes.ts'
 import { canStartJump } from '../shared/platforms.ts'
-import { doorsOf, platformsOf } from '../shared/mapData.ts'
+import { doorsOf, platformsOf, spawnPointsOf } from '../shared/mapData.ts'
 import { normalizeToken, resolveJoinPlayerId } from '../shared/identity.ts'
 import { PHRASE_COOLDOWN_MS, PHRASE_DURATION_MS, phraseAt } from '../shared/phrases.ts'
 import { pickLiveHost } from '../shared/host.ts'
@@ -569,7 +568,8 @@ export function attachSocketServer(httpServer: HttpServer) {
           if (role === 'host') room.hostId = playerId
           const color = COLORS[Object.keys(room.players).length % COLORS.length]
           const spawnIndex = Object.keys(room.players).length
-          const sp = SPAWN_POINTS[spawnIndex % SPAWN_POINTS.length]
+          const spawns = spawnPointsOf(room.scene)
+          const sp = spawns[spawnIndex % spawns.length]
           player = {
             id: playerId,
             name,
@@ -655,9 +655,10 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.projectiles = []
       room.doors = createDoors(doorsOf(room.scene))
       const ids = Object.keys(room.players)
+      const restartSpawns = spawnPointsOf(room.scene)
       ids.forEach((id, i) => {
         const p = room.players[id]
-        const sp = SPAWN_POINTS[i % SPAWN_POINTS.length]
+        const sp = restartSpawns[i % restartSpawns.length]
         p.hp = PLAYER_MAX_HP
         p.hidden = false
         p.phrase = null
@@ -868,10 +869,33 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (room.hostId !== playerId) return
       if ((room.mode === 'boss' || room.mode === 'tag') && room.started && !room.matchOver) return
       if (!isSceneId(payload.scene)) return
+      const prev = room.scene
+      if (payload.scene === prev) return
       room.scene = payload.scene
       room.doors = createDoors(doorsOf(room.scene))
       room.barrels = createBarrels(room.scene)
       room.drops = []
+      if (prev === 'sample' || room.scene === 'sample') {
+        const spawns = spawnPointsOf(room.scene)
+        Object.keys(room.players).forEach((id, i) => {
+          const p = room.players[id]
+          const sp = spawns[i % spawns.length]
+          if (p.seated) {
+            room.seats[p.seated] = null
+            p.seated = null
+          }
+          p.position = [sp.x, 0, sp.z]
+          p.rotationY = 0
+          delete room.moveGrant[id]
+          recordMoveOrigin(room, id, Date.now())
+          io.to(room.roomId).emit('player:moved', {
+            id,
+            position: p.position,
+            rotationY: p.rotationY,
+            snap: true,
+          })
+        })
+      }
       emitState(room, io)
     })
 

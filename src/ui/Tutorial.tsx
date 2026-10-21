@@ -5,6 +5,7 @@ const TUTORIAL_KEY = 'rb-tutorial-done'
 export function Tutorial() {
   const [open, setOpen] = useState(() => {
     try {
+      if (new URLSearchParams(location.search).get('shot')) return false
       return localStorage.getItem(TUTORIAL_KEY) !== '1'
     } catch {
       return true

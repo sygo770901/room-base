@@ -89,6 +89,8 @@ function DuckSpeechBubble() {
 
 export function Monsters() {
   const monsters = useAppStore((s) => s.monsters)
+  const scene = useAppStore((s) => s.scene)
+  if (scene === 'sample') return null
   return (
     <group>
       {monsters.map((m) => (

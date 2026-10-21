@@ -1207,6 +1207,17 @@ input {
   font-size: 0.85rem;
 }
 
+body[data-shot] .hud,
+body[data-shot] .tutorial,
+body[data-shot] .map-load,
+body[data-shot] .reconnect {
+  visibility: hidden;
+}
+
+body[data-shot='entrance'] .crosshair {
+  visibility: visible;
+}
+
 .crosshair {
   position: absolute;
   left: 50%;

@@ -4,6 +4,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { ALL_DECOR, DECOR_URL, type DecorItem } from '../../shared/decor'
 import { KAYKIT_TORCHES } from '../../shared/kaykitScene'
+import { SAMPLE_TORCHES } from '../../shared/sampleRoom'
 import { usesKaykitKit } from '../../shared/mapData'
 import { useAppStore } from '../store'
 
@@ -32,7 +33,7 @@ function DecorGroup({ model, items }: { model: DecorItem['model']; items: DecorI
   )
 }
 
-function TorchHalos() {
+function TorchHalos({ torches }: { torches: { x: number; y: number; z: number }[] }) {
   const mats = useRef<THREE.MeshBasicMaterial[]>([])
   useFrame(({ clock }) => {
     const t = clock.elapsedTime
@@ -43,7 +44,7 @@ function TorchHalos() {
   })
   return (
     <group>
-      {KAYKIT_TORCHES.map((t, i) => (
+      {torches.map((t, i) => (
         <mesh key={i} position={[t.x, t.y, t.z]}>
           <sphereGeometry args={[0.22, 8, 6]} />
           <meshBasicMaterial
@@ -72,13 +73,14 @@ export function SceneDecor() {
     }
     return [...map.entries()]
   }, [])
+  if (scene === 'sample') return <TorchHalos torches={SAMPLE_TORCHES} />
   if (!usesKaykitKit(scene) && scene !== 'kenney') return null
   return (
     <group>
       {byModel.map(([model, items]) => (
         <DecorGroup key={model} model={model} items={items} />
       ))}
-      {usesKaykitKit(scene) && <TorchHalos />}
+      {usesKaykitKit(scene) && <TorchHalos torches={KAYKIT_TORCHES} />}
     </group>
   )
 }

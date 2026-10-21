@@ -1,6 +1,8 @@
 import { KAYKIT_DOORWAYS, KAYKIT_EXTRA_WALLS, KAYKIT_OCCLUDERS } from './kaykitScene'
 import { DOORWAY_DEFS, doorwayPlaces } from './doorways'
 import { platformsFor } from './platforms'
+import { SAMPLE_DOORWAYS, SAMPLE_OCCLUDERS, SAMPLE_SPAWNS, SAMPLE_WALLS } from './sampleRoom'
+import { SPAWN_POINTS } from './dungeon'
 import type { WallBox, OccBox } from './dungeon'
 import type { SceneId } from './scenes'
 import type { DoorDef } from './doors'
@@ -12,8 +14,10 @@ function copyDoors(): DoorDef[] {
 const KENNEY_DOORS: DoorDef[] = copyDoors()
 const KAYKIT_DOORS: DoorDef[] = copyDoors()
 const JUNGLE_DOORS: DoorDef[] = copyDoors()
+const SAMPLE_DOORS: DoorDef[] = []
 
 export function doorsOf(scene?: SceneId | string | null): DoorDef[] {
+  if (scene === 'sample') return SAMPLE_DOORS
   if (scene === 'kaykit') return KAYKIT_DOORS
   if (scene === 'jungle') return JUNGLE_DOORS
   return KENNEY_DOORS
@@ -21,10 +25,16 @@ export function doorsOf(scene?: SceneId | string | null): DoorDef[] {
 
 /** 門口模型位置。Kenney 用通道座標，KayKit／叢林用 wall_doorway。 */
 export function doorwayModelsOf(scene?: SceneId | string | null) {
+  if (scene === 'sample') return SAMPLE_DOORWAYS
   if (scene === 'kaykit' || scene === 'jungle') {
     return KAYKIT_DOORWAYS.map((p) => ({ x: p.x, z: p.z, rotY: p.rotY }))
   }
   return doorwayPlaces()
+}
+
+export function spawnPointsOf(scene?: SceneId | string | null) {
+  if (scene === 'sample') return SAMPLE_SPAWNS
+  return SPAWN_POINTS
 }
 
 /** 叢林樹幹碰撞。加地圖時在這裡加資料即可。 */
@@ -50,6 +60,7 @@ function wallsToAabb(walls: WallBox[]) {
 }
 
 export function extraWallsOf(scene?: SceneId | string | null): WallBox[] {
+  if (scene === 'sample') return SAMPLE_WALLS
   if (scene === 'kaykit') return KAYKIT_EXTRA_WALLS
   if (scene === 'jungle') return KAYKIT_EXTRA_WALLS.concat(JUNGLE_TRUNKS)
   return []
@@ -60,6 +71,7 @@ export function extraAabbsOf(scene?: SceneId | string | null) {
 }
 
 export function occludersOf(scene?: SceneId | string | null): OccBox[] {
+  if (scene === 'sample') return SAMPLE_OCCLUDERS
   if (scene === 'kaykit' || scene === 'jungle') return KAYKIT_OCCLUDERS
   return []
 }

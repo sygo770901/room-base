@@ -5,6 +5,7 @@ import { OrbitControls, useProgress } from '@react-three/drei'
 import * as THREE from 'three'
 import { rayOcclusion, SPAWN_POINTS } from '../../shared/dungeon'
 import { KAYKIT_TORCHES } from '../../shared/kaykitScene'
+import { SAMPLE_SHOTS, SAMPLE_SPAWNS, SAMPLE_TORCHES } from '../../shared/sampleRoom'
 import { doorsOf, extraAabbsOf, occludersOf, usesKaykitKit } from '../../shared/mapData'
 import { closedDoorAabbs } from '../../shared/doors'
 import {
@@ -51,6 +52,16 @@ import { useAppStore } from '../store'
 import type { PlayerState, Vec3 } from '../types'
 
 const SPAWN = SPAWN_POINTS[0] ?? { x: 80, z: 22 }
+
+function shotMode() {
+  if (typeof location === 'undefined') return ''
+  const shot = new URLSearchParams(location.search).get('shot') || ''
+  return shot === 'overview' || shot === 'entrance' || shot === 'stairs' ? shot : ''
+}
+
+function spawnFor(sceneId: string) {
+  return sceneId === 'sample' ? SAMPLE_SPAWNS[0] : SPAWN
+}
 // Three.js 預設 minPolarAngle 是 0（頭頂正上方）、rotateSpeed 是 1（拖滿一整個螢幕等於轉 360°）。
 // 這裡把垂直角鎖在斜上方到接近水平，旋轉改慢，避免短距離拖曳就被甩到頭頂。
 const MIN_PHI = OTS_MIN_PHI
@@ -93,8 +104,11 @@ function FollowLight({ mobile }: { mobile: boolean }) {
 
   useFrame(() => {
     const p = selfId ? players[selfId] : null
-    const x = p?.position?.[0] ?? SPAWN.x
-    const z = p?.position?.[2] ?? SPAWN.z
+    const home = spawnFor(sceneId)
+    const shot = shotMode()
+    // 截圖人在走廊出生點，鏡頭在梯底。燈光跟梯底，火把才落在階梯上。
+    const x = sceneId === 'sample' && shot === 'stairs' ? 30.6 : (p?.position?.[0] ?? home.x)
+    const z = sceneId === 'sample' && shot === 'stairs' ? 232 : (p?.position?.[2] ?? home.z)
     if (light.current) {
       light.current.position.set(x + 10, 16, z + 8)
       target.position.set(x, 0, z)
@@ -102,9 +116,11 @@ function FollowLight({ mobile }: { mobile: boolean }) {
     }
     fill.current?.position.set(x, 3.4, z)
 
-    if (mobile || !usesKaykitKit(sceneId)) return
+    const torchScene = sceneId === 'kaykit' || sceneId === 'sample'
+    if (mobile || !torchScene) return
+    const sources = sceneId === 'sample' ? SAMPLE_TORCHES : KAYKIT_TORCHES
     ranked.length = 0
-    for (const t of KAYKIT_TORCHES) {
+    for (const t of sources) {
       ranked.push({ ...t, d: Math.hypot(t.x - x, t.z - z) })
     }
     ranked.sort((a, b) => a.d - b.d)
@@ -116,34 +132,37 @@ function FollowLight({ mobile }: { mobile: boolean }) {
       const w =
         src.d >= TORCH_LIGHT_RANGE ? 0 : src.d <= fadeStart ? 1 : 1 - (src.d - fadeStart) / TORCH_LIGHT_FADE
       lamp.position.set(src.x, src.y, src.z)
-      lamp.intensity = TORCH_LIGHT_INTENSITY * w
+      lamp.distance = sceneId === 'sample' ? 9 : 14
+      lamp.decay = 2
+      lamp.intensity = TORCH_LIGHT_INTENSITY * (sceneId === 'sample' ? 1.15 : 1) * w
     }
   })
 
   return (
     <>
       <primitive object={target} />
-      {!mobile && sceneId !== 'kaykit' && (
+      {!mobile && sceneId !== 'kaykit' && sceneId !== 'sample' && (
         <pointLight ref={fill} color="#ffe2c4" intensity={36} distance={28} decay={2} />
       )}
       {!mobile &&
-        sceneId === 'kaykit' &&
+        (sceneId === 'kaykit' || sceneId === 'sample') &&
         Array.from({ length: DESKTOP_DYNAMIC_POINT_LIGHTS }, (_, i) => (
           <pointLight
             key={i}
             ref={(el) => {
               torches.current[i] = el
             }}
-            color="#ffb366"
+            color={sceneId === 'sample' ? '#ffb070' : '#ffb366'}
             intensity={0}
-            distance={14}
+            distance={sceneId === 'sample' ? 9 : 14}
             decay={2}
           />
         ))}
       <directionalLight
         ref={light}
+        color={sceneId === 'sample' ? '#d2c0a8' : '#fff6ea'}
         castShadow={!mobile}
-        intensity={mobile ? 1.15 : 1.6}
+        intensity={sceneId === 'sample' ? (mobile ? 0.32 : 0.2) : mobile ? 1.15 : 1.6}
         shadow-mapSize-width={DESKTOP_SHADOW_MAP}
         shadow-mapSize-height={DESKTOP_SHADOW_MAP}
         shadow-bias={-0.0004}
@@ -282,6 +301,7 @@ function CameraRig() {
 
   // 角度只存在這裡。走路、擋牆拉近都不會寫回 theta/phi。
   useFrame(() => {
+    if (shotMode()) return
     const target = (controls as { target?: THREE.Vector3 } | null)?.target
     if (!target) return
     const shot = saved.current
@@ -329,6 +349,15 @@ function CameraGuard() {
   const { camera, gl, scene } = useThree()
   // priority > 0 會關掉 Fiber 的自動 render，這一層必須自己畫，否則畫布維持透明。
   useFrame(() => {
+    const shot = shotMode()
+    if (shot) {
+      const spec = SAMPLE_SHOTS[shot]
+      camera.up.set(spec.up[0], spec.up[1], spec.up[2])
+      camera.position.set(spec.pos[0], spec.pos[1], spec.pos[2])
+      camera.lookAt(spec.look[0], spec.look[1], spec.look[2])
+      gl.render(scene, camera)
+      return
+    }
     const feel = useAppStore.getState()
     if (feel.sfxOn && performance.now() < feel.shakeUntil) {
       const t = (feel.shakeUntil - performance.now()) / 180
@@ -376,24 +405,65 @@ function SceneContent() {
   }, [self, localPose])
 
   const isHost = !!selfId && hostId === selfId
-  const lookAt = useMemo(() => new THREE.Vector3(SPAWN.x, LOOK_Y, SPAWN.z), [])
+  const home = spawnFor(sceneId)
+  const shot = shotMode()
+  const lookAt = useMemo(() => new THREE.Vector3(home.x, LOOK_Y, home.z), [home.x, home.z])
   const assetUrls = useMemo(() => sceneAssetUrls(sceneId), [sceneId])
+
+  useEffect(() => {
+    if (shot) document.body.dataset.shot = shot
+    else delete document.body.dataset.shot
+    return () => {
+      delete document.body.dataset.shot
+    }
+  }, [shot])
 
   return (
     <>
       <BlockContextMenu />
-      <color attach="background" args={[sceneId === 'jungle' ? '#1c2a1c' : sceneId === 'kaykit' ? '#2a2428' : '#3a3544']} />
+      <color
+        attach="background"
+        args={[sceneId === 'jungle' ? '#1c2a1c' : sceneId === 'sample' ? '#121722' : sceneId === 'kaykit' ? '#2a2428' : '#3a3544']}
+      />
       <fog
         attach="fog"
         args={
-          sceneId === 'jungle' ? ['#1c2a1c', 16, 62] : sceneId === 'kaykit' ? ['#2a2428', 18, 70] : ['#3a3544', 28, 92]
+          sceneId === 'jungle'
+            ? ['#1c2a1c', 16, 62]
+            : sceneId === 'sample'
+              ? shot === 'overview'
+                ? ['#121722', 80, 210]
+                : ['#141318', 12, 40]
+              : sceneId === 'kaykit'
+                ? ['#2a2428', 18, 70]
+                : ['#3a3544', 28, 92]
         }
       />
       <hemisphereLight
-        args={sceneId === 'jungle' ? ['#d8ecbe', '#2a3a24', 1.7] : ['#e4d6c4', '#3a2c24', 1.75]}
+        args={
+          sceneId === 'jungle'
+            ? ['#d8ecbe', '#2a3a24', 1.7]
+            : sceneId === 'sample'
+              ? ['#a09080', '#34281e', 0.28]
+              : ['#e4d6c4', '#3a2c24', 1.75]
+        }
       />
-      <ambientLight intensity={1.35} />
-      <directionalLight position={[40, 60, 20]} intensity={0.55} color="#fff2d8" />
+      <ambientLight
+        color={sceneId === 'sample' && shot !== 'overview' ? '#e4d0b8' : '#ffffff'}
+        intensity={sceneId === 'sample' ? (shot === 'overview' ? 0.62 : 0.36) : 1.35}
+      />
+      <directionalLight
+        position={[40, 60, 20]}
+        intensity={sceneId === 'sample' ? 0.08 : 0.55}
+        color={sceneId === 'sample' ? '#c8bfb4' : '#fff2d8'}
+      />
+      {sceneId === 'sample' && shot !== 'overview' ? (
+        // 踏步立面朝西，東側火把照不到。暖灰補光只抬立面，不把牆染成橘色。
+        <directionalLight position={[-24, 10, 6]} intensity={1.55} color="#d2b496" />
+      ) : null}
+      {sceneId === 'sample' && shot === 'overview' ? (
+        <directionalLight position={[18, 42, 10]} intensity={1.45} color="#f3eee4" />
+      ) : null}
       <FollowLight mobile={isMobileDevice()} />
 
       <MapProgressBridge />
@@ -449,6 +519,7 @@ function SceneContent() {
 
 function sceneClear(sceneId: string) {
   if (sceneId === 'jungle') return '#1c2a1c'
+  if (sceneId === 'sample') return '#121722'
   if (sceneId === 'kaykit') return '#2a2428'
   return '#3a3544'
 }
