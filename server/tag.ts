@@ -20,6 +20,9 @@ import {
 } from '../shared/movement.ts'
 import { HIDE_MAX_Y, JUMP_GROUND_EPS, supportY, PLAYER_FOOT_RADIUS } from '../shared/platforms.ts'
 import { doorsOf, platformsOf } from '../shared/mapData.ts'
+import { sceneMoveArgs } from '../shared/sceneMotion.ts'
+import { PLAYER_RADIUS } from '../shared/furniture.ts'
+import { resolvePlayerMove } from '../src/physics/collision.ts'
 import { POOP_SLOW_MUL, smokeHidesFrom, type SmokeCloud } from '../shared/smoke.ts'
 import { doorHidesFrom, type DoorState } from '../shared/doors.ts'
 import {
@@ -638,6 +641,13 @@ export function acceptMove(
     const high = Math.max(startT, terrain)
     if (y > high + ceiling + 0.2 || y < low - 0.25) return false
   } else if (y > ceiling + 0.2 || y < -0.08) return false
+
+  // 平面圖沒有高度圖。邊界、地板和牆要跟這張圖的可見範圍同一套，不能用別張小圖把人擋在半路。
+  if (!nav) {
+    const args = sceneMoveArgs(room.scene, room.doors)
+    const slid = resolvePlayerMove(px, pz, x - px, z - pz, [], PLAYER_RADIUS, args.extra, y, args.platforms, null)
+    if (Math.hypot(slid.x - x, slid.z - z) > 0.05) return false
+  }
 
   const slowed = now < (room.poopSlowUntil?.[player.id] ?? 0)
   const prev = room.lastMoveAt[player.id]
