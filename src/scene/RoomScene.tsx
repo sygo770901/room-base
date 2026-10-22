@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import { rayOcclusion } from '../../shared/dungeon'
 import { heightTerrainBlocked } from '../../shared/heightlab'
 import { heightFieldOf, spawnOf } from '../../shared/heightmaps'
+import { overviewShot } from '../../shared/mapView'
 import { KAYKIT_TORCHES } from '../../shared/kaykitScene'
 import { SAMPLE_SHOTS, SAMPLE_TORCHES } from '../../shared/sampleRoom'
 import { doorsOf, extraAabbsOf, occludersOf, usesKaykitKit } from '../../shared/mapData'
@@ -496,7 +497,19 @@ function CameraGuard() {
       }
     }
     const shot = shotMode()
-    if (shot) {
+    if (shot === 'overview') {
+      const spec = overviewShot(useAppStore.getState().scene)
+      camera.up.set(spec.up[0], spec.up[1], spec.up[2])
+      camera.position.set(spec.pos[0], spec.pos[1], spec.pos[2])
+      camera.lookAt(spec.look[0], spec.look[1], spec.look[2])
+      if (camera instanceof THREE.PerspectiveCamera && camera.far < spec.far) {
+        camera.far = spec.far
+        camera.updateProjectionMatrix()
+      }
+      gl.render(scene, camera)
+      return
+    }
+    if (shot && useAppStore.getState().scene === 'sample') {
       const spec = SAMPLE_SHOTS[shot]
       camera.up.set(spec.up[0], spec.up[1], spec.up[2])
       camera.position.set(spec.pos[0], spec.pos[1], spec.pos[2])
@@ -596,15 +609,19 @@ function SceneContent() {
       <fog
         attach="fog"
         args={
-          sceneId === 'jungle'
-            ? ['#1c2a1c', 16, 62]
-            : sceneId === 'sample'
-              ? shot === 'overview'
-                ? ['#121722', 80, 210]
-                : ['#141318', 12, 40]
-              : sceneId === 'kaykit' || sceneId === 'heightlab'
-                ? ['#2a2428', 18, 70]
-                : ['#3a3544', 28, 92]
+          shot === 'overview'
+            ? [
+                sceneId === 'jungle' ? '#1c2a1c' : sceneId === 'sample' ? '#121722' : sceneId === 'kaykit' || sceneId === 'heightlab' ? '#2a2428' : '#3a3544',
+                800,
+                4000,
+              ]
+            : sceneId === 'jungle'
+              ? ['#1c2a1c', 16, 62]
+              : sceneId === 'sample'
+                ? ['#141318', 12, 40]
+                : sceneId === 'kaykit' || sceneId === 'heightlab'
+                  ? ['#2a2428', 18, 70]
+                  : ['#3a3544', 28, 92]
         }
       />
       <hemisphereLight
@@ -631,6 +648,13 @@ function SceneContent() {
       ) : null}
       {sceneId === 'sample' && shot === 'overview' ? (
         <directionalLight position={[18, 42, 10]} intensity={1.45} color="#f3eee4" />
+      ) : null}
+      {shot === 'overview' && sceneId !== 'sample' ? (
+        <directionalLight
+          position={[overviewShot(sceneId).look[0], 80, overviewShot(sceneId).look[2] + 12]}
+          intensity={1.15}
+          color="#fff6ea"
+        />
       ) : null}
       <FollowLight mobile={isMobileDevice()} />
 

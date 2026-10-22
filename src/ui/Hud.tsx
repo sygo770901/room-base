@@ -5,7 +5,7 @@ import { disconnectSocket, emitAddNote, emitCheck, emitDoorAuto, emitDoorToggle,
 import { QUICK_PHRASES } from '../../shared/phrases'
 import { showMapLoadOverlay, showMapLoadSlow } from '../load/mapLoadState'
 import { typingInField } from '../scene/inputLock'
-import { SCENE_IDS, SCENE_LABELS } from '../../shared/scenes'
+import { SCENE_LABELS, lobbySceneIds } from '../../shared/scenes'
 import { setMicEnabled } from '../net/voice'
 import { isMobileDevice } from '../perf/device'
 import { exitGameLock } from '../scene/pointerLock'
@@ -358,7 +358,7 @@ export function Hud() {
             </p>
             {selfId && hostId === selfId ? (
               <div className="map-host" role="radiogroup" aria-label="地圖">
-                {SCENE_IDS.map((id) => (
+                {lobbySceneIds(import.meta.env.DEV).map((id) => (
                   <button
                     key={id}
                     type="button"
@@ -672,7 +672,7 @@ export function Hud() {
             </label>
             {self?.role === 'host' && mode === 'hunt' && (
               <div className="map-host" role="radiogroup" aria-label="地圖">
-                {SCENE_IDS.map((id) => (
+                {lobbySceneIds(import.meta.env.DEV).map((id) => (
                   <button
                     key={id}
                     type="button"

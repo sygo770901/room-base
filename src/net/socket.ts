@@ -245,6 +245,7 @@ function bindListeners(s: Socket) {
   })
 
   s.on('monsters:sync', (monsters: MonsterState[]) => {
+    if (import.meta.env.DEV && (window as unknown as { __freezeMonsters?: boolean }).__freezeMonsters) return
     useAppStore.getState().setMonsters(monsters)
   })
 

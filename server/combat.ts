@@ -69,6 +69,7 @@ import {
   type ProjectileState,
 } from '../shared/combat.ts'
 import { doorsOf, extraAabbsOf, extraWallsOf, spawnPointsOf } from '../shared/mapData.ts'
+import { clampDispenserStep, placeDispensers } from '../shared/dispensers.ts'
 import { groundY } from '../shared/heightfield.ts'
 import { heightFieldOf, spawnOf } from '../shared/heightmaps.ts'
 import {
@@ -246,8 +247,33 @@ export function createMonsters(scene?: string | null): ServerMonster[] {
   return MONSTER_DEFS.map(fromDef)
 }
 
-export function createBossMonsters(): ServerMonster[] {
-  return BOSS_DEFS.map(fromDef)
+export function createBossMonsters(scene?: string | null): ServerMonster[] {
+  const monsters = BOSS_DEFS.map(fromDef)
+  const duck = monsters.find((m) => m.kind === 'duck-king')
+  const pets = monsters.filter((m) => m.kind === 'dispenser')
+  if (!duck || pets.length === 0) return monsters
+  const spots = placeDispensers(
+    scene ?? 'kenney',
+    pets.length,
+    1,
+    { x: duck.x, z: duck.z },
+    [{ x: duck.x, z: duck.z }],
+  )
+  pets.forEach((pet, i) => {
+    const spot = spots[i]
+    if (!spot) return
+    pet.x = spot.x
+    pet.z = spot.z
+    pet.patrol = [
+      { x: spot.x, z: spot.z },
+      { x: duck.x, z: duck.z },
+    ]
+    pet.wander = { x: duck.x, z: duck.z }
+    const field = heightFieldOf(scene)
+    const gy = field ? groundY(field, spot.x, spot.z) : null
+    if (gy != null) pet.y = gy
+  })
+  return monsters
 }
 
 export function publicMonsters(list: ServerMonster[]): MonsterState[] {
@@ -781,24 +807,18 @@ function nextDispenserId(room: CombatRoom) {
   return `dispenser-${i}`
 }
 
-function spawnExtraDispenser(room: CombatRoom, duck: ServerMonster, now: number): ServerMonster {
-  const offsets = [1.8, 2.2, 2.6, 3.2]
-  const angles = [0, 0.85, 1.7, 2.55, 3.4, 4.25, 5.1]
-  let x = duck.x
-  let z = duck.z + 1.8
-  outer: for (const r of offsets) {
-    for (const a of angles) {
-      const cx = duck.x + Math.sin(duck.rotationY + a) * r
-      const cz = duck.z + Math.cos(duck.rotationY + a) * r
-      const field = heightFieldOf(room.scene)
-      const open = field ? groundY(field, cx, cz) != null : isWalkableWorld(cx, cz, 0.45)
-      if (open) {
-        x = cx
-        z = cz
-        break outer
-      }
-    }
-  }
+function spawnExtraDispenser(room: CombatRoom, duck: ServerMonster, now: number): ServerMonster | null {
+  const others = aliveDispensers(room).map((m) => ({ x: m.x, z: m.z }))
+  const [spot] = placeDispensers(
+    room.scene ?? 'kenney',
+    1,
+    now % 1_000_000_007,
+    { x: duck.x, z: duck.z },
+    [{ x: duck.x, z: duck.z }, ...others],
+  )
+  if (!spot) return null
+  const x = spot.x
+  const z = spot.z
   const hp = dispenserHp(livingCount(room))
   const m = fromDef({
     id: nextDispenserId(room),
@@ -866,7 +886,9 @@ function tickSummon(room: CombatRoom, io: Server, duck: ServerMonster | undefine
   if (now < room.nextSummonAt) return
   room.nextSummonAt = now + DUCK_SUMMON_INTERVAL_MS
   if (aliveDispensers(room).length >= DUCK_MAX_DISPENSERS) return
-  room.monsters.push(spawnExtraDispenser(room, duck, now))
+  const pet = spawnExtraDispenser(room, duck, now)
+  if (!pet) return
+  room.monsters.push(pet)
   shoutSummon(room, io, now)
   io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
 }
@@ -922,7 +944,20 @@ function tickOneDispenser(
       pet.wander = pickWander(pet.x, pet.z)
     }
   }
+  const beforeX = pet.x
+  const beforeZ = pet.z
   stepMonster(room, pet, tx, tz, speed, dt, extraAabbs)
+  const others = aliveDispensers(room)
+    .filter((m) => m !== pet)
+    .map((m) => ({ x: m.x, z: m.z }))
+  const spaced = clampDispenserStep(beforeX, beforeZ, pet.x, pet.z, others)
+  pet.x = spaced.x
+  pet.z = spaced.z
+  const nav = heightFieldOf(room.scene)
+  if (nav) {
+    const gy = groundY(nav, pet.x, pet.z)
+    if (gy != null) pet.y = gy
+  }
   maybeMonsterOpenDoor(room, io, pet, tx, tz, now)
   if (prey) {
     const dist = Math.hypot(prey.position[0] - pet.x, prey.position[2] - pet.z)

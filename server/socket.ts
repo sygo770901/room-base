@@ -535,19 +535,22 @@ export function attachSocketServer(httpServer: HttpServer) {
         }
 
         const isFirst = Object.keys(room.players).length === 0
+        const othersHere = Object.entries(room.players).some(([id]) => id !== playerId && !room.awayUntil[id])
+        const pickedScene = !othersHere && isSceneId(payload.scene) ? payload.scene : null
+        const sceneChanged = pickedScene != null && pickedScene !== room.scene
         if (isFirst && serverAcceptsQuiet(payload.quiet)) room.quiet = true
-        if (isFirst && isSceneId(payload.scene)) {
-          room.scene = payload.scene
+        if (pickedScene) room.scene = pickedScene
+        if (isFirst) room.barrels = createBarrels(room.scene)
+        if (isFirst && !isGameMode(payload.mode)) {
+          room.started = true
           room.doors = createDoors(doorsOf(room.scene))
-          room.barrels = createBarrels(room.scene)
         }
-        if (isFirst && !isGameMode(payload.mode)) room.started = true
         if (isFirst && isGameMode(payload.mode)) {
           room.mode = payload.mode
           room.monsters = room.quiet
             ? []
             : payload.mode === 'boss'
-              ? createBossMonsters()
+              ? createBossMonsters(room.scene)
               : payload.mode === 'tag'
                 ? []
                 : createMonsters(room.scene)
@@ -570,6 +573,14 @@ export function attachSocketServer(httpServer: HttpServer) {
             room.startAt = 0
             room.matchDeadline = null
           }
+        }
+        if (sceneChanged && !isFirst) {
+          room.doors = createDoors(doorsOf(room.scene))
+          room.barrels = createBarrels(room.scene)
+          room.drops = []
+          if (room.quiet || room.mode === 'tag') room.monsters = []
+          else if (room.mode === 'boss') room.monsters = createBossMonsters(room.scene)
+          else room.monsters = createMonsters(room.scene)
         }
 
         let player = existing
@@ -603,6 +614,14 @@ export function attachSocketServer(httpServer: HttpServer) {
           room.doorAuto[playerId] = true
           resumed = false
           recordMoveOrigin(room, playerId, Date.now())
+        } else if (sceneChanged) {
+          const sp = spawnOf(room.scene, 0)
+          if (player.seated) room.seats[player.seated] = null
+          player.seated = null
+          player.position = [sp.x, sp.y, sp.z]
+          player.rotationY = 0
+          recordMoveOrigin(room, playerId, Date.now())
+          if (room.doorAuto[playerId] == null) room.doorAuto[playerId] = true
         } else {
           resumeJoinedPlayer(room, player, payload.resume, Date.now())
           if (room.doorAuto[playerId] == null) room.doorAuto[playerId] = true
@@ -646,7 +665,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.startAt = 0
       room.matchDeadline = null
       if (room.mode === 'boss') {
-        room.monsters = createBossMonsters()
+        room.monsters = createBossMonsters(room.scene)
         room.hpScaled = false
         room.nextSummonAt = undefined
         room.duckSpeech = null
@@ -888,7 +907,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       room.drops = []
       if (heightFieldOf(prevScene) || heightFieldOf(room.scene) || prevScene === 'sample' || room.scene === 'sample') {
         if (room.quiet || room.mode === 'tag') room.monsters = []
-        else if (room.mode === 'boss') room.monsters = createBossMonsters()
+        else if (room.mode === 'boss') room.monsters = createBossMonsters(room.scene)
         else room.monsters = createMonsters(room.scene)
         Object.keys(room.players).forEach((id, i) => {
           const p = room.players[id]

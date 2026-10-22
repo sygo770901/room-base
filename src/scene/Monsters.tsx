@@ -3,6 +3,7 @@ import { Billboard, Html, Text } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { MonsterState } from '../../shared/combat'
+import { relaxDispenserSpacing } from '../../shared/dispensers'
 import { isClassId } from '../../shared/classes'
 import { useAppStore } from '../store'
 import { DispenserPetMesh } from './DispenserPet'
@@ -17,9 +18,22 @@ function MonsterView({ monster }: { monster: MonsterState }) {
   useFrame((_, dt) => {
     const g = ref.current
     if (!g) return
-    const nx = THREE.MathUtils.damp(pos.current.x, monster.x, 10, dt)
+    let tx = monster.x
+    let tz = monster.z
+    if (monster.kind === 'dispenser' && monster.alive) {
+      const pets = useAppStore
+        .getState()
+        .monsters.filter((m) => m.kind === 'dispenser' && m.alive)
+      const spaced = relaxDispenserSpacing(pets.map((m) => ({ id: m.id, x: m.x, z: m.z })))
+      const mine = spaced.find((p) => p.id === monster.id)
+      if (mine) {
+        tx = mine.x
+        tz = mine.z
+      }
+    }
+    const nx = THREE.MathUtils.damp(pos.current.x, tx, 10, dt)
     const ny = THREE.MathUtils.damp(pos.current.y, monster.y ?? 0, 10, dt)
-    const nz = THREE.MathUtils.damp(pos.current.z, monster.z, 10, dt)
+    const nz = THREE.MathUtils.damp(pos.current.z, tz, 10, dt)
     speed.current = Math.hypot(nx - pos.current.x, nz - pos.current.z) / Math.max(dt, 1 / 120)
     pos.current.x = nx
     pos.current.y = ny

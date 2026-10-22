@@ -47,5 +47,19 @@ export function meshSegmentBlocked(
   raycaster.set(origin, dir)
   raycaster.near = 0.12
   raycaster.far = dist - 0.02
-  return raycaster.intersectObject(root, true).length > 0
+  const hits = raycaster.intersectObject(root, true)
+  // 骷髏、木桶、箱子會擋在出生點和鏡頭之間，把距離縮到只剩身體。牆和地板仍要擋。
+  return hits.some((hit) => !decorCameraMesh(hit.object))
+}
+
+const DECOR_CAMERA = /skeleton|barrel|box_|coin_|banner|torch|crate|chest|spike|detail|table/
+
+function decorCameraMesh(obj: THREE.Object3D) {
+  let cur: THREE.Object3D | null = obj
+  while (cur) {
+    const model = typeof cur.userData?.model === 'string' ? cur.userData.model : ''
+    if (model && DECOR_CAMERA.test(model)) return true
+    cur = cur.parent
+  }
+  return false
 }
