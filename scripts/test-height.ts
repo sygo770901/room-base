@@ -293,21 +293,23 @@ function walkSample(
 {
   const approach = walkSample(sample, 30, 246, 0, -0.28, 80, (_x, z) => z <= 232)
   assert(!approach.stuck && approach.z <= 232.1, `走不到樓梯口 ${approach.z}`)
-  const platform = walkSample(sample, approach.x, approach.z, 0.22, 0, 90, (_x, _z, y) => y >= 3.95)
-  assert(platform.y >= 3.95, `走不上高度 4 的高台，y=${platform.y.toFixed(2)} @ ${platform.x.toFixed(1)},${platform.z.toFixed(1)}`)
-  const lip = walkSample(sample, platform.x, platform.z, 0, -0.22, 40, (_x, z, y) => z <= 228.5 && y >= 3.9)
-  assert(lip.y >= 3.9 && lip.z <= 228.6, `走不到平台邊緣 y=${lip.y} z=${lip.z}`)
-  const fell = walkSample(sample, lip.x, lip.z, -0.22, 0, 40, (x, _z, y) => y < 0.3 && x < 39.75)
-  assert(fell.y < 0.3 && fell.x < 39.75, `沒從邊緣摔到地面 y=${fell.y} x=${fell.x}`)
-  assert(!canMoveTo(sample, fell.x, fell.z, fell.x + 1.2, fell.z, 0.26), '摔下去的斷崖不該走得回去')
-  const west = walkSample(sample, fell.x, fell.z, -0.25, 0, 40, (x) => x <= 30)
-  const home = walkSample(sample, west.x, west.z, 0, 0.28, 90, (x, z) => Math.hypot(x - 30, z - 246) < 1.2)
-  assert(Math.hypot(home.x - 30, home.z - 246) < 1.2, `摔下去後走不回出生點 ${home.x.toFixed(1)},${home.z.toFixed(1)}`)
+  const platform = walkSample(sample, approach.x, approach.z, 0.22, 0, 120, (x, _z, y) => y >= 3.95 && x >= 42)
+  assert(platform.y >= 3.95 && platform.x >= 42, `走不上高度 4 的高台，y=${platform.y.toFixed(2)} @ ${platform.x.toFixed(1)},${platform.z.toFixed(1)}`)
+  // 樓梯兩側是牆和柱，不是可以走下去的缺口。走廊地面不該走回 4m 高台。
+  assert((groundY(sample, 34, 226) ?? 99) < 0.2, '高台西側的走廊應在地面')
+  assert((groundY(sample, 42, 226) ?? 0) > 3.5, '高台本體應是 4')
+  assert(!canMoveTo(sample, 34, 226, 42, 226, 0.26), '高台斷崖不該走得上去')
+  const down = walkSample(sample, platform.x, platform.z, -0.22, 0, 80, (x, _z, y) => x <= 33.2 && y <= 1.05)
+  assert(!down.stuck && down.y <= 1.05, `走不下樓梯 y=${down.y} x=${down.x}`)
+  const west = walkSample(sample, down.x, down.z, -0.25, 0, 40, (x) => x <= 30)
+  assert(west.x <= 30.05, `下樓後靠不回走廊 x=${west.x}`)
+  const home = walkSample(sample, 30, west.z, 0, 0.28, 90, (x, z) => Math.hypot(x - 30, z - 246) < 1.2)
+  assert(Math.hypot(home.x - 30, home.z - 246) < 1.2, `下樓後走不回出生點 ${home.x.toFixed(1)},${home.z.toFixed(1)}`)
   const wall = walkSample(sample, 30, 224, 0, -0.25, 30)
   assert(wall.stuck && wall.z > 219.5, `穿得過南牆，停在 z=${wall.z}`)
   console.log('sample-height: ok', {
     platform: Number(platform.y.toFixed(2)),
-    fell: Number(fell.y.toFixed(2)),
+    down: Number(down.y.toFixed(2)),
     home: [Number(home.x.toFixed(2)), Number(home.z.toFixed(2))],
   })
 }

@@ -3,6 +3,7 @@ import { ATTACK_COOLDOWN_MS, ATTACK_RANGE, meleeHits, PLAYER_MAX_HP, type MatchO
 import { nextComboStep } from '../shared/anim.ts'
 import { HIDE_RANGE, HIDE_SPOTS } from '../shared/dungeon.ts'
 import { heightBlocksSight, canMoveTo, groundY } from '../shared/heightfield.ts'
+import { samplePathClear } from '../shared/sampleCollision.ts'
 import { heightFieldOf, spawnOf } from '../shared/heightmaps.ts'
 import type { GameMode, RoomSettings } from '../shared/modes.ts'
 import {
@@ -627,6 +628,12 @@ export function acceptMove(
   const px = player.position[0]
   const pz = player.position[2]
   if (nav && !canMoveTo(nav, px, pz, x, z, PLAYER_FOOT_RADIUS, jumping ? prevY : undefined, jumping ? rawY : undefined)) return false
+  if (
+    nav?.id === 'sample' &&
+    !samplePathClear(px, pz, x, z, PLAYER_FOOT_RADIUS, jumping ? prevY : undefined, jumping ? rawY : undefined)
+  ) {
+    return false
+  }
   const terrain = nav ? (groundY(nav, x, z) ?? 0) : 0
   const startT = nav ? (groundY(nav, px, pz) ?? prevY) : 0
   const floor = supportY(x, z, rawY, prevY, PLAYER_FOOT_RADIUS, platforms, terrain)

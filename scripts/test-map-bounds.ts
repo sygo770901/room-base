@@ -8,6 +8,7 @@ import { createDoors } from '../shared/doors.ts'
 import { CELL, isFloorCell, MAP_H, MAP_W } from '../shared/dungeon.ts'
 import { PLAYER_RADIUS } from '../shared/furniture.ts'
 import { canMoveTo, cellCoord, groundY } from '../shared/heightfield.ts'
+import { samplePathClear } from '../shared/sampleCollision.ts'
 import { heightFieldOf, spawnOf } from '../shared/heightmaps.ts'
 import { doorsOf } from '../shared/mapData.ts'
 import { worldBoundsOf } from '../shared/mapView.ts'
@@ -101,6 +102,7 @@ function reachableFlat(scene: SceneId, spawn: Point) {
 function reachableHeight(scene: SceneId, spawn: Point) {
   const field = heightFieldOf(scene)
   if (!field) throw new Error(`${scene} 沒有高度圖`)
+  if (field.id === 'sample') return reachableSample(field, spawn)
   const start = cellCoord(field, spawn.x, spawn.z)
   if (!start) throw new Error(`${scene} 出生點在高度圖外`)
   const key = (x: number, z: number) => `${x},${z}`
@@ -133,12 +135,44 @@ function reachableHeight(scene: SceneId, spawn: Point) {
   return parent
 }
 
+/** 寶物房的 1m 格心會切過寶箱。改用 0.5m，並繞開道具。 */
+function reachableSample(field: NonNullable<ReturnType<typeof heightFieldOf>>, spawn: Point) {
+  const step = 0.5
+  const key = (x: number, z: number) => `${x.toFixed(2)},${z.toFixed(2)}`
+  const snap = (n: number) => Math.round(n * 100) / 100
+  const parent = new Map<string, string | null>([[key(spawn.x, spawn.z), null]])
+  const q = [{ x: spawn.x, z: spawn.z }]
+  const dirs = [
+    [step, 0],
+    [-step, 0],
+    [0, step],
+    [0, -step],
+  ] as const
+  while (q.length) {
+    const cur = q.pop()!
+    for (const [dx, dz] of dirs) {
+      const nx = snap(cur.x + dx)
+      const nz = snap(cur.z + dz)
+      const id = key(nx, nz)
+      if (parent.has(id)) continue
+      if (groundY(field, nx, nz) == null) continue
+      if (!canMoveTo(field, cur.x, cur.z, nx, nz, PLAYER_FOOT_RADIUS)) continue
+      if (!samplePathClear(cur.x, cur.z, nx, nz, PLAYER_FOOT_RADIUS)) continue
+      parent.set(id, key(cur.x, cur.z))
+      q.push({ x: nx, z: nz })
+    }
+  }
+  return parent
+}
+
 function pointsOf(scene: SceneId, parent: Map<string, string | null>) {
   const field = heightFieldOf(scene)
   const out: Point[] = []
   for (const id of parent.keys()) {
     const [a, b] = id.split(',').map(Number)
-    if (field) {
+    if (field?.id === 'sample') {
+      out.push({ x: a, z: b })
+    } else if (field) {
       out.push({
         x: field.originX + (a + 0.5) * field.cell,
         z: field.originZ + (b + 0.5) * field.cell,
@@ -166,9 +200,12 @@ function extremes(points: Point[]) {
 
 function pathTo(scene: SceneId, parent: Map<string, string | null>, goal: Point): Point[] {
   const field = heightFieldOf(scene)
-  const key = field
-    ? `${Math.floor((goal.x - field.originX) / field.cell)},${Math.floor((goal.z - field.originZ) / field.cell)}`
-    : `${Math.floor(goal.x / CELL)},${Math.floor(goal.z / CELL)}`
+  const key =
+    field?.id === 'sample'
+      ? `${goal.x.toFixed(2)},${goal.z.toFixed(2)}`
+      : field
+        ? `${Math.floor((goal.x - field.originX) / field.cell)},${Math.floor((goal.z - field.originZ) / field.cell)}`
+        : `${Math.floor(goal.x / CELL)},${Math.floor(goal.z / CELL)}`
   const cells: string[] = []
   let cur: string | null | undefined = key
   while (cur) {

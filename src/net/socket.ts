@@ -648,6 +648,7 @@ export function joinRoom(
 }
 
 export function emitMove(position: Vec3, rotationY: number, loco?: 'idle' | 'walk' | 'run') {
+  if (import.meta.env.DEV && (window as unknown as { __shotLock?: boolean }).__shotLock) return
   lastPose = { position, rotationY }
   socket?.emit('move', { position, rotationY, loco })
 }

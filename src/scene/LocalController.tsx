@@ -81,6 +81,7 @@ export function LocalController({
   }, [tagHud])
 
   useEffect(() => {
+    if (import.meta.env.DEV && (window as unknown as { __shotLock?: boolean }).__shotLock) return
     const p = useAppStore.getState().players[player.id]
     if (!p?.position) return
     pos.current.set(p.position[0], p.position[1] ?? 0, p.position[2])
@@ -533,6 +534,15 @@ export function LocalController({
         hp: m.hp,
       }))
       slot.__self = useAppStore.getState().selfId
+      const teleport = (window as Window & { __teleport?: (x: number, y: number, z: number) => void }).__teleport
+      if (!teleport) {
+        ;(window as Window & { __teleport?: (x: number, y: number, z: number) => void }).__teleport = (x, y, z) => {
+          pos.current.set(x, y, z)
+          vy.current = 0
+          grounded.current = true
+          slot.__pose = { x, y, z, yaw: rotY.current, monsters: useAppStore.getState().monsters.length }
+        }
+      }
     }
     onPose(pose, rotY.current)
     useAppStore.getState().setLocalXZ(pose[0], pose[2])
