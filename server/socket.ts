@@ -866,8 +866,12 @@ export function attachSocketServer(httpServer: HttpServer) {
         io.to(playerId).emit('dash:result', { ok: false, nextAt: room.tag.hideUntil, reason: 'hide', sprint: true })
         return
       }
-      const grant = room.moveGrant[playerId]
       if (payload.on) {
+        const expired = expireSprint(room.moveGrant[playerId], now)
+        if (expired) {
+          room.nextDash[playerId] = Math.max(room.nextDash[playerId] ?? 0, expired.nextAt)
+        }
+        const grant = room.moveGrant[playerId]
         const started = beginSprint(room.nextDash[playerId] ?? 0, grant, now)
         if (!started.ok) {
           io.to(playerId).emit('dash:result', { ok: false, nextAt: started.nextAt, reason: started.reason, sprint: true })
