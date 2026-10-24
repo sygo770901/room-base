@@ -113,6 +113,7 @@ interface AppState {
   dashHeld: boolean
   sprintHoldStart: number
   sprintArmed: boolean
+  combatUntil: Record<string, number>
   jumpRequest: number
   smokes: SmokeCloud[]
   smokeReadyAt: number
@@ -179,6 +180,7 @@ interface AppState {
   setDashHeld: (on: boolean) => void
   setSprintHoldStart: (at: number) => void
   setSprintArmed: (on: boolean) => void
+  setCombatFacing: (id: string, rotationY: number, until: number) => void
   requestJump: () => void
   setSmokes: (smokes: SmokeCloud[]) => void
   setSmokeReadyAt: (at: number) => void
@@ -261,6 +263,7 @@ export const useAppStore = create<AppState>((set) => ({
   dashHeld: false,
   sprintHoldStart: 0,
   sprintArmed: false,
+  combatUntil: {},
   jumpRequest: 0,
   smokes: [],
   smokeReadyAt: 0,
@@ -447,6 +450,11 @@ export const useAppStore = create<AppState>((set) => ({
   setDashHeld: (on) => set({ dashHeld: on }),
   setSprintHoldStart: (at) => set({ sprintHoldStart: at }),
   setSprintArmed: (on) => set({ sprintArmed: on }),
+  setCombatFacing: (id, rotationY, until) =>
+    set((s) => ({
+      combatUntil: { ...s.combatUntil, [id]: until },
+      players: s.players[id] ? { ...s.players, [id]: { ...s.players[id], rotationY } } : s.players,
+    })),
   requestJump: () => set((s) => ({ jumpRequest: s.jumpRequest + 1 })),
   setSmokes: (smokes) => set({ smokes }),
   setSmokeReadyAt: (at) => set({ smokeReadyAt: at }),
@@ -540,6 +548,7 @@ export const useAppStore = create<AppState>((set) => ({
       dashHeld: false,
       sprintHoldStart: 0,
       sprintArmed: false,
+      combatUntil: {},
       jumpRequest: 0,
       smokes: [],
       smokeReadyAt: 0,
