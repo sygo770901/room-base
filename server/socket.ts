@@ -6,7 +6,7 @@ import { groundY } from '../shared/heightfield.ts'
 import { heightFieldOf, spawnOf } from '../shared/heightmaps.ts'
 import { serverAcceptsQuiet } from '../shared/quiet.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
-import { createBossMonsters, createMonsters, handleAttack, publicMonsters, publishCombatFacing, requestSpawnRespawn, scaleBossHealth, standPlayer, tickRoom } from './combat.ts'
+import { createBossMonsters, createMonsters, handleAttack, hurtMonster, publicMonsters, publishCombatFacing, requestSpawnRespawn, scaleBossHealth, standPlayer, tickRoom } from './combat.ts'
 import {
   acceptMove,
   recordMoveOrigin,
@@ -39,13 +39,15 @@ import {
   type MoveGrant,
 } from '../shared/movement.ts'
 import {
+  POOP_DIRECT_RADIUS,
   POOP_FLIGHT_MS,
-  POOP_SLOW_IMMUNE_MS,
-  POOP_SLOW_MS,
   SMOKE_RADIUS,
   SMOKE_RANGE,
+  bankPoopDamage,
+  clampSmokeLanding,
   liveSmokes,
   publicSmokeForViewer,
+  refreshPoopStick,
   shouldPoopHitPlayer,
   smokeCooldownMs,
   smokeDurationMs,
@@ -256,24 +258,67 @@ function resolveLandedPoop(room: RoomState, io: Server, now: number) {
     if (cloud.resolved || !cloud.landAt || now < cloud.landAt) continue
     cloud.resolved = true
     cloud.hits = []
+    cloud.sticks = []
     const thrower = cloud.throwerId ? room.players[cloud.throwerId] : null
+    const note = (id: string, dist: number) => {
+      if (dist <= POOP_DIRECT_RADIUS) {
+        cloud.sticks = refreshPoopStick(cloud.sticks, id, now)
+        cloud.hits?.push(id)
+        return
+      }
+      if (dist <= (cloud.r ?? SMOKE_RADIUS)) cloud.hits?.push(id)
+    }
     for (const p of Object.values(room.players)) {
       if (room.awayUntil[p.id] || p.team === 'spectator' || isDowned(p, now)) continue
       if (!shouldPoopHitPlayer(cloud.throwerId ?? '', thrower?.team, p, room.mode)) continue
-      if (Math.hypot((p.position?.[0] ?? 0) - cloud.x, (p.position?.[2] ?? 0) - cloud.z) > (cloud.r ?? SMOKE_RADIUS)) continue
-      cloud.hits.push(p.id)
-      if (now < (room.poopImmuneUntil[p.id] ?? 0)) continue
-      room.poopSlowUntil[p.id] = now + POOP_SLOW_MS
-      room.poopImmuneUntil[p.id] = now + POOP_SLOW_IMMUNE_MS
-      io.to(p.id).emit('poop:slow', { until: room.poopSlowUntil[p.id] })
+      note(p.id, Math.hypot((p.position?.[0] ?? 0) - cloud.x, (p.position?.[2] ?? 0) - cloud.z))
     }
-    for (const m of room.monsters ?? []) {
-      if (!m.alive) continue
-      if (Math.hypot(m.x - cloud.x, m.z - cloud.z) <= (cloud.r ?? SMOKE_RADIUS)) cloud.hits.push(m.id)
+    if (room.mode !== 'tag') {
+      for (const m of room.monsters ?? []) {
+        if (!m.alive) continue
+        note(m.id, Math.hypot(m.x - cloud.x, m.z - cloud.z))
+      }
     }
     changed = true
   }
   if (changed) emitSmokes(room, io)
+}
+
+function tickPoopEffects(room: RoomState, io: Server, now: number, dt: number) {
+  let hurt = false
+  for (const cloud of room.smokes) {
+    if (!cloud.resolved || cloud.until <= now) continue
+    if (!cloud.dmgBank) cloud.dmgBank = {}
+    cloud.sticks = (cloud.sticks ?? []).filter((s) => s.until > now)
+    const stuck = new Set(cloud.sticks.map((s) => s.id))
+    const thrower = cloud.throwerId ? room.players[cloud.throwerId] : null
+    const radius = cloud.r ?? SMOKE_RADIUS
+    if (room.mode === 'tag') {
+      for (const p of Object.values(room.players)) {
+        if (room.awayUntil[p.id] || p.team === 'spectator' || isDowned(p, now)) continue
+        if (!shouldPoopHitPlayer(cloud.throwerId ?? '', thrower?.team, p, room.mode)) continue
+        const inside = Math.hypot((p.position?.[0] ?? 0) - cloud.x, (p.position?.[2] ?? 0) - cloud.z) <= radius
+        if (!stuck.has(p.id) && !inside) continue
+        const until = Math.max(now + 300, stuck.has(p.id) ? (cloud.sticks.find((s) => s.id === p.id)?.until ?? now) : now + 300)
+        if ((room.poopSlowUntil[p.id] ?? 0) >= until) continue
+        room.poopSlowUntil[p.id] = until
+        io.to(p.id).emit('poop:slow', { until })
+      }
+      continue
+    }
+    for (const m of room.monsters ?? []) {
+      if (!m.alive) continue
+      const inside = Math.hypot(m.x - cloud.x, m.z - cloud.z) <= radius
+      const isStuck = stuck.has(m.id)
+      if (!isStuck && !inside) continue
+      const banked = bankPoopDamage(cloud.dmgBank[m.id] ?? 0, isStuck, dt, room.mode)
+      cloud.dmgBank[m.id] = banked.bank
+      if (banked.dealt <= 0) continue
+      hurtMonster(room, io, m, banked.dealt, cloud.throwerId ?? 'poop', thrower?.name ?? '大便', now)
+      hurt = true
+    }
+  }
+  if (hurt) io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
 }
 
 function tickAutoDoors(room: RoomState, io: Server, now: number) {
@@ -1102,15 +1147,11 @@ export function attachSocketServer(httpServer: HttpServer) {
       }
       const ox = player.position[0]
       const oz = player.position[2]
-      let tx = typeof payload.x === 'number' && Number.isFinite(payload.x) ? payload.x : ox + Math.sin(player.rotationY) * SMOKE_RANGE
-      let tz = typeof payload.z === 'number' && Number.isFinite(payload.z) ? payload.z : oz + Math.cos(player.rotationY) * SMOKE_RANGE
-      const dx = tx - ox
-      const dz = tz - oz
-      const dist = Math.hypot(dx, dz)
-      if (dist > SMOKE_RANGE && dist > 0) {
-        tx = ox + (dx / dist) * SMOKE_RANGE
-        tz = oz + (dz / dist) * SMOKE_RANGE
-      }
+      const rawX = typeof payload.x === 'number' && Number.isFinite(payload.x) ? payload.x : ox + Math.sin(player.rotationY) * SMOKE_RANGE
+      const rawZ = typeof payload.z === 'number' && Number.isFinite(payload.z) ? payload.z : oz + Math.cos(player.rotationY) * SMOKE_RANGE
+      const landed = clampSmokeLanding(ox, oz, rawX, rawZ, SMOKE_RANGE)
+      const tx = landed.x
+      const tz = landed.z
       const landAt = now + POOP_FLIGHT_MS
       const cloud: SmokeCloud = {
         id: anonSmokeId(now),
@@ -1338,6 +1379,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       if (Object.keys(room.players).length === 0) continue
       tickRoom(room, io, now, 0.1)
       resolveLandedPoop(room, io, now)
+      tickPoopEffects(room, io, now, 0.1)
       tickAutoDoors(room, io, now)
     }
   }, 100)
