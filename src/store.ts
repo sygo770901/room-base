@@ -108,7 +108,11 @@ interface AppState {
   hurtFlashUntil: Record<string, number>
   dashUntil: Record<string, number>
   dashReadyAt: number
+  dashCdTotal: number
   dashRequest: number
+  dashHeld: boolean
+  sprintHoldStart: number
+  sprintArmed: boolean
   jumpRequest: number
   smokes: SmokeCloud[]
   smokeReadyAt: number
@@ -170,8 +174,11 @@ interface AppState {
   setLookYaw: (yaw: number) => void
   setLocalXZ: (x: number, z: number) => void
   setDash: (id: string, until: number) => void
-  setDashReadyAt: (at: number) => void
+  setDashReadyAt: (at: number, total?: number) => void
   requestDash: () => void
+  setDashHeld: (on: boolean) => void
+  setSprintHoldStart: (at: number) => void
+  setSprintArmed: (on: boolean) => void
   requestJump: () => void
   setSmokes: (smokes: SmokeCloud[]) => void
   setSmokeReadyAt: (at: number) => void
@@ -249,7 +256,11 @@ export const useAppStore = create<AppState>((set) => ({
   hurtFlashUntil: {},
   dashUntil: {},
   dashReadyAt: 0,
+  dashCdTotal: 0,
   dashRequest: 0,
+  dashHeld: false,
+  sprintHoldStart: 0,
+  sprintArmed: false,
   jumpRequest: 0,
   smokes: [],
   smokeReadyAt: 0,
@@ -427,8 +438,15 @@ export const useAppStore = create<AppState>((set) => ({
   setLookYaw: (yaw) => set({ lookYaw: yaw }),
   setLocalXZ: (x, z) => set({ localX: x, localZ: z }),
   setDash: (id, until) => set((s) => ({ dashUntil: { ...s.dashUntil, [id]: until } })),
-  setDashReadyAt: (at) => set({ dashReadyAt: at }),
+  setDashReadyAt: (at, total) =>
+    set({
+      dashReadyAt: at,
+      dashCdTotal: total && total > 0 ? total : Math.max(1, at - Date.now()),
+    }),
   requestDash: () => set((s) => ({ dashRequest: s.dashRequest + 1 })),
+  setDashHeld: (on) => set({ dashHeld: on }),
+  setSprintHoldStart: (at) => set({ sprintHoldStart: at }),
+  setSprintArmed: (on) => set({ sprintArmed: on }),
   requestJump: () => set((s) => ({ jumpRequest: s.jumpRequest + 1 })),
   setSmokes: (smokes) => set({ smokes }),
   setSmokeReadyAt: (at) => set({ smokeReadyAt: at }),
@@ -517,7 +535,11 @@ export const useAppStore = create<AppState>((set) => ({
       localZ: 0,
       dashUntil: {},
       dashReadyAt: 0,
+      dashCdTotal: 0,
       dashRequest: 0,
+      dashHeld: false,
+      sprintHoldStart: 0,
+      sprintArmed: false,
       jumpRequest: 0,
       smokes: [],
       smokeReadyAt: 0,

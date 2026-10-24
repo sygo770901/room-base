@@ -27,10 +27,15 @@ import {
 import { loadPersistedRoom, savePersistedRoom } from './persist.ts'
 import { PLAYER_CLASS } from '../shared/classes.ts'
 import {
-  DASH_DURATION_MS,
-  DASH_IFRAME_MS,
   JUMP_AIR_MS,
-  dashCooldownMs,
+  SPRINT_CD_MS,
+  SPRINT_MAX_MS,
+  beginSprint,
+  dashCoolingDown,
+  endSprint,
+  expireSprint,
+  isSprintActive,
+  tapDashTiming,
   type MoveGrant,
 } from '../shared/movement.ts'
 import {
@@ -775,6 +780,16 @@ export function attachSocketServer(httpServer: HttpServer) {
       // 地城、打鴨王、鬼抓人都走 acceptMove。站著再久也不放寬單步。
       const originX = player.position[0]
       const originZ = player.position[2]
+      const expired = expireSprint(room.moveGrant[playerId], now)
+      if (expired) {
+        room.nextDash[playerId] = Math.max(room.nextDash[playerId] ?? 0, expired.nextAt)
+        io.to(playerId).emit('dash:result', {
+          ok: true,
+          sprint: false,
+          nextAt: room.nextDash[playerId],
+          cdMs: SPRINT_CD_MS,
+        })
+      }
       const ok = acceptMove(room, player, payload, now)
       if (payload.loco === 'idle' || payload.loco === 'walk' || payload.loco === 'run') player.loco = payload.loco
       if (ok && Math.hypot(player.position[0] - originX, player.position[2] - originZ) > 0.02) {
@@ -806,8 +821,12 @@ export function attachSocketServer(httpServer: HttpServer) {
         return
       }
       const readyAt = room.nextDash[playerId] ?? 0
-      if (now < readyAt) {
+      if (dashCoolingDown(readyAt, now)) {
         io.to(playerId).emit('dash:result', { ok: false, nextAt: readyAt, reason: 'cd' })
+        return
+      }
+      if (isSprintActive(room.moveGrant[playerId], now)) {
+        io.to(playerId).emit('dash:result', { ok: false, reason: 'sprint' })
         return
       }
       let dx = typeof payload.dirX === 'number' && Number.isFinite(payload.dirX) ? payload.dirX : 0
@@ -820,13 +839,60 @@ export function attachSocketServer(httpServer: HttpServer) {
         dx /= len
         dz /= len
       }
-      const until = now + DASH_DURATION_MS
-      const nextAt = now + dashCooldownMs(player.team)
+      const timing = tapDashTiming(now, player.team)
+      const until = timing.until
+      const nextAt = timing.nextAt
       room.nextDash[playerId] = nextAt
       room.moveGrant[playerId] = { ...room.moveGrant[playerId], dashUntil: until }
-      room.hurtUntil[playerId] = Math.max(room.hurtUntil[playerId] ?? 0, now + DASH_IFRAME_MS)
+      room.hurtUntil[playerId] = Math.max(room.hurtUntil[playerId] ?? 0, timing.iframeUntil)
       io.to(room.roomId).emit('player:dash', { id: playerId, until, dirX: dx, dirZ: dz })
-      io.to(playerId).emit('dash:result', { ok: true, nextAt, until })
+      io.to(playerId).emit('dash:result', { ok: true, nextAt, until, cdMs: nextAt - now })
+    })
+
+    socket.on('dash:hold', (payload: { on?: boolean } = {}) => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      const { room, player, playerId } = ctx
+      const now = Date.now()
+      if (player.seated || player.hidden || isDowned(player, now)) return
+      if (player.team === 'spectator') return
+      if ((room.mode === 'boss' || room.mode === 'tag') && !room.started) return
+      if (room.mode === 'tag' && player.team === 'ghost' && room.tag && now < room.tag.hideUntil) {
+        io.to(playerId).emit('dash:result', { ok: false, nextAt: room.tag.hideUntil, reason: 'hide', sprint: true })
+        return
+      }
+      if (payload.on) {
+        const expired = expireSprint(room.moveGrant[playerId], now)
+        if (expired) {
+          room.nextDash[playerId] = Math.max(room.nextDash[playerId] ?? 0, expired.nextAt)
+        }
+        const grant = room.moveGrant[playerId]
+        const started = beginSprint(room.nextDash[playerId] ?? 0, grant, now)
+        if (!started.ok) {
+          io.to(playerId).emit('dash:result', { ok: false, nextAt: started.nextAt, reason: started.reason, sprint: true })
+          return
+        }
+        if (started.fresh) {
+          room.moveGrant[playerId] = { ...grant, sprintHoldStart: started.holdStart, sprintHoldEnd: undefined }
+        }
+        io.to(playerId).emit('dash:result', {
+          ok: true,
+          sprint: true,
+          holdStart: started.holdStart,
+          until: started.holdStart + SPRINT_MAX_MS,
+        })
+        return
+      }
+      const stopped = endSprint(room.moveGrant[playerId], now)
+      if (!stopped) return
+      room.moveGrant[playerId] = { ...room.moveGrant[playerId], sprintHoldEnd: stopped.holdEnd }
+      room.nextDash[playerId] = Math.max(room.nextDash[playerId] ?? 0, stopped.nextAt)
+      io.to(playerId).emit('dash:result', {
+        ok: true,
+        sprint: false,
+        nextAt: room.nextDash[playerId],
+        cdMs: SPRINT_CD_MS,
+      })
     })
 
     socket.on('door:auto', (payload: { on?: boolean } = {}) => {

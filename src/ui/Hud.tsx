@@ -51,7 +51,9 @@ export function Hud() {
   const setMinimapHeadingUp = useAppStore((s) => s.setMinimapHeadingUp)
   const pointerLocked = useAppStore((s) => s.pointerLocked)
   const dashReadyAt = useAppStore((s) => s.dashReadyAt)
-  const requestDash = useAppStore((s) => s.requestDash)
+  const dashCdTotal = useAppStore((s) => s.dashCdTotal)
+  const dashHeld = useAppStore((s) => s.dashHeld)
+  const setDashHeld = useAppStore((s) => s.setDashHeld)
   const requestJump = useAppStore((s) => s.requestJump)
   const [dashLeft, setDashLeft] = useState(0)
   const smokeReadyAt = useAppStore((s) => s.smokeReadyAt)
@@ -529,11 +531,28 @@ export function Hud() {
         <button
           type="button"
           className="dash-btn"
-          disabled={dashLeft > 0}
-          onClick={() => requestDash()}
+          disabled={dashLeft > 0 && !dashHeld}
+          onPointerDown={(e) => {
+            if (dashLeft > 0) return
+            e.currentTarget.setPointerCapture(e.pointerId)
+            setDashHeld(true)
+          }}
+          onPointerUp={() => setDashHeld(false)}
+          onPointerCancel={() => setDashHeld(false)}
+          onContextMenu={(e) => e.preventDefault()}
         >
-          {dashLeft > 0 ? `${Math.ceil(dashLeft / 1000)}` : '衝'}
-          {!isMobileDevice() && dashLeft <= 0 && <span className="key-hint">Shift</span>}
+          {dashLeft > 0 && (
+            <span
+              className="dash-cd"
+              style={{
+                background: `conic-gradient(rgba(26, 20, 8, 0.72) ${(1 - Math.min(1, dashLeft / Math.max(dashCdTotal, dashLeft))) * 360}deg, transparent 0)`,
+              }}
+            />
+          )}
+          <span className="dash-face">
+            {dashLeft > 0 ? `${Math.ceil(dashLeft / 1000)}` : '衝'}
+            {!isMobileDevice() && dashLeft <= 0 && <span className="key-hint">Shift</span>}
+          </span>
         </button>
       )}
       {!matchOver && started && self?.team !== 'spectator' && (

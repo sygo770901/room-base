@@ -4,13 +4,13 @@ import * as THREE from 'three'
 import { HIDE_RANGE, HIDE_SPOTS } from '../../shared/dungeon'
 import { isMobileDevice } from '../perf/device'
 import { WEAPON_STATS } from '../../shared/barrels'
-import { DASH_DISTANCE, DASH_DURATION_MS, jumpCeilingFor, dashCooldownMs } from '../../shared/movement'
+import { DASH_DISTANCE, DASH_DURATION_MS, DASH_TAP_MS, SPRINT_CD_MS, SPRINT_MAX_MS, SPRINT_MUL, jumpCeilingFor, dashCooldownMs } from '../../shared/movement'
 import { groundY } from '../../shared/heightfield'
 import { heightFieldOf } from '../../shared/heightmaps'
 import { GRAVITY, HIDE_MAX_Y, JUMP_SPEED, platformsFor, supportY } from '../../shared/platforms'
 import { PLAYER_RADIUS } from '../../shared/furniture'
 import { POOP_SLOW_MUL, SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
-import { emitDash, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitRescueHold, emitSit, emitSmoke, performAttack } from '../net/socket'
+import { emitDash, emitDashHold, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitRescueHold, emitSit, emitSmoke, performAttack } from '../net/socket'
 import { isDowned, nearestDowned } from '../../shared/downed'
 import { DOOR_AUTO_RANGE, DOOR_PROMPT_RANGE, closedDoorAabbs, inspectNearestDoor, nearestDoor } from '../../shared/doors'
 import { OTS_LOOK_Y, heightWalkForward } from '../../shared/camera'
@@ -66,8 +66,10 @@ export function LocalController({
   const mode = useAppStore((s) => s.mode)
   const hideUntilAt = useRef(0)
   const dash = useRef({ until: 0, dx: 0, dz: 0 })
+  const dashHold = useRef({ key: false, pointer: false, down: false, at: 0, sprinting: false })
   const lastDir = useRef({ x: 0, z: 1 })
   const dashRequest = useAppStore((s) => s.dashRequest)
+  const dashHeld = useAppStore((s) => s.dashHeld)
   const jumpRequest = useAppStore((s) => s.jumpRequest)
   const smokeRequest = useAppStore((s) => s.smokeRequest)
   const lastAutoDoor = useRef<string | null>(null)
@@ -148,8 +150,63 @@ export function LocalController({
     dz /= len
     dash.current = { until: performance.now() + DASH_DURATION_MS, dx, dz }
     state.setDash(player.id, now + DASH_DURATION_MS)
-    state.setDashReadyAt(now + dashCooldownMs(me.team))
+    const cd = dashCooldownMs(me.team)
+    state.setDashReadyAt(now + cd, cd)
     emitDash(dx, dz)
+  }
+
+  function beginLocalSprint() {
+    const state = useAppStore.getState()
+    const me = state.players[player.id]
+    if (!me || me.seated || me.hidden || isDowned(me)) return false
+    if (me.team === 'spectator') return false
+    if ((state.mode === 'boss' || state.mode === 'tag') && !state.started) return false
+    if (state.mode === 'tag' && me.team === 'ghost' && (state.tagHud?.hideLeftMs ?? 0) > 0) {
+      state.setToast('開場 30 秒內鬼不能衝')
+      setTimeout(() => useAppStore.getState().setToast(null), 1400)
+      return false
+    }
+    const now = Date.now()
+    if (now < state.dashReadyAt) return false
+    if (state.sprintArmed && state.sprintHoldStart && now < state.sprintHoldStart + SPRINT_MAX_MS) return true
+    state.setSprintArmed(true)
+    state.setSprintHoldStart(now)
+    emitDashHold(true)
+    return true
+  }
+
+  function endLocalSprint() {
+    const state = useAppStore.getState()
+    const start = state.sprintHoldStart
+    const now = Date.now()
+    state.setSprintArmed(false)
+    state.setSprintHoldStart(0)
+    if (start) {
+      const end = Math.min(now, start + SPRINT_MAX_MS)
+      state.setDashReadyAt(end + SPRINT_CD_MS, SPRINT_CD_MS)
+    }
+    emitDashHold(false)
+  }
+
+  function pressDash(source: 'key' | 'pointer') {
+    const hold = dashHold.current
+    hold[source] = true
+    if (hold.down) return
+    hold.down = true
+    hold.at = performance.now()
+    hold.sprinting = false
+  }
+
+  function releaseDash(source: 'key' | 'pointer') {
+    const hold = dashHold.current
+    hold[source] = false
+    if (hold.key || hold.pointer) return
+    if (!hold.down) return
+    const sprinting = hold.sprinting
+    hold.down = false
+    hold.sprinting = false
+    if (sprinting) endLocalSprint()
+    else tryDash()
   }
 
   function setPhase(next: 'start' | 'idle' | 'land' | null) {
@@ -208,6 +265,11 @@ export function LocalController({
   }, [dashRequest])
 
   useEffect(() => {
+    if (dashHeld) pressDash('pointer')
+    else releaseDash('pointer')
+  }, [dashHeld])
+
+  useEffect(() => {
     if (smokeRequest <= 0) return
     trySmoke()
   }, [smokeRequest])
@@ -229,7 +291,7 @@ export function LocalController({
         e.preventDefault()
       }
       if (e.code === 'KeyF') performAttack()
-      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') tryDash()
+      if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) pressDash('key')
       if (e.code === 'Space') tryJump()
       if (e.code === 'KeyE') {
         const st = useAppStore.getState()
@@ -248,6 +310,13 @@ export function LocalController({
     }
     const up = (e: KeyboardEvent) => {
       keys.current[e.code] = false
+      if (
+        (e.code === 'ShiftLeft' || e.code === 'ShiftRight') &&
+        !keys.current.ShiftLeft &&
+        !keys.current.ShiftRight
+      ) {
+        releaseDash('key')
+      }
     }
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
@@ -277,6 +346,16 @@ export function LocalController({
   // priority -2：OrbitControls 在 -1 才 update。先把鏡頭和平移到角色，
   // 它才只會套用手指轉的角度，走路本身不會把視角帶著轉。
   useFrame((_, dt) => {
+    const hold = dashHold.current
+    if (hold.down && !hold.sprinting && performance.now() - hold.at >= DASH_TAP_MS) {
+      if (beginLocalSprint()) hold.sprinting = true
+      else {
+        hold.down = false
+        hold.key = false
+        hold.pointer = false
+      }
+    }
+
     const orbit = controls as { target?: THREE.Vector3 } | null
     const stickCamera = (x: number, y: number, z: number) => {
       const target = orbit?.target
@@ -290,6 +369,7 @@ export function LocalController({
     }
 
     if (typingInField()) {
+      if (dashHold.current.key) releaseDash('key')
       keys.current = {}
       stickCamera(pos.current.x, pos.current.y, pos.current.z)
       onPose([pos.current.x, pos.current.y, pos.current.z], rotY.current)
@@ -377,8 +457,15 @@ export function LocalController({
       const shotWalk = import.meta.env.DEV && new URLSearchParams(location.search).has('shot') ? 0.38 : 1
       const speedMul = WEAPON_STATS[held].speed * shotWalk
       const poopSlow = Date.now() < useAppStore.getState().poopSlowUntil ? POOP_SLOW_MUL : 1
-      const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * speedMul * poopSlow * dt
-      const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * poopSlow * dt
+      const sprintState = useAppStore.getState()
+      const sprintMul =
+        dashHold.current.sprinting &&
+        sprintState.sprintHoldStart > 0 &&
+        Date.now() < sprintState.sprintHoldStart + SPRINT_MAX_MS
+          ? SPRINT_MUL
+          : 1
+      const mx = ((right.x * strafe) / len + (forward.x * fwd) / len) * SPEED * speedMul * poopSlow * sprintMul * dt
+      const mz = ((right.z * strafe) / len + (forward.z * fwd) / len) * SPEED * speedMul * poopSlow * sprintMul * dt
       moveSpeed = Math.hypot(mx, mz) / Math.max(dt, 1 / 120)
 
       const sceneId = useAppStore.getState().scene
