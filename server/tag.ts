@@ -54,6 +54,8 @@ export type MoveBank = {
 
 /** 進房第一包可能和記點同一個時間戳，先留一筆正常步伐（約 0.2 秒走路）的預算。 */
 const FIRST_STEP_SEC = 0.2
+/** 超過這段距離視為瞬移，整包拒絕。低幀率的 6–10 公尺追趕不在這範圍。 */
+const TELEPORT_M = 20
 
 export function recordMoveOrigin(
   room: { lastMoveAt?: Record<string, number>; moveBank?: Record<string, MoveBank> },
@@ -627,49 +629,54 @@ export function acceptMove(
   const nav = heightFieldOf(room.scene)
   const px = player.position[0]
   const pz = player.position[2]
-  if (nav && !canMoveTo(nav, px, pz, x, z, PLAYER_FOOT_RADIUS, jumping ? prevY : undefined, jumping ? rawY : undefined)) return false
-  if (
-    nav?.id === 'sample' &&
-    !samplePathClear(px, pz, x, z, PLAYER_FOOT_RADIUS, jumping ? prevY : undefined, jumping ? rawY : undefined)
-  ) {
-    return false
-  }
-  const terrain = nav ? (groundY(nav, x, z) ?? 0) : 0
-  const startT = nav ? (groundY(nav, px, pz) ?? prevY) : 0
-  const floor = supportY(x, z, rawY, prevY, PLAYER_FOOT_RADIUS, platforms, terrain)
-  let y = rawY
-  const ceiling = jumpCeilingFor(room.scene)
-  if (!jumping && y > floor + JUMP_GROUND_EPS) {
-    const falling = Boolean(nav) && y < startT - 0.05 && y + 0.2 >= terrain
-    if (!falling) y = floor
-  }
-  if (nav) {
-    const low = Math.min(startT, terrain)
-    const high = Math.max(startT, terrain)
-    if (y > high + ceiling + 0.2 || y < low - 0.25) return false
-  } else if (y > ceiling + 0.2 || y < -0.08) return false
-
-  // 平面圖沒有高度圖。邊界、地板和牆要跟這張圖的可見範圍同一套，不能用別張小圖把人擋在半路。
-  if (!nav) {
-    const args = sceneMoveArgs(room.scene, room.doors)
-    const slid = resolvePlayerMove(px, pz, x - px, z - pz, [], PLAYER_RADIUS, args.extra, y, args.platforms, null)
-    if (Math.hypot(slid.x - x, slid.z - z) > 0.05) return false
-  }
-
   const slowed = now < (room.poopSlowUntil?.[player.id] ?? 0)
   const prev = room.lastMoveAt[player.id]
-  // 垂直仍看距離上一筆接受的時間。水平改記在預算裡，連發的合法步伐一起扣。
   const elapsed = prev == null ? 0 : now - prev
   const allow = moveAllowance(elapsed, grant, now, { poopSlow: slowed })
-  const dist = Math.hypot(x - player.position[0], z - player.position[2])
-  const rise = y - prevY
-  const drop = prevY - y
-  if (nav) {
-    const terrainRise = Math.max(0, terrain - startT)
-    const terrainDrop = Math.max(0, startT - terrain)
-    if (rise > allow.vert + terrainRise + 0.08) return false
-    if (drop > JUMP_MAX_DELTA + MOVE_Y_PAD + terrainDrop) return false
-  } else if (rise > allow.vert || drop > JUMP_MAX_DELTA + MOVE_Y_PAD) return false
+
+  const poseAt = (tx: number, tz: number, ty: number) => {
+    if (nav && !canMoveTo(nav, px, pz, tx, tz, PLAYER_FOOT_RADIUS, jumping ? prevY : undefined, jumping ? ty : undefined)) {
+      return null
+    }
+    if (
+      nav?.id === 'sample' &&
+      !samplePathClear(px, pz, tx, tz, PLAYER_FOOT_RADIUS, jumping ? prevY : undefined, jumping ? ty : undefined)
+    ) {
+      return null
+    }
+    const terrain = nav ? (groundY(nav, tx, tz) ?? 0) : 0
+    const startT = nav ? (groundY(nav, px, pz) ?? prevY) : 0
+    const floor = supportY(tx, tz, ty, prevY, PLAYER_FOOT_RADIUS, platforms, terrain)
+    let y = ty
+    const ceiling = jumpCeilingFor(room.scene)
+    if (!jumping && y > floor + JUMP_GROUND_EPS) {
+      const falling = Boolean(nav) && y < startT - 0.05 && y + 0.2 >= terrain
+      if (!falling) y = floor
+    }
+    if (nav) {
+      const low = Math.min(startT, terrain)
+      const high = Math.max(startT, terrain)
+      if (y > high + ceiling + 0.2 || y < low - 0.25) return null
+    } else if (y > ceiling + 0.2 || y < -0.08) return null
+    if (!nav) {
+      const args = sceneMoveArgs(room.scene, room.doors)
+      const slid = resolvePlayerMove(px, pz, tx - px, tz - pz, [], PLAYER_RADIUS, args.extra, y, args.platforms, null)
+      if (Math.hypot(slid.x - tx, slid.z - tz) > 0.05) return null
+    }
+    const rise = y - prevY
+    const drop = prevY - y
+    if (nav) {
+      const terrainRise = Math.max(0, terrain - startT)
+      const terrainDrop = Math.max(0, startT - terrain)
+      if (rise > allow.vert + terrainRise + 0.08) return null
+      if (drop > JUMP_MAX_DELTA + MOVE_Y_PAD + terrainDrop) return null
+    } else if (rise > allow.vert || drop > JUMP_MAX_DELTA + MOVE_Y_PAD) return null
+    return { x: tx, y, z: tz }
+  }
+
+  // 牆和斷崖先擋掉，預算還沒動。低幀率的長步伐要整段都走得過，才沿方向收到允許距離。
+  const posed = poseAt(x, z, rawY)
+  if (!posed) return false
 
   if (!room.moveBank) room.moveBank = {}
   let bank = room.moveBank[player.id]
@@ -677,10 +684,15 @@ export function acceptMove(
     bank = { accruedAt: prev ?? now, walk: 0, dash: 0, pad: false }
     room.moveBank[player.id] = bank
   }
+  const beforeWalk = bank.walk
+  const beforePad = bank.pad
+  const gapSec = Math.max(0, now - bank.accruedAt) / 1000
+  const rate = slowed ? PLAYER_SPEED * POOP_SLOW_MUL : PLAYER_SPEED * MOVE_SLACK
+  const pad = slowed ? 0.08 : MOVE_PAD
+  const cap = rate * MOVE_DT_CAP_SEC + pad
+  let fairWalk = beforeWalk + rate * gapSec
+  if (!beforePad) fairWalk += pad
   if (now >= bank.accruedAt) {
-    const rate = slowed ? PLAYER_SPEED * POOP_SLOW_MUL : PLAYER_SPEED * MOVE_SLACK
-    const pad = slowed ? 0.08 : MOVE_PAD
-    const cap = rate * MOVE_DT_CAP_SEC + pad
     let gain = rate * cappedMoveDt(now - bank.accruedAt)
     if (!bank.pad) {
       gain += pad
@@ -693,14 +705,30 @@ export function acceptMove(
     bank.dash += DASH_DISTANCE * MOVE_SLACK
     bank.dashMark = grant.dashUntil
   }
-  if (dist > bank.walk + bank.dash) return false
-  let rest = dist
+  const fair = fairWalk + bank.dash
+  const budget = bank.walk + bank.dash
+  const dist = Math.hypot(posed.x - px, posed.z - pz)
+  let place = posed
+  if (dist > budget + 1e-4) {
+    // 真瞬移，或這段空檔連不封頂也走不到：留在上一點。低幀率封頂內的追趕改收一部分。
+    if (dist >= TELEPORT_M || dist > fair + 1e-4 || budget <= 1e-4) return false
+    const scale = budget / dist
+    const clamped = poseAt(
+      px + (posed.x - px) * scale,
+      pz + (posed.z - pz) * scale,
+      prevY + (posed.y - prevY) * scale,
+    )
+    if (!clamped) return false
+    place = clamped
+  }
+  const step = Math.hypot(place.x - px, place.z - pz)
+  let rest = step
   const fromWalk = Math.min(bank.walk, rest)
   bank.walk -= fromWalk
   rest -= fromWalk
   bank.dash = Math.max(0, bank.dash - rest)
 
-  player.position = [x, y, z]
+  player.position = [place.x, place.y, place.z]
   player.rotationY = payload.rotationY
   room.lastMoveAt[player.id] = now
   return true
