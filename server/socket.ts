@@ -73,6 +73,12 @@ import { announce } from './feed.ts'
 import type { DuckSpeech, MatchOver } from '../shared/combat.ts'
 import type { PlayerState, SeatId, StickyNote, Vec3 } from './types.ts'
 
+/** 正式環境拒絕 heightlab。判斷在請求當下，開發與測試仍可指定。 */
+function sceneAllowed(scene: unknown): scene is SceneId {
+  if (process.env.NODE_ENV === 'production' && scene === 'heightlab') return false
+  return isSceneId(scene)
+}
+
 export interface RoomState {
   roomId: string
   scene: SceneId
@@ -122,6 +128,8 @@ export interface RoomState {
   doorAuto: Record<string, boolean>
   /** ?shot=1 截圖時不生怪，避免騎士擋在樓梯上。 */
   quiet?: boolean
+  /** 已在哪張場景被接受過移動。出生點只在進房或換到尚未走過的場景時設一次。 */
+  walkedScene?: Record<string, string>
 }
 
 const COLORS = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#e9c46a', '#2a9d8f']
@@ -415,6 +423,7 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
   delete room.nextSmoke[playerId]
   delete room.nextPhrase[playerId]
   delete room.doorAuto[playerId]
+  if (room.walkedScene) delete room.walkedScene[playerId]
   playerSockets.delete(playerId)
 
   applyLiveHost(room)
@@ -536,7 +545,7 @@ export function attachSocketServer(httpServer: HttpServer) {
 
         const isFirst = Object.keys(room.players).length === 0
         const othersHere = Object.entries(room.players).some(([id]) => id !== playerId && !room.awayUntil[id])
-        const pickedScene = !othersHere && isSceneId(payload.scene) ? payload.scene : null
+        const pickedScene = !othersHere && sceneAllowed(payload.scene) ? payload.scene : null
         const sceneChanged = pickedScene != null && pickedScene !== room.scene
         if (isFirst && serverAcceptsQuiet(payload.quiet)) room.quiet = true
         if (pickedScene) room.scene = pickedScene
@@ -614,6 +623,9 @@ export function attachSocketServer(httpServer: HttpServer) {
           room.doorAuto[playerId] = true
           resumed = false
           recordMoveOrigin(room, playerId, Date.now())
+        } else if (sceneChanged && room.walkedScene?.[playerId] === room.scene) {
+          // 已經在這張圖上移動過。重進或晚到的場景設定不能再拉回出生點。
+          if (room.doorAuto[playerId] == null) room.doorAuto[playerId] = true
         } else if (sceneChanged) {
           const sp = spawnOf(room.scene, 0)
           if (player.seated) room.seats[player.seated] = null
@@ -621,6 +633,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           player.position = [sp.x, sp.y, sp.z]
           player.rotationY = 0
           recordMoveOrigin(room, playerId, Date.now())
+          if (room.walkedScene) delete room.walkedScene[playerId]
           if (room.doorAuto[playerId] == null) room.doorAuto[playerId] = true
         } else {
           resumeJoinedPlayer(room, player, payload.resume, Date.now())
@@ -759,8 +772,14 @@ export function attachSocketServer(httpServer: HttpServer) {
       const now = Date.now()
       if (player.hidden) return
       // 地城、打鴨王、鬼抓人都走 acceptMove。站著再久也不放寬單步。
+      const originX = player.position[0]
+      const originZ = player.position[2]
       const ok = acceptMove(room, player, payload, now)
       if (payload.loco === 'idle' || payload.loco === 'walk' || payload.loco === 'run') player.loco = payload.loco
+      if (ok && Math.hypot(player.position[0] - originX, player.position[2] - originZ) > 0.02) {
+        if (!room.walkedScene) room.walkedScene = {}
+        room.walkedScene[playerId] = room.scene
+      }
       if (!ok) {
         io.to(playerId).emit('player:moved', {
           id: playerId,
@@ -898,7 +917,7 @@ export function attachSocketServer(httpServer: HttpServer) {
       const { room, playerId } = ctx
       if (room.hostId !== playerId) return
       if ((room.mode === 'boss' || room.mode === 'tag') && room.started && !room.matchOver) return
-      if (!isSceneId(payload.scene)) return
+      if (!sceneAllowed(payload.scene)) return
       const prevScene = room.scene
       if (payload.scene === prevScene) return
       room.scene = payload.scene
@@ -911,6 +930,9 @@ export function attachSocketServer(httpServer: HttpServer) {
         else room.monsters = createMonsters(room.scene)
         Object.keys(room.players).forEach((id, i) => {
           const p = room.players[id]
+          // 出生點只在換到還沒走過的場景時設一次，而且在後續移動被接受之前。
+          // 已經在這張圖上走的人，防瞬移基準跟著已接受的座標，不再拉回。
+          if (room.walkedScene?.[id] === room.scene) return
           const sp = spawnOf(room.scene, i)
           if (p.seated) {
             room.seats[p.seated] = null
@@ -919,6 +941,7 @@ export function attachSocketServer(httpServer: HttpServer) {
           p.position = [sp.x, sp.y, sp.z]
           p.rotationY = 0
           delete room.moveGrant[id]
+          if (room.walkedScene) delete room.walkedScene[id]
           recordMoveOrigin(room, id, Date.now())
           io.to(room.roomId).emit('player:moved', {
             id,
