@@ -95,7 +95,7 @@ import {
   type BarrelState,
   type LootDrop,
 } from '../shared/barrels.ts'
-import { inSmoke, publicSmokeForViewer, type SmokeCloud } from '../shared/smoke.ts'
+import { inSmoke, publishSmokes, type RoomSticks, type SmokeCloud } from '../shared/smoke.ts'
 import { nextComboStep, type HitAnim } from '../shared/anim.ts'
 import {
   DOOR_MONSTER_WAIT_MS,
@@ -171,6 +171,7 @@ export interface CombatRoom {
   moveGrant?: Record<string, { dashUntil?: number; jumpUntil?: number; sprintHoldStart?: number; sprintHoldEnd?: number }>
   combatLock?: Record<string, CombatLock>
   smokes?: SmokeCloud[]
+  poopSticks?: RoomSticks
   barrels?: BarrelState[]
   drops?: LootDrop[]
   projectiles?: ProjectileState[]
@@ -1085,7 +1086,7 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
       for (const id of Object.keys(room.players ?? {})) {
         io.to(id).emit(
           'smoke:sync',
-          next.map((c) => publicSmokeForViewer(c, room.players[id] ?? { id }, room.mode)),
+          publishSmokes(next, room.poopSticks, room.players[id] ?? { id }, room.mode, now),
         )
       }
     }
@@ -1286,37 +1287,52 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
     return
   }
   if (best.kind === 'duck-king' && now < best.invulnUntil) return
-  const dealt = Math.min(stats.damage, Math.max(0, best.hp))
-  if (dealt <= 0) return
+  hurtMonster(room, io, best, stats.damage, playerId, player.name, now)
+  io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
+}
+
+export function hurtMonster(
+  room: CombatRoom,
+  io: Server,
+  monster: ServerMonster,
+  amount: number,
+  playerId: string,
+  playerName: string,
+  now: number,
+) {
+  if (!monster.alive || amount <= 0) return 0
+  if (monster.kind === 'duck-king' && now < monster.invulnUntil) return 0
+  const dealt = Math.min(amount, Math.max(0, monster.hp))
+  if (dealt <= 0) return 0
   io.to(room.roomId).emit('combat:hit', {
-    id: best.id,
+    id: monster.id,
     kind: 'monster',
     amount: dealt,
-    x: best.x,
-    z: best.z,
+    x: monster.x,
+    z: monster.z,
     by: playerId,
   })
-  best.hp -= dealt
-  best.lastHitBy = playerId
+  monster.hp -= dealt
+  monster.lastHitBy = playerId
   if (!room.damage) room.damage = {}
-  const row = room.damage[playerId] ?? { name: player.name, dmg: 0 }
-  row.name = player.name
+  const row = room.damage[playerId] ?? { name: playerName, dmg: 0 }
+  row.name = playerName
   row.dmg += dealt
   room.damage[playerId] = row
   maybeRage(room, io, now)
-  if (best.hp <= 0) {
-    best.hp = 0
-    best.alive = false
-    best.diedAt = now
-    best.respawnAt = room.mode === 'boss' ? Number.POSITIVE_INFINITY : Math.max(now + CORPSE_MS, now + RESPAWN_MS)
-    if (best.kind === 'dispenser') {
+  if (monster.hp <= 0) {
+    monster.hp = 0
+    monster.alive = false
+    monster.diedAt = now
+    monster.respawnAt = room.mode === 'boss' ? Number.POSITIVE_INFINITY : Math.max(now + CORPSE_MS, now + RESPAWN_MS)
+    if (monster.kind === 'dispenser') {
       if (!room.dispenserKills) room.dispenserKills = {}
       room.dispenserKills[playerId] = (room.dispenserKills[playerId] ?? 0) + 1
-      announce(room, io, `${player.name} 打倒了 飲水機`)
+      announce(room, io, `${playerName} 打倒了 飲水機`)
     }
     maybeWin(room, io, playerId)
   }
-  io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
+  return dealt
 }
 
 function tickLoot(room: CombatRoom, io: Server, now: number) {

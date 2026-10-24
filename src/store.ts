@@ -118,6 +118,8 @@ interface AppState {
   smokes: SmokeCloud[]
   smokeReadyAt: number
   smokeRequest: number
+  poopHeld: boolean
+  poopAim: { x: number; z: number } | null
   poopSlowUntil: number
   poopVignetteUntil: number
   throwAt: Record<string, number>
@@ -185,7 +187,9 @@ interface AppState {
   setSmokes: (smokes: SmokeCloud[]) => void
   setSmokeReadyAt: (at: number) => void
   requestSmoke: () => void
-  markPoopHit: () => void
+  setPoopHeld: (on: boolean) => void
+  setPoopAim: (aim: { x: number; z: number } | null) => void
+  markPoopHit: (until?: number) => void
   setThrowAt: (id: string, at: number) => void
   setBarrels: (barrels: BarrelState[]) => void
   setDrops: (drops: LootDrop[]) => void
@@ -268,6 +272,8 @@ export const useAppStore = create<AppState>((set) => ({
   smokes: [],
   smokeReadyAt: 0,
   smokeRequest: 0,
+  poopHeld: false,
+  poopAim: null,
   poopSlowUntil: 0,
   poopVignetteUntil: 0,
   throwAt: {},
@@ -459,9 +465,11 @@ export const useAppStore = create<AppState>((set) => ({
   setSmokes: (smokes) => set({ smokes }),
   setSmokeReadyAt: (at) => set({ smokeReadyAt: at }),
   requestSmoke: () => set((s) => ({ smokeRequest: s.smokeRequest + 1 })),
-  markPoopHit: () => {
+  setPoopHeld: (on) => set({ poopHeld: on }),
+  setPoopAim: (aim) => set({ poopAim: aim }),
+  markPoopHit: (until) => {
     const now = Date.now()
-    set({ poopSlowUntil: now + 1000, poopVignetteUntil: now + 2000 })
+    set({ poopSlowUntil: until ?? now + 1000, poopVignetteUntil: now + 2000 })
   },
   setThrowAt: (id, at) => set((s) => ({ throwAt: { ...s.throwAt, [id]: at } })),
   setBarrels: (barrels) => set({ barrels }),
@@ -553,6 +561,8 @@ export const useAppStore = create<AppState>((set) => ({
       smokes: [],
       smokeReadyAt: 0,
       smokeRequest: 0,
+      poopHeld: false,
+      poopAim: null,
       poopSlowUntil: 0,
       poopVignetteUntil: 0,
       throwAt: {},

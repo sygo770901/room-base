@@ -426,7 +426,7 @@ function bindListeners(s: Socket) {
   })
 
   s.on('poop:slow', (payload: { until?: number }) => {
-    if (payload.until) useAppStore.getState().markPoopHit()
+    if (payload.until) useAppStore.getState().markPoopHit(payload.until)
   })
 
   s.on('barrels:sync', (payload: { barrels: BarrelState[]; drops: LootDrop[] }) => {

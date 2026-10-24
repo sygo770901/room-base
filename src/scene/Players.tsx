@@ -8,6 +8,7 @@ import { heightFieldOf } from '../../shared/heightmaps'
 import { useAppStore } from '../store'
 import type { PlayerState } from '../types'
 import { KayKitHero } from './KayKitHero'
+import { StuckMark } from './PoopAim'
 import { playerMotion } from './playerMotion'
 import { livePose } from './livePose'
 import { ModelBoundary } from './ModelBoundary'
@@ -38,7 +39,6 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
   const dashUntil = useAppStore((s) => s.dashUntil[player.id] ?? 0)
   const hurtUntil = useAppStore((s) => s.hurtFlashUntil[player.id] ?? 0)
   const throwAt = useAppStore((s) => s.throwAt[player.id] ?? 0)
-  const poopMarked = useAppStore((s) => s.smokes.some((c) => c.hits?.includes(player.id) && (!c.landAt || Date.now() < c.landAt + 3000)))
 
   const sampleSpeed = (x: number, z: number) => {
     const now = performance.now()
@@ -206,12 +206,7 @@ export function Avatar({ player, isSelf }: { player: PlayerState; isSelf?: boole
         <ringGeometry args={[0.34, 0.5, 22]} />
         <meshBasicMaterial color={player.color} transparent opacity={0.82} depthWrite={false} />
       </mesh>
-      {poopMarked && (
-        <mesh position={[0, 2.05, 0]}>
-          <sphereGeometry args={[0.08, 6, 5]} />
-          <meshBasicMaterial color="#7d9a4a" transparent opacity={0.55} />
-        </mesh>
-      )}
+      <StuckMark id={player.id} />
       <KayKitHero
         classId={PLAYER_CLASS}
         debugId={player.id}
