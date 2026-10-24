@@ -530,4 +530,8 @@ export const useAppStore = create<AppState>((set) => ({
     }),
 }))
 
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  ;(window as unknown as { __store?: typeof useAppStore }).__store = useAppStore
+}
+
 export type LocalPose = { position: Vec3; rotationY: number }

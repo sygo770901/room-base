@@ -35,14 +35,15 @@ export function clampCamDist(n: number) {
 
 export function readCamDist() {
   if (typeof localStorage === 'undefined') return OTS_DIST
-  return clampCamDist(Number(localStorage.getItem(CAM_DIST_KEY)))
+  const raw = localStorage.getItem(CAM_DIST_KEY)
+  // 沒存過時 getItem 是 null，Number(null) 是 0，再被夾成最近距離，畫面只剩腳邊一小塊。
+  if (raw == null || raw === '') return OTS_DIST
+  return clampCamDist(Number(raw))
 }
 
 /**
  * 高度圖的想要距離。
- * localStorage 沒有這個鍵時 getItem 是 null，Number(null) 是 0，
- * 再被夾成最近距離。測試直接用 OTS_DIST，畫面卻一直停在最近距離。
- * 玩家沒調過鏡頭時，高度圖用越肩預設。平面地圖仍走 readCamDist。
+ * 玩家沒調過鏡頭時用越肩預設，不把空的 localStorage 夾成最近距離。
  */
 export function heightCamRadius(stored = readCamDist()) {
   if (typeof localStorage === 'undefined') return clampCamDist(stored)

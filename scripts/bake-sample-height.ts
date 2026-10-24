@@ -1,6 +1,6 @@
 /**
  * 從寶物房的地板、牆、樓梯烘出高度圖。
- * 樓梯踏面沿 +X 從 0 升到 4。開口兩側的平台邊緣直接接到地面，走出去會摔。
+ * 樓梯外觀是踏面。可走高度是連續斜坡，8m 從 0 升到 4。扶手那兩排不寫成階梯。
  *
  *   npx tsx scripts/bake-sample-height.ts
  */
@@ -27,19 +27,14 @@ const parts = SAMPLE_PLACES.filter(
 
 const stairs: { x: number; z: number; dir: '+x'; low: number; high: number }[] = []
 const heights: { x: number; z: number; y: number }[] = []
-for (let z = 17; z <= 22; z++) {
-  for (let x = 18; x <= 25; x++) {
-    const x0 = ORIGIN_X + x
-    stairs.push({
-      x,
-      z,
-      dir: '+x',
-      low: Math.round(Math.max(0, (x0 - 32) * 0.5) * 1000) / 1000,
-      high: Math.round(Math.min(4, (x0 + 1 - 32) * 0.5) * 1000) / 1000,
-    })
+for (let k = 0; k < 8; k++) {
+  const low = k * 0.5
+  const high = low + 0.5
+  for (let z = 18; z <= 21; z++) {
+    stairs.push({ x: 18 + k, z, dir: '+x', low, high })
   }
-  heights.push({ x: 26, z, y: 4 })
 }
+for (let z = 17; z <= 22; z++) heights.push({ x: 26, z, y: 4 })
 heights.push({ x: 26, z: 16, y: 4 }, { x: 27, z: 16, y: 4 }, { x: 26, z: 23, y: 4 }, { x: 27, z: 23, y: 4 })
 
 writeFileSync(

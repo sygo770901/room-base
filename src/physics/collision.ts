@@ -1,5 +1,6 @@
 import { isWalkableWorld } from '../../shared/dungeon'
 import { canMoveTo, type HeightField } from '../../shared/heightfield'
+import { samplePathClear } from '../../shared/sampleCollision'
 import { KAYKIT_EXTRA_WALLS } from '../../shared/kaykitScene'
 import { blocksAtHeight, type Platform } from '../../shared/platforms'
 import {
@@ -148,6 +149,7 @@ function tryMove(
 
   if (nav) {
     if (!canMoveTo(nav, fromX, fromZ, nx, nz, r, y, y)) return { x: fromX, z: fromZ }
+    if (nav.id === 'sample' && !samplePathClear(fromX, fromZ, nx, nz, r, y, y)) return { x: fromX, z: fromZ }
   } else if (space) {
     if (!space.walkable(nx, nz, r)) return { x: fromX, z: fromZ }
   } else if (!isWalkableWorld(nx, nz, r)) return { x: fromX, z: fromZ }

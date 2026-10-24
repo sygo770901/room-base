@@ -235,7 +235,7 @@ prop({ x: 31.15, y: 0, z: 247.2, rotY: 0.05, model: 'barrel_small.gltf.glb', hx:
 prop({ x: 28.95, y: 0, z: 248.5, rotY: 0, model: 'box_large.gltf.glb', hx: 0.75, hz: 0.75 })
 prop({ x: 31.15, y: 0, z: 243.4, rotY: 0.1, model: 'coin_stack_small.gltf.glb', hx: 0.5, hz: 0.5 })
 prop({ x: 31.05, y: 0, z: 249.4, rotY: 0, model: 'coin_stack_medium.gltf.glb', hx: 0.55, hz: 0.55 })
-prop({ x: 30.05, y: 0, z: 245.6, rotY: 0.15, model: 'skeleton_minion.glb', root: SKEL, hx: 0.9, hz: 1.1 })
+prop({ x: 31.35, y: 0, z: 245.6, rotY: 0.15, model: 'skeleton_minion.glb', root: SKEL, hx: 0.9, hz: 1.1 })
 prop({ x: 27.62, y: -0.531, z: 250.2, rotY: Math.PI / 2, model: 'banner_red.gltf.glb' })
 prop({ x: 30.9, y: 0, z: 248.6, rotY: 0.1, model: 'coin_stack_small.gltf.glb', hx: 0.5, hz: 0.5 })
 
@@ -269,30 +269,166 @@ prop({ x: 43.2, y: PY, z: 227.2, rotY: 0.15, model: 'keg.gltf.glb', hx: 0.95, hz
 prop({ x: 42.3, y: PY, z: 237.4, rotY: 0, model: 'rubble_half.gltf.glb', hx: 2, hz: 1.55 })
 prop({ x: 46.4, y: PY, z: 226.8, rotY: 0.3, model: 'skeleton_fallen.glb', root: SKEL, hx: 1.8, hz: 1.1 })
 
-const treads: [number, number, number][] = [
-  [32.05, 33.05, 0.5],
-  [33.05, 34.05, 1],
-  [34.05, 35.05, 1.5],
-  [35.05, 36.05, 2],
-  [36.05, 37.05, 2.5],
-  [37.05, 38.05, 3],
-  [38.05, 39.05, 3.5],
-  [39.05, 40, 4],
-]
+/** 樓梯外觀仍是 stairs_long。腳下是這段斜坡：8m 升 4m，atan(0.5)≈26.6°，中間沒有落差。 */
+export const SAMPLE_STAIR_RAMP = { x0: 32, x1: 40, y0: 0, y1: 4, z0: 230, z1: 234 }
+
+export function sampleRampY(x: number, z: number): number | null {
+  const r = SAMPLE_STAIR_RAMP
+  if (x < r.x0 || x >= r.x1 || z < r.z0 || z >= r.z1) return null
+  return r.y0 + ((r.y1 - r.y0) * (x - r.x0)) / (r.x1 - r.x0)
+}
 
 export const SAMPLE_PLATFORMS = [
-  ...treads.map(([x0, x1, topY]) => ({
-    minX: x0,
-    maxX: x1,
-    minZ: stairZ - 2.55,
-    maxZ: stairZ + 2.55,
-    topY,
-  })),
-  { minX: 40, maxX: 52, minZ: 224, maxZ: 240, topY: SAMPLE_PLATFORM_Y },
+  // 往內收一個腳半徑，斜坡末端不會被支撐面提前抬上 4。
+  { minX: 40.26, maxX: 52, minZ: 224, maxZ: 240, topY: SAMPLE_PLATFORM_Y },
 ]
 
 export const SAMPLE_PLACES = places
 export const SAMPLE_WALLS: WallBox[] = blockers
+
+/** 零件局部包圍盒，對過 glTF 頂點。牆的內側面貼地板格線，不用 SAMPLE_WALLS 那種往走廊多伸 1m 的厚盒。 */
+type MeshBox = { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }
+
+const MESH: Record<string, MeshBox> = {
+  'chest_gold.glb': { minX: -0.85, minY: -0.165, minZ: -0.6, maxX: 0.85, maxY: 1.041, maxZ: 1.311 },
+  'coin_stack_large.gltf.glb': { minX: -0.719, minY: 0, minZ: -0.816, maxX: 0.717, maxY: 1.157, maxZ: 0.843 },
+  'coin_stack_medium.gltf.glb': { minX: -0.446, minY: 0, minZ: -0.507, maxX: 0.547, maxY: 0.641, maxZ: 0.527 },
+  'coin_stack_small.gltf.glb': { minX: -0.445, minY: 0, minZ: -0.461, maxX: 0.514, maxY: 0.478, maxZ: 0.436 },
+  'crates_stacked.gltf': { minX: -1.09, minY: 0, minZ: -1.157, maxX: 0.999, maxY: 2.142, maxZ: 1.092 },
+  'box_stacked.gltf.glb': { minX: -1.75, minY: 0, minZ: -1.773, maxX: 1.725, maxY: 3.309, maxZ: 1.861 },
+  'box_large.gltf.glb': { minX: -0.75, minY: 0, minZ: -0.75, maxX: 0.75, maxY: 1.5, maxZ: 0.75 },
+  'barrel_large.gltf.glb': { minX: -0.9, minY: 0, minZ: -0.9, maxX: 0.9, maxY: 2, maxZ: 0.9 },
+  'barrel_small.gltf.glb': { minX: -0.501, minY: 0, minZ: -0.501, maxX: 0.501, maxY: 1.018, maxZ: 0.501 },
+  'pillar.gltf': { minX: -0.75, minY: 0, minZ: -0.75, maxX: 0.75, maxY: 4, maxZ: 0.75 },
+  'pillar_decorated.gltf.glb': { minX: -1.116, minY: 0, minZ: -0.75, maxX: 1.116, maxY: 4, maxZ: 0.96 },
+  'rubble_large.gltf.glb': { minX: -4.069, minY: 0, minZ: -1.586, maxX: 4.06, maxY: 3.496, maxZ: 1.597 },
+  'rubble_half.gltf.glb': { minX: 0, minY: 0, minZ: -1.516, maxX: 4, maxY: 3.5, maxZ: 1.484 },
+  'keg.gltf.glb': { minX: -0.9, minY: 0, minZ: -0.976, maxX: 0.9, maxY: 2.051, maxZ: 1.024 },
+  'skeleton_fallen.glb': { minX: -1.77, minY: 0, minZ: -1.048, maxX: 1.77, maxY: 1.295, maxZ: 1.048 },
+  'skeleton_guard.glb': { minX: -0.833, minY: 0, minZ: -0.8, maxX: 0.833, maxY: 2.338, maxZ: 0.8 },
+  'skeleton_minion.glb': { minX: -0.862, minY: 0, minZ: -1.091, maxX: 0.862, maxY: 0.98, maxZ: 1.091 },
+  'wall.gltf': { minX: -2, minY: 0, minZ: -0.5, maxX: 2, maxY: 4, maxZ: 0.5 },
+  'wall_broken.gltf.glb': { minX: -2, minY: 0, minZ: -0.5, maxX: 2, maxY: 4, maxZ: 0.5 },
+  'wall_cracked.gltf.glb': { minX: -2, minY: 0, minZ: -0.63, maxX: 2, maxY: 4, maxZ: 0.63 },
+  'wall_corner.gltf.glb': { minX: -2, minY: 0, minZ: -0.5, maxX: 0.5, maxY: 4, maxZ: 2 },
+  'floor_tile_big_spikes.glb': { minX: -2, minY: 0, minZ: -2, maxX: 2, maxY: 2, maxZ: 2 },
+}
+
+export type SampleSolid = {
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+  minZ: number
+  maxZ: number
+  kind: 'prop' | 'wall' | 'rail' | 'spike'
+}
+
+function rotatedAabb(p: Place, mesh: MeshBox, kind: SampleSolid['kind']): SampleSolid {
+  const c = Math.cos(p.rotY)
+  const s = Math.sin(p.rotY)
+  let minX = Infinity
+  let maxX = -Infinity
+  let minZ = Infinity
+  let maxZ = -Infinity
+  for (const lx of [mesh.minX, mesh.maxX]) {
+    for (const lz of [mesh.minZ, mesh.maxZ]) {
+      const wx = lx * c + lz * s + p.x
+      const wz = -lx * s + lz * c + p.z
+      if (wx < minX) minX = wx
+      if (wx > maxX) maxX = wx
+      if (wz < minZ) minZ = wz
+      if (wz > maxZ) maxZ = wz
+    }
+  }
+  return { minX, maxX, minY: p.y + mesh.minY, maxY: p.y + mesh.maxY, minZ, maxZ, kind }
+}
+
+const solids: SampleSolid[] = []
+for (const p of places) {
+  if (p.model === 'wall_doorway.gltf') {
+    // 整片門框會把門口封死。只擋兩側門柱，開口留 2m。
+    for (const ox of [-1.5, 1.5]) {
+      solids.push({
+        minX: p.x + ox - 0.5,
+        maxX: p.x + ox + 0.5,
+        minY: p.y,
+        maxY: p.y + 4,
+        minZ: p.z - 0.5,
+        maxZ: p.z + 0.5,
+        kind: 'wall',
+      })
+    }
+    continue
+  }
+  if (
+    p.model.startsWith('torch') ||
+    p.model.startsWith('banner') ||
+    p.model === 'floor_tile_large.gltf' ||
+    p.model.startsWith('stairs')
+  ) {
+    continue
+  }
+  const mesh = MESH[p.model]
+  if (!mesh) throw new Error(`寶物房碰撞沒有這個模型的包圍盒：${p.model}`)
+  const kind: SampleSolid['kind'] = p.model.includes('spike')
+    ? 'spike'
+    : p.model.startsWith('wall')
+      ? 'wall'
+      : 'prop'
+  solids.push(rotatedAabb(p, mesh, kind))
+}
+
+// stairs_long 兩側扶手。踏面在 z 230.4–233.7，扶手高出踏面，不能站上去。
+solids.push(
+  { minX: 31.85, maxX: 40.15, minY: 0, maxY: 5.2, minZ: 229.45, maxZ: 230.32, kind: 'rail' },
+  { minX: 31.85, maxX: 40.15, minY: 0, maxY: 5.2, minZ: 233.78, maxZ: 234.65, kind: 'rail' },
+)
+
+export const SAMPLE_SOLIDS: readonly SampleSolid[] = solids
+
+const BODY_HEIGHT = 1.65
+
+/** 腳到頭這一段撞到道具、牆、門柱、扶手或地刺。半徑用腳的圓。 */
+export function sampleSolidHit(x: number, z: number, feetY: number, radius: number) {
+  const head = feetY + BODY_HEIGHT
+  const r2 = radius * radius
+  for (const b of solids) {
+    if (head < b.minY + 0.05) continue
+    if (feetY > b.maxY - 0.05) continue
+    const nx = Math.max(b.minX, Math.min(x, b.maxX))
+    const nz = Math.max(b.minZ, Math.min(z, b.maxZ))
+    const dx = x - nx
+    const dz = z - nz
+    if (dx * dx + dz * dz < r2) return true
+  }
+  return false
+}
+
+function tileAt(cells: Cell[], x: number, z: number) {
+  for (const c of cells) {
+    const b = cellBox(c)
+    if (x >= b.x0 && x < b.x1 && z >= b.z0 && z < b.z1) return b
+  }
+  return null
+}
+
+export function sampleSpikeAt(x: number, z: number) {
+  for (const key of SPIKE) {
+    const [gx, gz] = key.split(',').map(Number)
+    const b = cellBox({ gx, gz })
+    if (x >= b.x0 && x < b.x1 && z >= b.z0 && z < b.z1) return true
+  }
+  return false
+}
+
+/** 地板中心該有的高度。地刺是空的。x = 40 算高台，不算走廊。樓梯踏面另外蓋上去。 */
+export function sampleSurfaceY(x: number, z: number): number | null {
+  if (sampleSpikeAt(x, z)) return null
+  if (tileAt(PLATFORM, x, z)) return SAMPLE_PLATFORM_Y
+  if (tileAt(GROUND, x, z)) return 0
+  return null
+}
 
 export const SAMPLE_OCCLUDERS: OccBox[] = blockers.map((w) => ({
   minX: w.cx - w.hx,

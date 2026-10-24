@@ -13,6 +13,7 @@ import { isBakedDoorMesh } from '../../shared/doorways'
 import { HEIGHTLAB_PLACES } from '../../shared/heightlab'
 import { KAYKIT_PLACES } from '../../shared/kaykitScene'
 import { usesKaykitKit } from '../../shared/mapData'
+import { placeSetFor } from '../../shared/scenes'
 import { SAMPLE_PLACES } from '../../shared/sampleRoom'
 import { isMobileDevice } from '../perf/device'
 import { useAppStore } from '../store'
@@ -68,7 +69,7 @@ function partsOf(scene: THREE.Object3D, glow = 0, keepDoor = false): Part[] {
   return parts
 }
 
-function InstanceChunk({ part, places, cast }: { part: Part; places: Place[]; cast: boolean }) {
+function InstanceChunk({ part, places, cast, model }: { part: Part; places: Place[]; cast: boolean; model: string }) {
   const ref = useRef<THREE.InstancedMesh>(null)
 
   useLayoutEffect(() => {
@@ -85,6 +86,7 @@ function InstanceChunk({ part, places, cast }: { part: Part; places: Place[]; ca
       castShadow={cast}
       receiveShadow
       frustumCulled
+      userData={{ model }}
     />
   )
 }
@@ -143,6 +145,7 @@ function KitModel({
             part={part}
             places={chunk}
             cast={cast}
+            model={model}
           />
         )),
       )}
@@ -151,9 +154,10 @@ function KitModel({
 }
 
 function placesFor(scene: string) {
-  if (scene === 'heightlab') return HEIGHTLAB_PLACES
-  if (scene === 'sample') return SAMPLE_PLACES
-  if (usesKaykitKit(scene)) return KAYKIT_PLACES
+  const set = placeSetFor(scene)
+  if (set === 'heightlab') return HEIGHTLAB_PLACES
+  if (set === 'sample') return SAMPLE_PLACES
+  if (set === 'kaykit') return KAYKIT_PLACES
   return KENNEY_PLACES
 }
 

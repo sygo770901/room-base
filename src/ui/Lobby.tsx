@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react'
-import { SCENE_BLURBS, SCENE_IDS, SCENE_LABELS, isSceneId, type SceneId } from '../../shared/scenes'
+import { SCENE_BLURBS, SCENE_LABELS, isSceneId, lobbySceneIds, type SceneId } from '../../shared/scenes'
 import { MODE_BLURBS, MODE_IDS, MODE_LABELS, isGameMode, type GameMode } from '../../shared/modes'
 import { joinRoom } from '../net/socket'
 import { useAppStore } from '../store'
@@ -15,9 +15,10 @@ export function Lobby() {
   const setLobby = useAppStore((s) => s.setLobby)
   const [name, setName] = useState(displayName || localStorage.getItem('rb-name') || '')
   const [room, setRoom] = useState(roomId || localStorage.getItem('rb-room') || 'home')
+  const mapChoices = lobbySceneIds(import.meta.env.DEV)
   const [scene, setScene] = useState<SceneId>(() => {
     const raw = localStorage.getItem('rb-scene')
-    return isSceneId(raw) ? raw : 'kenney'
+    return isSceneId(raw) && mapChoices.includes(raw) ? raw : 'kenney'
   })
   const [mode, setMode] = useState<GameMode>(savedMode)
   const [timed, setTimed] = useState(localStorage.getItem('rb-timed') === '1')
@@ -59,7 +60,7 @@ export function Lobby() {
             {mode === 'boss' ? '打倒鴨王' : mode === 'tag' ? '躲 30 秒，別被抓到' : '打倒地城怪物'}
           </p>
           <div className="scene-pick compact" role="radiogroup" aria-label="地圖">
-            {SCENE_IDS.map((id) => (
+            {mapChoices.map((id) => (
               <button
                 key={id}
                 type="button"

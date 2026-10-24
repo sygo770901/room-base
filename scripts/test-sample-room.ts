@@ -57,10 +57,9 @@ for (const [key, n] of floors) {
 }
 
 const platform = SAMPLE_PLATFORMS[SAMPLE_PLATFORMS.length - 1]
-const landing = SAMPLE_PLATFORMS[SAMPLE_PLATFORMS.length - 2]
-if (!platform || !landing) throw new Error('缺少樓梯或高台')
-if (platform.topY !== SAMPLE_PLATFORM_Y) throw new Error('高台高度應貼齊樓梯踏面')
-if (landing.topY !== SAMPLE_PLATFORM_Y) throw new Error('最後一階應接到高台')
+if (!platform) throw new Error('缺少高台')
+if (SAMPLE_PLATFORMS.length !== 1) throw new Error('樓梯應是高度圖斜坡，不是一階一階的平台')
+if (platform.topY !== SAMPLE_PLATFORM_Y) throw new Error('高台高度應貼齊斜坡頂')
 if (platformsFor('kenney').length !== 0) throw new Error('kenney 不該有樣本平台')
 if (platformsFor('kaykit').some((p) => p.minZ > 200)) throw new Error('kaykit 平台跑進樣本區')
 if (platformsFor('sample').some((p) => p.topY > SAMPLE_PLATFORM_Y + 0.01)) {

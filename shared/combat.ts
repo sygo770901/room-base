@@ -166,6 +166,8 @@ export const IFRAME_MS = 2000
 export const MONSTER_RADIUS = 0.42
 export const DUCK_KING_RADIUS = 0.32
 export const DISPENSER_RADIUS = 0.46
+/** 兩台飲水機中心至少隔開兩個碰撞半徑，身體才不會疊在一起。 */
+export const DISPENSER_MIN_SPACING = DISPENSER_RADIUS * 2
 /** 玩家半徑 0.26 加上怪物半徑。身體重疊時直接算打中，避免貼身距離變成 0 被丟掉。 */
 export const ATTACK_EMBED = 0.26 + MONSTER_RADIUS
 
