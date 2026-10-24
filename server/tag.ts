@@ -14,9 +14,13 @@ import {
   MOVE_SLACK,
   MOVE_Y_PAD,
   PLAYER_SPEED,
+  SPRINT_MUL,
   cappedMoveDt,
+  expireSprint,
+  isSprintActive,
   jumpCeilingFor,
   moveAllowance,
+  sprintActiveMs,
   type MoveGrant,
 } from '../shared/movement.ts'
 import { HIDE_MAX_Y, JUMP_GROUND_EPS, supportY, PLAYER_FOOT_RADIUS } from '../shared/platforms.ts'
@@ -623,6 +627,7 @@ export function acceptMove(
   if (![x, rawY, z, payload.rotationY].every((n) => typeof n === 'number' && Number.isFinite(n))) return false
 
   const grant = room.moveGrant[player.id]
+  expireSprint(grant, now)
   const jumping = Boolean(grant?.jumpUntil && now <= grant.jumpUntil)
   const prevY = player.position[1] ?? 0
   const platforms = platformsOf(room.scene)
@@ -686,14 +691,22 @@ export function acceptMove(
   }
   const beforeWalk = bank.walk
   const beforePad = bank.pad
-  const gapSec = Math.max(0, now - bank.accruedAt) / 1000
-  const rate = slowed ? PLAYER_SPEED * POOP_SLOW_MUL : PLAYER_SPEED * MOVE_SLACK
+  const gapMs = Math.max(0, now - bank.accruedAt)
+  const gapSec = gapMs / 1000
+  const base = slowed ? PLAYER_SPEED * POOP_SLOW_MUL : PLAYER_SPEED * MOVE_SLACK
   const pad = slowed ? 0.08 : MOVE_PAD
-  const cap = rate * MOVE_DT_CAP_SEC + pad
-  let fairWalk = beforeWalk + rate * gapSec
+  const sprintingNow = isSprintActive(grant, now)
+  const cap = base * (sprintingNow ? SPRINT_MUL : 1) * MOVE_DT_CAP_SEC + pad
+  const sprintMsAll = sprintActiveMs(grant, bank.accruedAt, now)
+  const normalMsAll = gapMs - sprintMsAll
+  let fairWalk = beforeWalk + (base * (normalMsAll + sprintMsAll * SPRINT_MUL)) / 1000
   if (!beforePad) fairWalk += pad
   if (now >= bank.accruedAt) {
-    let gain = rate * cappedMoveDt(now - bank.accruedAt)
+    const cappedMs = cappedMoveDt(gapMs) * 1000
+    const windowStart = now - cappedMs
+    const sprintMsWin = sprintActiveMs(grant, windowStart, now)
+    const normalMsWin = cappedMs - sprintMsWin
+    let gain = (base * (normalMsWin + sprintMsWin * SPRINT_MUL)) / 1000
     if (!bank.pad) {
       gain += pad
       bank.pad = true
