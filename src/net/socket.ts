@@ -372,11 +372,24 @@ function bindListeners(s: Socket) {
     useAppStore.getState().setDash(payload.id, payload.until)
   })
 
-  s.on('dash:result', (payload: { ok: boolean; nextAt?: number; until?: number }) => {
-    if (payload.nextAt) useAppStore.getState().setDashReadyAt(payload.nextAt)
-    if (payload.ok && payload.until) {
-      const id = useAppStore.getState().selfId
-      if (id) useAppStore.getState().setDash(id, payload.until)
+  s.on('dash:result', (payload: { ok: boolean; nextAt?: number; until?: number; cdMs?: number; sprint?: boolean; holdStart?: number }) => {
+    const state = useAppStore.getState()
+    if (payload.sprint && payload.ok && payload.holdStart) {
+      if (state.sprintArmed) state.setSprintHoldStart(payload.holdStart)
+      return
+    }
+    if (payload.sprint && !payload.ok) {
+      state.setSprintHoldStart(0)
+      state.setSprintArmed(false)
+    }
+    if (payload.sprint === false) {
+      state.setSprintHoldStart(0)
+      state.setSprintArmed(false)
+    }
+    if (payload.nextAt) state.setDashReadyAt(payload.nextAt, payload.cdMs)
+    if (payload.ok && payload.until && !payload.sprint) {
+      const id = state.selfId
+      if (id) state.setDash(id, payload.until)
     }
   })
 
@@ -776,6 +789,10 @@ export function emitStart() {
 
 export function emitDash(dirX: number, dirZ: number) {
   socket?.emit('dash', { dirX, dirZ })
+}
+
+export function emitDashHold(on: boolean) {
+  socket?.emit('dash:hold', { on })
 }
 
 export function emitSmoke(x: number, z: number) {
