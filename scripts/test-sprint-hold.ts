@@ -1,3 +1,7 @@
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { io as ioClient, type Socket } from 'socket.io-client'
+import { attachSocketServer } from '../server/socket.ts'
 import { acceptMove, type TagRoom } from '../server/tag.ts'
 import {
   DASH_CD_GHOST_MS,
@@ -128,4 +132,71 @@ for (const mode of ['boss', 'tag'] as const) {
   assert(moved < far - 0.4, `${mode} 第 6 秒不該再吃到 1.3 倍的整段距離（走了 ${moved.toFixed(3)} / ${far.toFixed(3)} ok=${at6}）`)
 }
 
-console.log('sprint-hold: ok', { mul: SPRINT_MUL, maxMs: SPRINT_MAX_MS, cdMs: SPRINT_CD_MS })
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function waitDash(socket: Socket, ms = 2000) {
+  return new Promise<{ ok?: boolean; reason?: string; sprint?: boolean; nextAt?: number }>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('等不到 dash:result')), ms)
+    socket.once('dash:result', (payload) => {
+      clearTimeout(timer)
+      resolve(payload)
+    })
+  })
+}
+
+/** 衝滿 5 秒、中間不送 move，立刻再送 hold on，必須被冷卻拒絕。 */
+async function rejectHoldWithoutMove() {
+  const httpServer = createServer()
+  attachSocketServer(httpServer)
+  await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve))
+  const port = (httpServer.address() as AddressInfo).port
+  const socket = ioClient(`http://127.0.0.1:${port}`, { transports: ['websocket'], forceNew: true })
+  const playerId = crypto.randomUUID()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('連線逾時')), 5000)
+      socket.on('connect', () => {
+        socket.emit(
+          'join',
+          { roomId: `sprint-cd-${playerId.slice(0, 8)}`, name: '衝', wantHost: true, scene: 'kenney', mode: 'hunt', playerId, secret: crypto.randomUUID() },
+          (snap: { error?: string }) => {
+            clearTimeout(timer)
+            if (snap?.error) reject(new Error(snap.error))
+            else resolve()
+          },
+        )
+      })
+      socket.on('connect_error', (err) => {
+        clearTimeout(timer)
+        reject(err)
+      })
+    })
+    const firstWait = waitDash(socket)
+    socket.emit('dash:hold', { on: true })
+    const first = await firstWait
+    assert(first.ok === true && first.sprint === true, `第一次按住應開始衝刺，得到 ${JSON.stringify(first)}`)
+    await sleep(SPRINT_MAX_MS + 200)
+    const secondWait = waitDash(socket)
+    socket.emit('dash:hold', { on: true })
+    const second = await secondWait
+    assert(second.ok === false && second.reason === 'cd', `滿 5 秒沒移動就再按住應被拒絕，得到 ${JSON.stringify(second)}`)
+  } finally {
+    socket.close()
+    await Promise.race([
+      new Promise<void>((resolve) => httpServer.close(() => resolve())),
+      sleep(1500),
+    ])
+  }
+}
+
+rejectHoldWithoutMove()
+  .then(() => {
+    console.log('sprint-hold: ok', { mul: SPRINT_MUL, maxMs: SPRINT_MAX_MS, cdMs: SPRINT_CD_MS })
+    process.exit(0)
+  })
+  .catch((err) => {
+    console.error(err)
+    process.exit(1)
+  })
