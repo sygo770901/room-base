@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { OTS_MAX_RADIUS, OTS_MIN_RADIUS } from '../../shared/camera'
 import { LOOK_SENS_MAX, LOOK_SENS_MIN, LOOK_SENS_STEP } from '../../shared/input'
-import { disconnectSocket, emitAddNote, emitCheck, emitDoorAuto, emitDoorToggle, emitHide, emitPhrase, emitRemoveNote, emitRescueHold, emitRestart, emitScene, emitStart, emitUpdateNote, performAttack } from '../net/socket'
+import { disconnectSocket, emitAddNote, emitCheck, emitDoorAuto, emitDoorToggle, emitDownedRespawn, emitHide, emitPhrase, emitRemoveNote, emitRescueHold, emitRestart, emitScene, emitStart, emitUpdateNote, performAttack } from '../net/socket'
 import { QUICK_PHRASES } from '../../shared/phrases'
 import { showMapLoadOverlay, showMapLoadSlow } from '../load/mapLoadState'
 import { typingInField } from '../scene/inputLock'
@@ -13,7 +13,7 @@ import { useAppStore } from '../store'
 import { VirtualJoystick } from './VirtualJoystick'
 import { Minimap } from './Minimap'
 import { nearestDoor, DOOR_PROMPT_RANGE } from '../../shared/doors'
-import { isDowned, nearestDowned } from '../../shared/downed'
+import { isDowned, nearestDowned, respawnChoiceReady } from '../../shared/downed'
 import { doorsOf } from '../../shared/mapData'
 import { DUCK_MAX_DISPENSERS } from '../../shared/combat'
 
@@ -408,7 +408,14 @@ export function Hud() {
       )}
 
       {mode === 'boss' && started && !matchOver && self && isDowned(self, nowMs) && (
-        <div className="downed-banner">倒地 {Math.max(0, Math.ceil(((self.downedUntil ?? 0) - nowMs) / 1000))} 秒 · 等隊友扶</div>
+        <div className="downed-stack">
+          <div className="downed-banner">倒地 {Math.max(0, Math.ceil(((self.downedUntil ?? 0) - nowMs) / 1000))} 秒 · 等隊友扶</div>
+          {respawnChoiceReady(self, nowMs) && (
+            <button type="button" className="respawn-btn" onClick={() => emitDownedRespawn()}>
+              回出生點重生
+            </button>
+          )}
+        </div>
       )}
       {mode === 'boss' && started && !matchOver && self && !isDowned(self, nowMs) && self.position && nearestDowned(self.id, self.position[0], self.position[2], Object.values(players), nowMs) && (
         <button
