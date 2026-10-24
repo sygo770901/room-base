@@ -20,6 +20,8 @@ export interface PlayerState {
   away?: boolean
   phrase?: { text: string; until: number } | null
   downedUntil?: number
+  /** 這次倒地的開始時間。重生按鈕用它算滿 5 秒，不靠剩餘時間倒推。 */
+  downedAt?: number
   /** 客戶端正在播的步態。遠端用這個播走路／跑步，不靠延遲的位置差分。 */
   loco?: 'idle' | 'walk' | 'run'
 }

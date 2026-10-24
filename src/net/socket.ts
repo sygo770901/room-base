@@ -223,8 +223,12 @@ function bindListeners(s: Socket) {
     }
   })
 
-  s.on('player:vitals', ({ id, hp, downedUntil }: { id: string; hp: number; downedUntil?: number }) => {
-    useAppStore.getState().patchPlayer(id, { hp, downedUntil })
+  s.on('player:vitals', ({ id, hp, downedUntil, downedAt }: { id: string; hp: number; downedUntil?: number; downedAt?: number }) => {
+    useAppStore.getState().patchPlayer(id, {
+      hp,
+      downedUntil,
+      ...(downedAt !== undefined ? { downedAt } : {}),
+    })
   })
 
   s.on('player:respawn', (payload: { position: Vec3; hp: number; rotationY: number; reason?: string }) => {
@@ -237,10 +241,13 @@ function bindListeners(s: Socket) {
       seated: null,
       hidden: false,
       downedUntil: 0,
+      downedAt: 0,
     })
     lastPose = { position: payload.position, rotationY: payload.rotationY }
     useAppStore.getState().bumpRespawn()
-    useAppStore.getState().setToast(payload.reason === 'restart' ? '新的一局開始' : '你被打倒了，已送回入口')
+    useAppStore.getState().setToast(
+      payload.reason === 'restart' ? '新的一局開始' : payload.reason === 'spawn' ? '已在出生點重生' : '你被打倒了，已送回入口',
+    )
     setTimeout(() => useAppStore.getState().setToast(null), 2200)
   })
 
@@ -663,6 +670,10 @@ export function emitPhrase(index: number) {
 
 export function emitRescueHold(targetId: string) {
   socket?.emit('rescue:hold', { targetId })
+}
+
+export function emitDownedRespawn() {
+  socket?.emit('downed:respawn')
 }
 
 export function emitDoorToggle(id?: string, x?: number, z?: number, auto = false) {

@@ -775,6 +775,7 @@ input {
 .jump-btn,
 .door-btn,
 .rescue-btn,
+.respawn-btn,
 .hud-btn,
 .restart-btn,
 .phrase-btn,
@@ -792,6 +793,7 @@ input {
 .jump-btn:active,
 .door-btn:active,
 .rescue-btn:active,
+.respawn-btn:active,
 .hud-btn:active,
 .restart-btn:active,
 .phrase-btn:active,
@@ -947,16 +949,50 @@ input {
   min-width: 132px;
 }
 
-.downed-banner {
+.downed-stack {
   position: absolute;
-  left: 50%;
-  top: 28%;
-  transform: translateX(-50%);
-  z-index: 20;
+  left: calc(16px + env(safe-area-inset-left));
+  right: calc(16px + env(safe-area-inset-right));
+  top: 34%;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  width: min(18rem, 100%);
+  margin-inline: auto;
+  pointer-events: none;
+}
+
+.hud > .downed-stack {
+  pointer-events: none;
+}
+
+.downed-banner {
+  width: 100%;
+  box-sizing: border-box;
   padding: 8px 14px;
   border-radius: 999px;
   background: rgba(196, 69, 54, 0.92);
   font-weight: 700;
+  text-align: center;
+  line-height: 1.35;
+}
+
+.respawn-btn {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 14px;
+  background: #f2cc8f;
+  color: #2b2112;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.2;
+  cursor: pointer;
+  touch-action: manipulation;
+  pointer-events: auto;
 }
 
 .rescue-btn {
@@ -1205,6 +1241,20 @@ input {
     top: 118px;
     left: 12px;
     font-size: 0.92rem;
+  }
+
+  .downed-stack {
+    top: max(34%, calc(env(safe-area-inset-top) + 72px));
+  }
+
+  .respawn-btn {
+    min-height: 52px;
+  }
+}
+
+@media (max-height: 520px) {
+  .downed-stack {
+    top: max(8%, calc(env(safe-area-inset-top) + 8px));
   }
 }
 

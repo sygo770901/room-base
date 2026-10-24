@@ -29,6 +29,7 @@ export interface PlayerState {
   away?: boolean
   phrase?: { text: string; until: number } | null
   downedUntil?: number
+  downedAt?: number
   loco?: 'idle' | 'walk' | 'run'
 }
 

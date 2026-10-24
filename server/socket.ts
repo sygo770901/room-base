@@ -6,7 +6,7 @@ import { groundY } from '../shared/heightfield.ts'
 import { heightFieldOf, spawnOf } from '../shared/heightmaps.ts'
 import { serverAcceptsQuiet } from '../shared/quiet.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
-import { createBossMonsters, createMonsters, handleAttack, publicMonsters, scaleBossHealth, standPlayer, tickRoom } from './combat.ts'
+import { createBossMonsters, createMonsters, handleAttack, publicMonsters, requestSpawnRespawn, scaleBossHealth, standPlayer, tickRoom } from './combat.ts'
 import {
   acceptMove,
   recordMoveOrigin,
@@ -705,6 +705,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         p.hidden = false
         p.phrase = null
         p.downedUntil = 0
+        p.downedAt = 0
         p.weapon = 'sword'
         p.weaponUntil = 0
         if (p.seated) {
@@ -998,6 +999,12 @@ export function attachSocketServer(httpServer: HttpServer) {
       delete room.rescueHold[playerId]
       announce(room, io, `${player.name} 扶起了 ${target.name}`)
       emitState(room, io)
+    })
+
+    socket.on('downed:respawn', () => {
+      const ctx = inRoom(socket, currentRoomId)
+      if (!ctx) return
+      requestSpawnRespawn(ctx.room, io, ctx.player, Date.now())
     })
 
     socket.on('jump', () => {

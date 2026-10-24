@@ -106,7 +106,7 @@ import {
 import type { TagState } from '../shared/tag.ts'
 import { handleTagAttack, recordMoveOrigin, tickTag, type MoveBank } from './tag.ts'
 import { computeAwards } from '../shared/awards.ts'
-import { CORPSE_MS, DOWNED_MS, DOWNED_SOLO_MS, MATCH_WIN_DELAY_MS, RESCUE_HP, isDowned } from '../shared/downed.ts'
+import { CORPSE_MS, DOWNED_MS, DOWNED_SOLO_MS, MATCH_WIN_DELAY_MS, RESCUE_HP, isDowned, respawnChoiceReady } from '../shared/downed.ts'
 import { announce } from './feed.ts'
 import type { PlayerState } from './types.ts'
 
@@ -411,6 +411,7 @@ export function respawnPlayer(room: CombatRoom, io: Server, player: PlayerState,
   const sp = spawnOf(room.scene, Math.floor(Math.random() * spawns.length))
   player.hp = PLAYER_MAX_HP
   player.downedUntil = 0
+  player.downedAt = 0
   player.position = [sp.x, sp.y, sp.z]
   player.seated = null
   room.hurtUntil[player.id] = now + IFRAME_MS
@@ -428,14 +429,24 @@ export function respawnPlayer(room: CombatRoom, io: Server, player: PlayerState,
     rotationY: player.rotationY,
     snap: true,
   })
-  io.to(room.roomId).emit('player:vitals', { id: player.id, hp: player.hp, downedUntil: 0 })
+  io.to(room.roomId).emit('player:vitals', { id: player.id, hp: player.hp, downedUntil: 0, downedAt: 0 })
+}
+
+/** 倒地玩家自己要求回出生點。5 秒前拒絕；滿 15 秒不再走這條，交給 tickDowned。 */
+export function requestSpawnRespawn(room: CombatRoom, io: Server, player: PlayerState, now: number) {
+  if (room.matchOver) return false
+  if ((player.hp ?? 0) > 0) return false
+  if (!respawnChoiceReady(player, now)) return false
+  respawnPlayer(room, io, player, now, 'spawn')
+  return true
 }
 
 export function standPlayer(room: CombatRoom, io: Server, player: PlayerState, now: number) {
   player.hp = RESCUE_HP
   player.downedUntil = 0
+  player.downedAt = 0
   room.hurtUntil[player.id] = now + IFRAME_MS
-  io.to(room.roomId).emit('player:vitals', { id: player.id, hp: player.hp, downedUntil: 0 })
+  io.to(room.roomId).emit('player:vitals', { id: player.id, hp: player.hp, downedUntil: 0, downedAt: 0 })
 }
 
 function wipeIfAllDowned(room: CombatRoom, io: Server, now: number) {
@@ -443,7 +454,7 @@ function wipeIfAllDowned(room: CombatRoom, io: Server, now: number) {
   if (!live.length || !live.every((p) => isDowned(p, now) || p.hp <= 0)) return
   for (const p of live) {
     p.downedUntil = Math.min(p.downedUntil || now + DOWNED_SOLO_MS, now + DOWNED_SOLO_MS)
-    io.to(room.roomId).emit('player:vitals', { id: p.id, hp: p.hp, downedUntil: p.downedUntil })
+    io.to(room.roomId).emit('player:vitals', { id: p.id, hp: p.hp, downedUntil: p.downedUntil, downedAt: p.downedAt ?? 0 })
   }
 }
 
@@ -479,14 +490,20 @@ function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: numb
       (p) => p.id !== player.id && !room.awayUntil?.[p.id] && p.team !== 'spectator' && p.hp > 0 && !isDowned(p, now),
     )
     const canRescue = room.mode === 'boss' && room.started && !room.matchOver && mates.length > 0
+    player.downedAt = now
     player.downedUntil = now + (canRescue ? DOWNED_MS : DOWNED_SOLO_MS)
     room.hurtUntil[player.id] = now + PLAYER_HURT_IFRAME_MS
-    io.to(room.roomId).emit('player:vitals', { id: player.id, hp: 0, downedUntil: player.downedUntil })
+    io.to(room.roomId).emit('player:vitals', { id: player.id, hp: 0, downedUntil: player.downedUntil, downedAt: player.downedAt })
     wipeIfAllDowned(room, io, now)
   } else {
     room.hurtUntil[player.id] = now + PLAYER_HURT_IFRAME_MS
   }
-  io.to(room.roomId).emit('player:vitals', { id: player.id, hp: player.hp, downedUntil: player.downedUntil ?? 0 })
+  io.to(room.roomId).emit('player:vitals', {
+    id: player.id,
+    hp: player.hp,
+    downedUntil: player.downedUntil ?? 0,
+    downedAt: player.downedAt ?? 0,
+  })
 }
 
 function tryTouch(
