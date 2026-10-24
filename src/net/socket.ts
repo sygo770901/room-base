@@ -368,6 +368,10 @@ function bindListeners(s: Socket) {
     useAppStore.getState().setSwing(id, performance.now(), combo ?? 0)
   })
 
+  s.on('combat:facing', (payload: { id: string; rotationY: number; until: number; targetId: string }) => {
+    useAppStore.getState().setCombatFacing(payload.id, payload.rotationY, payload.until)
+  })
+
   s.on('player:dash', (payload: { id: string; until: number; dirX: number; dirZ: number }) => {
     useAppStore.getState().setDash(payload.id, payload.until)
   })

@@ -631,6 +631,11 @@ export function LocalController({
         }
       }
     }
+    const faceUntil = useAppStore.getState().combatUntil[player.id] ?? 0
+    if (Date.now() < faceUntil) {
+      const locked = useAppStore.getState().players[player.id]?.rotationY
+      if (typeof locked === 'number') rotY.current = locked
+    }
     onPose(pose, rotY.current)
     useAppStore.getState().setLocalXZ(pose[0], pose[2])
 

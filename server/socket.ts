@@ -6,7 +6,7 @@ import { groundY } from '../shared/heightfield.ts'
 import { heightFieldOf, spawnOf } from '../shared/heightmaps.ts'
 import { serverAcceptsQuiet } from '../shared/quiet.ts'
 import { ROOM_BOUNDS, type FurnitureItem } from '../shared/furniture.ts'
-import { createBossMonsters, createMonsters, handleAttack, publicMonsters, requestSpawnRespawn, scaleBossHealth, standPlayer, tickRoom } from './combat.ts'
+import { createBossMonsters, createMonsters, handleAttack, publicMonsters, publishCombatFacing, requestSpawnRespawn, scaleBossHealth, standPlayer, tickRoom } from './combat.ts'
 import {
   acceptMove,
   recordMoveOrigin,
@@ -73,6 +73,7 @@ import { normalizeToken, resolveJoinPlayerId } from '../shared/identity.ts'
 import { PHRASE_COOLDOWN_MS, PHRASE_DURATION_MS, phraseAt } from '../shared/phrases.ts'
 import { pickLiveHost } from '../shared/host.ts'
 import { RESCUE_HOLD_MS, RESCUE_RANGE, isDowned } from '../shared/downed.ts'
+import type { CombatLock } from '../shared/facing.ts'
 import { liveFeed } from '../shared/events.ts'
 import { announce } from './feed.ts'
 import type { DuckSpeech, MatchOver } from '../shared/combat.ts'
@@ -128,6 +129,7 @@ export interface RoomState {
   rescueHold: Record<string, { targetId: string; since: number }>
   feed: import('../shared/events.ts').FeedItem[]
   poopSlowUntil: Record<string, number>
+  combatLock?: Record<string, CombatLock>
   poopImmuneUntil: Record<string, number>
   doorNearAt: Record<string, number>
   doorAuto: Record<string, boolean>
@@ -426,6 +428,7 @@ function removePlayer(room: RoomState, playerId: string, io: Server) {
   delete room.moveGrant[playerId]
   delete room.nextDash[playerId]
   delete room.nextSmoke[playerId]
+  if (room.combatLock) delete room.combatLock[playerId]
   delete room.nextPhrase[playerId]
   delete room.doorAuto[playerId]
   if (room.walkedScene) delete room.walkedScene[playerId]
@@ -725,6 +728,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         delete room.moveGrant[id]
         delete room.nextDash[id]
         delete room.nextSmoke[id]
+        if (room.combatLock) delete room.combatLock[id]
         io.to(id).emit('player:respawn', {
           position: p.position,
           hp: p.hp,
@@ -796,6 +800,7 @@ export function attachSocketServer(httpServer: HttpServer) {
         if (!room.walkedScene) room.walkedScene = {}
         room.walkedScene[playerId] = room.scene
       }
+      publishCombatFacing(room, io, playerId, now)
       if (!ok) {
         io.to(playerId).emit('player:moved', {
           id: playerId,

@@ -1,4 +1,5 @@
 import type { Server } from 'socket.io'
+import { activeLock, attackCombat, combatFacingPayload, combatYaw, type CombatLock } from '../shared/facing.ts'
 import { resolvePlayerMove } from '../src/physics/collision.ts'
 import {
   ATTACK_COOLDOWN_MS,
@@ -167,7 +168,8 @@ export interface CombatRoom {
   tag?: TagState
   lastMoveAt?: Record<string, number>
   moveBank?: Record<string, MoveBank>
-  moveGrant?: Record<string, { dashUntil?: number; jumpUntil?: number }>
+  moveGrant?: Record<string, { dashUntil?: number; jumpUntil?: number; sprintHoldStart?: number; sprintHoldEnd?: number }>
+  combatLock?: Record<string, CombatLock>
   smokes?: SmokeCloud[]
   barrels?: BarrelState[]
   drops?: LootDrop[]
@@ -1103,6 +1105,7 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
     tickTag(room, io, now)
     return
   }
+  tickCombatFacing(room, io, now)
   if (room.mode === 'boss') tickBoss(room, io, now, dt)
   else tickHunt(room, io, now, dt)
   tickLoot(room, io, now)
@@ -1179,6 +1182,39 @@ function hitBarrel(room: CombatRoom, io: Server, player: PlayerState, now: numbe
   return true
 }
 
+function facingBodies(room: CombatRoom) {
+  return room.monsters.map((m) => ({ id: m.id, x: m.x, z: m.z, alive: m.alive }))
+}
+
+export function publishCombatFacing(room: CombatRoom, io: Server, playerId: string, now: number, force = false) {
+  if (room.mode === 'tag') return
+  const player = room.players[playerId]
+  if (!player) return
+  const lock = room.combatLock?.[playerId]
+  const live = activeLock(lock, now)
+  if (!live) {
+    if (lock && room.combatLock) delete room.combatLock[playerId]
+    return
+  }
+  const yaw = combatYaw(
+    room.mode,
+    live,
+    now,
+    { x: player.position[0], z: player.position[2], rotationY: player.rotationY },
+    facingBodies(room),
+  )
+  const prev = player.rotationY
+  player.rotationY = yaw
+  const delta = Math.atan2(Math.sin(prev - yaw), Math.cos(prev - yaw))
+  if (!force && Math.abs(delta) < 1e-3) return
+  io.to(room.roomId).emit('combat:facing', combatFacingPayload(playerId, yaw, live))
+}
+
+function tickCombatFacing(room: CombatRoom, io: Server, now: number) {
+  if (room.mode === 'tag' || !room.combatLock) return
+  for (const id of Object.keys(room.combatLock)) publishCombatFacing(room, io, id, now)
+}
+
 export function handleAttack(room: CombatRoom, playerId: string, io: Server, now: number, attackerSocketId?: string) {
   if (room.mode === 'tag') {
     handleTagAttack(room, io, playerId, now, attackerSocketId)
@@ -1191,6 +1227,7 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
   if (room.mode === 'boss' && !room.started) return
   if (room.startAt && now < room.startAt) return
   if (room.awayUntil?.[playerId]) return
+  if (activeLock(room.combatLock?.[playerId], now)) publishCombatFacing(room, io, playerId, now)
   const stats = weaponOf(player)
   if ((room.nextAttack[playerId] ?? 0) > now) return
   room.nextAttack[playerId] = now + stats.cooldown
@@ -1231,6 +1268,19 @@ export function handleAttack(room: CombatRoom, playerId: string, io: Server, now
   ) {
     best = null
   }
+  const bodies = facingBodies(room)
+  const nextLock = attackCombat(
+    room.mode,
+    room.combatLock?.[playerId],
+    now,
+    { x: player.position[0], z: player.position[2] },
+    bodies,
+    best?.id ?? null,
+  )
+  if (!room.combatLock) room.combatLock = {}
+  if (nextLock) room.combatLock[playerId] = nextLock
+  else delete room.combatLock[playerId]
+  if (nextLock) publishCombatFacing(room, io, playerId, now, true)
   if (!best) {
     hitBarrel(room, io, player, now, stats)
     return
