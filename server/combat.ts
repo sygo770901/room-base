@@ -95,7 +95,7 @@ import {
   type BarrelState,
   type LootDrop,
 } from '../shared/barrels.ts'
-import { inSmoke, publicSmokeForViewer, type SmokeCloud } from '../shared/smoke.ts'
+import { inSmoke, publishSmokes, type RoomSticks, type SmokeCloud } from '../shared/smoke.ts'
 import { nextComboStep, type HitAnim } from '../shared/anim.ts'
 import {
   DOOR_MONSTER_WAIT_MS,
@@ -171,6 +171,7 @@ export interface CombatRoom {
   moveGrant?: Record<string, { dashUntil?: number; jumpUntil?: number; sprintHoldStart?: number; sprintHoldEnd?: number }>
   combatLock?: Record<string, CombatLock>
   smokes?: SmokeCloud[]
+  poopSticks?: RoomSticks
   barrels?: BarrelState[]
   drops?: LootDrop[]
   projectiles?: ProjectileState[]
@@ -1085,7 +1086,7 @@ export function tickRoom(room: CombatRoom, io: Server, now: number, dt: number) 
       for (const id of Object.keys(room.players ?? {})) {
         io.to(id).emit(
           'smoke:sync',
-          next.map((c) => publicSmokeForViewer(c, room.players[id] ?? { id }, room.mode)),
+          publishSmokes(next, room.poopSticks, room.players[id] ?? { id }, room.mode, now),
         )
       }
     }

@@ -527,6 +527,11 @@ input {
   align-items: flex-end;
 }
 
+.hud.aiming-poop .hud-bottom {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .help {
   background: rgba(20, 22, 24, 0.72);
   backdrop-filter: blur(10px);

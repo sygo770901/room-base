@@ -116,7 +116,7 @@ export function SmokeClouds() {
     const flyMesh = flies.current
     const splatMesh = splats.current
     for (const c of live) {
-      if (!heard.current.has(c.id)) {
+      if ((c.r ?? 0) > 0 && !heard.current.has(c.id)) {
         heard.current.add(c.id)
         playSfx('poop')
       }
@@ -132,6 +132,7 @@ export function SmokeClouds() {
           if (selfId && (stick.id === selfId || c.throwerId === selfId)) playSfx('hit')
         }
       }
+      if ((c.r ?? 0) <= 0) continue
       for (let i = 0; i < nFly && flyMesh; i++) {
         const a = t * 3.4 + i * 1.7 + c.x
         flyDummy.position.set(p.x + Math.cos(a) * 0.28, p.y + 0.18 + Math.sin(a * 1.6) * 0.1, p.z + Math.sin(a) * 0.28)
@@ -174,7 +175,7 @@ export function SmokeClouds() {
           oz: c.oz ?? c.z,
         }
       }
-      slot.__poop = live.map(pack)
+      slot.__poop = live.filter((c) => (c.r ?? 0) > 0).map(pack)
       const slotAll = window as Window & { __allSmokes?: ReturnType<typeof pack>[] }
       slotAll.__allSmokes = smokes.map(pack)
     }
@@ -198,9 +199,9 @@ export function SmokeClouds() {
         <sphereGeometry args={[1, 6, 5]} />
         <meshBasicMaterial color="#5a3018" />
       </instancedMesh>
-      {smokes.map((c) => (
-        <PoopBody key={c.id} cloud={c} cloudMat={cloudMat} stainMat={stainMat} />
-      ))}
+      {smokes.map((c) =>
+        (c.r ?? 0) > 0 ? <PoopBody key={c.id} cloud={c} cloudMat={cloudMat} stainMat={stainMat} /> : null,
+      )}
     </group>
   )
 }

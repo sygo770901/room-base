@@ -1,17 +1,25 @@
 import {
   POOP_DIRECT_RADIUS,
+  POOP_FLIGHT_MS,
   POOP_SLOW_MUL,
   POOP_STICK_DPS,
   POOP_STICK_MS,
   POOP_ZONE_DPS,
+  SMOKE_DURATION_MS,
   SMOKE_RADIUS,
   SMOKE_RANGE,
   bankPoopDamage,
   clampSmokeLanding,
   poopArcPoints,
   poopDamageThisTick,
+  poopExposure,
+  publicSmokeForViewer,
+  publishSmokes,
   refreshPoopStick,
+  refreshRoomStick,
+  smokeSchedule,
   tagSlowMul,
+  type SmokeCloud,
 } from '../shared/smoke.ts'
 
 function assert(cond: boolean, msg: string) {
@@ -58,6 +66,72 @@ assert(sticks.length === 1, `同一目標不該疊兩層黏附，現有 ${sticks
 assert(sticks[0].until === 2_000 + POOP_STICK_MS, '新的一發應刷新 4 秒')
 sticks = refreshPoopStick(sticks, 'other', 2_000)
 assert(sticks.length === 2, '不同目標可以各自黏住')
+
+let roomSticks = refreshRoomStick({}, 'mob', 1_000, 'thrower-a')
+roomSticks = refreshRoomStick(roomSticks, 'mob', 2_000, 'thrower-b')
+assert(Object.keys(roomSticks).length === 1, '不同丟擲者打到同一目標只留一層黏附')
+assert(roomSticks.mob.until === 2_000 + POOP_STICK_MS, '後來的一發應刷新黏附')
+assert(roomSticks.mob.by === 'thrower-b', '刷新後記的是新的丟擲者')
+const overlap = poopExposure({ stuck: false, zones: 2, mode: 'boss' })
+assert(overlap.dps === POOP_ZONE_DPS, `兩團臭氣重疊仍應每秒 ${POOP_ZONE_DPS}，得到 ${overlap.dps}`)
+const stuckOverlap = poopExposure({ stuck: true, zones: 2, mode: 'hunt' })
+assert(stuckOverlap.dps === POOP_STICK_DPS, `黏附加上重疊臭氣應只有每秒 ${POOP_STICK_DPS}，得到 ${stuckOverlap.dps}`)
+
+bank = 0
+dealt = 0
+for (let i = 0; i < 10; i++) {
+  const exp = poopExposure({ stuck: false, zones: 2, mode: 'boss' })
+  const step = bankPoopDamage(bank, exp.stuck, 0.1, 'boss')
+  bank = step.bank
+  dealt += step.dealt
+}
+assert(dealt === 5, `兩團臭氣 1 秒應結算 5 傷，得到 ${dealt}`)
+
+bank = 0
+dealt = 0
+for (let i = 0; i < 10; i++) {
+  const exp = poopExposure({ stuck: true, zones: 2, mode: 'boss' })
+  const step = bankPoopDamage(bank, exp.stuck, 0.1, 'boss')
+  bank = step.bank
+  dealt += step.dealt
+}
+assert(dealt === 8, `兩人黏附重疊 1 秒應結算 8 傷，得到 ${dealt}`)
+
+const thrownAt = 10_000
+const schedule = smokeSchedule(thrownAt, 'boss')
+assert(schedule.landAt === thrownAt + POOP_FLIGHT_MS, '落地時間應是丟出後的飛行')
+assert(schedule.until - schedule.landAt === SMOKE_DURATION_MS, '臭氣應從落地起再持續 6 秒')
+assert(schedule.until > thrownAt + SMOKE_DURATION_MS, '不該在丟出 6 秒時就結束')
+assert(smokeSchedule(thrownAt, 'tag').until - smokeSchedule(thrownAt, 'tag').landAt === SMOKE_DURATION_MS, '鬼抓人的臭氣也從落地起算 6 秒')
+
+const stickCloud: SmokeCloud = {
+  id: 'smoke-stick',
+  x: 3,
+  z: 4,
+  r: SMOKE_RADIUS,
+  until: 9_000,
+  sticks: [
+    { id: 'hider-a', until: 8_000 },
+    { id: 'ghost-1', until: 8_000 },
+  ],
+}
+const seeker = publicSmokeForViewer(stickCloud, { id: 'ghost-1', team: 'ghost' }, 'tag')
+assert(!seeker.sticks?.some((s) => s.id === 'hider-a'), '鬼不該看到別人黏住')
+assert(seeker.sticks?.some((s) => s.id === 'ghost-1'), '被黏住的鬼本人應看得到自己')
+const otherSeeker = publicSmokeForViewer(stickCloud, { id: 'ghost-2', team: 'ghost' }, 'tag')
+assert((otherSeeker.sticks ?? []).length === 0, '沒被黏住的鬼不該看到黏附名單')
+const hiderView = publicSmokeForViewer(stickCloud, { id: 'hider-b', team: 'hider' }, 'tag')
+assert(hiderView.sticks?.some((s) => s.id === 'hider-a'), '躲的人仍看得到黏附')
+const bossView = publicSmokeForViewer(stickCloud, { id: 'p' }, 'boss')
+assert(bossView.sticks?.length === 2, '打怪時黏附名單要完整')
+const published = publishSmokes(
+  [stickCloud],
+  { 'hider-a': { until: 8_000, by: 'ghost-1' }, 'ghost-1': { until: 8_000, by: 'hider-b' } },
+  { id: 'ghost-2', team: 'ghost' },
+  'tag',
+  1_000,
+)
+assert(published.every((c) => (c.sticks ?? []).length === 0), '同步給鬼的雲不該帶別人的黏附')
 
 assert(tagSlowMul('tag', true) === POOP_SLOW_MUL, '鬼抓人應減速 30%')
 assert(Math.abs(POOP_SLOW_MUL - 0.7) < 1e-9, '30% 減速是 0.7 倍速')

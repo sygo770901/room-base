@@ -40,18 +40,18 @@ import {
 } from '../shared/movement.ts'
 import {
   POOP_DIRECT_RADIUS,
-  POOP_FLIGHT_MS,
   SMOKE_RADIUS,
   SMOKE_RANGE,
   bankPoopDamage,
   clampSmokeLanding,
-  liveSmokes,
-  publicSmokeForViewer,
-  refreshPoopStick,
+  poopExposure,
+  publishSmokes,
+  refreshRoomStick,
   shouldPoopHitPlayer,
   smokeCooldownMs,
-  smokeDurationMs,
+  smokeSchedule,
   anonSmokeId,
+  type RoomSticks,
   type SmokeCloud,
 } from '../shared/smoke.ts'
 import { createBarrels, type BarrelState, type LootDrop } from '../shared/barrels.ts'
@@ -131,6 +131,8 @@ export interface RoomState {
   rescueHold: Record<string, { targetId: string; since: number }>
   feed: import('../shared/events.ts').FeedItem[]
   poopSlowUntil: Record<string, number>
+  poopSticks: RoomSticks
+  poopDmgBank: Record<string, number>
   combatLock?: Record<string, CombatLock>
   poopImmuneUntil: Record<string, number>
   doorNearAt: Record<string, number>
@@ -187,6 +189,8 @@ function createRoom(roomId: string): RoomState {
     rescueHold: {},
     feed: [],
     poopSlowUntil: {},
+    poopSticks: {},
+    poopDmgBank: {},
     poopImmuneUntil: {},
     doorNearAt: {},
     doorAuto: {},
@@ -223,9 +227,7 @@ function snapshotFor(room: RoomState, viewerId: string) {
     startInMs: room.startAt ? Math.max(0, room.startAt - Date.now()) : 0,
     started: room.started,
     tagHud: tagHudFor(room, viewerId),
-    smokes: liveSmokes(room.smokes, Date.now()).map((c) =>
-      publicSmokeForViewer(c, room.players[viewerId] ?? { id: viewerId }, room.mode),
-    ),
+    smokes: publishSmokes(room.smokes, room.poopSticks, room.players[viewerId] ?? { id: viewerId }, room.mode, Date.now()),
     barrels: room.barrels,
     drops: room.drops,
     projectiles: room.projectiles,
@@ -241,14 +243,9 @@ function emitState(room: RoomState, io: Server) {
   }
 }
 
-function emitSmokes(room: RoomState, io: Server) {
-  const now = Date.now()
-  const live = liveSmokes(room.smokes, now)
+function emitSmokes(room: RoomState, io: Server, now = Date.now()) {
   for (const id of Object.keys(room.players)) {
-    io.to(id).emit(
-      'smoke:sync',
-      live.map((c) => publicSmokeForViewer(c, room.players[id] ?? { id }, room.mode)),
-    )
+    io.to(id).emit('smoke:sync', publishSmokes(room.smokes, room.poopSticks, room.players[id] ?? { id }, room.mode, now))
   }
 }
 
@@ -258,11 +255,10 @@ function resolveLandedPoop(room: RoomState, io: Server, now: number) {
     if (cloud.resolved || !cloud.landAt || now < cloud.landAt) continue
     cloud.resolved = true
     cloud.hits = []
-    cloud.sticks = []
     const thrower = cloud.throwerId ? room.players[cloud.throwerId] : null
     const note = (id: string, dist: number) => {
       if (dist <= POOP_DIRECT_RADIUS) {
-        cloud.sticks = refreshPoopStick(cloud.sticks, id, now)
+        room.poopSticks = refreshRoomStick(room.poopSticks, id, now, cloud.throwerId)
         cloud.hits?.push(id)
         return
       }
@@ -281,42 +277,55 @@ function resolveLandedPoop(room: RoomState, io: Server, now: number) {
     }
     changed = true
   }
-  if (changed) emitSmokes(room, io)
+  if (changed) emitSmokes(room, io, now)
 }
 
 function tickPoopEffects(room: RoomState, io: Server, now: number, dt: number) {
-  let hurt = false
-  for (const cloud of room.smokes) {
-    if (!cloud.resolved || cloud.until <= now) continue
-    if (!cloud.dmgBank) cloud.dmgBank = {}
-    cloud.sticks = (cloud.sticks ?? []).filter((s) => s.until > now)
-    const stuck = new Set(cloud.sticks.map((s) => s.id))
-    const thrower = cloud.throwerId ? room.players[cloud.throwerId] : null
-    const radius = cloud.r ?? SMOKE_RADIUS
-    if (room.mode === 'tag') {
-      for (const p of Object.values(room.players)) {
-        if (room.awayUntil[p.id] || p.team === 'spectator' || isDowned(p, now)) continue
+  for (const [id, stick] of Object.entries(room.poopSticks)) {
+    if (stick.until <= now) delete room.poopSticks[id]
+  }
+  const clouds = room.smokes.filter((c) => c.resolved && c.until > now)
+  if (room.mode === 'tag') {
+    for (const p of Object.values(room.players)) {
+      if (room.awayUntil[p.id] || p.team === 'spectator' || isDowned(p, now)) continue
+      let zones = 0
+      for (const cloud of clouds) {
+        const thrower = cloud.throwerId ? room.players[cloud.throwerId] : null
         if (!shouldPoopHitPlayer(cloud.throwerId ?? '', thrower?.team, p, room.mode)) continue
-        const inside = Math.hypot((p.position?.[0] ?? 0) - cloud.x, (p.position?.[2] ?? 0) - cloud.z) <= radius
-        if (!stuck.has(p.id) && !inside) continue
-        const until = Math.max(now + 300, stuck.has(p.id) ? (cloud.sticks.find((s) => s.id === p.id)?.until ?? now) : now + 300)
-        if ((room.poopSlowUntil[p.id] ?? 0) >= until) continue
-        room.poopSlowUntil[p.id] = until
-        io.to(p.id).emit('poop:slow', { until })
+        const inside = Math.hypot((p.position?.[0] ?? 0) - cloud.x, (p.position?.[2] ?? 0) - cloud.z) <= (cloud.r ?? SMOKE_RADIUS)
+        if (inside) zones += 1
       }
-      continue
+      const stick = room.poopSticks[p.id]
+      const stuck = (stick?.until ?? 0) > now
+      if (!stuck && zones === 0) continue
+      const until = Math.max(now + 300, stuck ? (stick?.until ?? now) : now + 300)
+      if ((room.poopSlowUntil[p.id] ?? 0) >= until) continue
+      room.poopSlowUntil[p.id] = until
+      io.to(p.id).emit('poop:slow', { until })
     }
-    for (const m of room.monsters ?? []) {
-      if (!m.alive) continue
-      const inside = Math.hypot(m.x - cloud.x, m.z - cloud.z) <= radius
-      const isStuck = stuck.has(m.id)
-      if (!isStuck && !inside) continue
-      const banked = bankPoopDamage(cloud.dmgBank[m.id] ?? 0, isStuck, dt, room.mode)
-      cloud.dmgBank[m.id] = banked.bank
-      if (banked.dealt <= 0) continue
-      hurtMonster(room, io, m, banked.dealt, cloud.throwerId ?? 'poop', thrower?.name ?? '大便', now)
-      hurt = true
+    return
+  }
+  let hurt = false
+  for (const m of room.monsters ?? []) {
+    if (!m.alive) continue
+    let zones = 0
+    let by: string | undefined
+    for (const cloud of clouds) {
+      if (Math.hypot(m.x - cloud.x, m.z - cloud.z) > (cloud.r ?? SMOKE_RADIUS)) continue
+      zones += 1
+      if (!by) by = cloud.throwerId
     }
+    const stick = room.poopSticks[m.id]
+    const stuck = (stick?.until ?? 0) > now
+    const exposure = poopExposure({ stuck, zones, mode: room.mode })
+    if (exposure.dps <= 0) continue
+    const banked = bankPoopDamage(room.poopDmgBank[m.id] ?? 0, exposure.stuck, dt, room.mode)
+    room.poopDmgBank[m.id] = banked.bank
+    if (banked.dealt <= 0) continue
+    const credit = stick?.by ?? by
+    const thrower = credit ? room.players[credit] : null
+    hurtMonster(room, io, m, banked.dealt, credit ?? 'poop', thrower?.name ?? '大便', now)
+    hurt = true
   }
   if (hurt) io.to(room.roomId).emit('monsters:sync', publicMonsters(room.monsters))
 }
@@ -746,6 +755,8 @@ export function attachSocketServer(httpServer: HttpServer) {
         room.tag = undefined
       }
       room.smokes = []
+      room.poopSticks = {}
+      room.poopDmgBank = {}
       room.barrels = createBarrels(room.scene)
       room.drops = []
       room.projectiles = []
@@ -1156,17 +1167,17 @@ export function attachSocketServer(httpServer: HttpServer) {
       const landed = clampSmokeLanding(ox, oz, rawX, rawZ, SMOKE_RANGE)
       const tx = landed.x
       const tz = landed.z
-      const landAt = now + POOP_FLIGHT_MS
+      const schedule = smokeSchedule(now, room.mode)
       const cloud: SmokeCloud = {
         id: anonSmokeId(now),
         x: tx,
         z: tz,
         r: SMOKE_RADIUS,
-        until: now + smokeDurationMs(room.mode),
+        until: schedule.until,
         ox,
         oz,
         thrownAt: now,
-        landAt,
+        landAt: schedule.landAt,
         hits: [],
         throwerId: playerId,
         resolved: false,

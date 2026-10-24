@@ -223,7 +223,7 @@ export function Hud() {
   }
 
   return (
-    <div className="hud">
+    <div className={poopHeld && isMobileDevice() ? 'hud aiming-poop' : 'hud'}>
       {!matchOver && started && <div className="crosshair" aria-hidden />}
       {mapLoadFailed ? (
         <div className="map-load fail" role="alert">

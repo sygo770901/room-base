@@ -43,6 +43,12 @@ export function smokeDurationMs(mode?: string | null) {
   return mode === 'tag' ? SMOKE_DURATION_TAG_MS : SMOKE_DURATION_MS
 }
 
+/** 臭氣從落地起算，不從丟出起算。 */
+export function smokeSchedule(thrownAt: number, mode?: string | null) {
+  const landAt = thrownAt + POOP_FLIGHT_MS
+  return { landAt, until: landAt + smokeDurationMs(mode) }
+}
+
 export function publicSmokeForViewer(
   cloud: SmokeCloud,
   viewer: { id: string; team?: string | null },
@@ -62,8 +68,19 @@ export function publicSmokeForViewer(
     ox: isGhost ? undefined : cloud.ox,
     oz: isGhost ? undefined : cloud.oz,
     hits: hideHits ? (hits.includes(viewer.id) ? [viewer.id] : []) : hits,
-    sticks: (cloud.sticks ?? []).filter((s) => s.until > 0),
+    sticks: sticksForViewer(cloud.sticks, viewer, mode),
   }
+}
+
+/** 鬼抓人只讓鬼看到自己黏住了，避免從名單知道誰中招。 */
+export function sticksForViewer(
+  sticks: PoopStick[] | undefined,
+  viewer: { id: string; team?: string | null },
+  mode?: string | null,
+): PoopStick[] {
+  const live = (sticks ?? []).filter((s) => s.until > 0)
+  if (mode === 'tag' && viewer.team === 'ghost') return live.filter((s) => s.id === viewer.id)
+  return live
 }
 
 export function alliesForPoop(throwerTeam: string | null | undefined, mode?: string | null) {
@@ -158,6 +175,49 @@ export function refreshPoopStick(sticks: PoopStick[] | undefined, id: string, no
   const next = (sticks ?? []).filter((s) => s.id !== id && s.until > now)
   next.push({ id, until: now + POOP_STICK_MS })
   return next
+}
+
+export type RoomStick = { until: number; by?: string }
+export type RoomSticks = Record<string, RoomStick>
+
+/** 全房一個目標只留一層黏附。換人再打到只刷新這層。 */
+export function refreshRoomStick(sticks: RoomSticks | undefined, id: string, now: number, by?: string): RoomSticks {
+  return { ...(sticks ?? {}), [id]: { until: now + POOP_STICK_MS, by } }
+}
+
+/** 重疊的臭氣區與多個丟擲者都只結算一次。黏著 8，否則在區內 5。 */
+export function poopExposure(input: { stuck: boolean; zones: number; mode?: string | null }) {
+  const zones = Math.max(0, Math.floor(input.zones))
+  if (input.mode === 'tag') return { stuck: input.stuck, zones, dps: 0 }
+  if (input.stuck) return { stuck: true, zones, dps: POOP_STICK_DPS }
+  if (zones > 0) return { stuck: false, zones, dps: POOP_ZONE_DPS }
+  return { stuck: false, zones: 0, dps: 0 }
+}
+
+export function roomStickList(sticks: RoomSticks | undefined, now: number): PoopStick[] {
+  return Object.entries(sticks ?? {})
+    .filter(([, stick]) => stick.until > now)
+    .map(([id, stick]) => ({ id, until: stick.until }))
+}
+
+/** 把房間級黏附掛到同步用的雲上。雲都散了仍留一筆不繪製的載體，標記才看得到。 */
+export function publishSmokes(
+  clouds: SmokeCloud[] | undefined,
+  sticks: RoomSticks | undefined,
+  viewer: { id: string; team?: string | null },
+  mode: string | null | undefined,
+  now: number,
+): SmokeCloud[] {
+  const list = roomStickList(sticks, now)
+  const live = liveSmokes(clouds, now).map((cloud) => ({ ...cloud, sticks: list }))
+  const out = live.map((cloud) => publicSmokeForViewer(cloud, viewer, mode))
+  if (out.length || list.length === 0) return out
+  const carrier = publicSmokeForViewer(
+    { id: 'poop-sticks', x: 0, z: 0, r: 0, until: Math.max(...list.map((s) => s.until)), sticks: list },
+    viewer,
+    mode,
+  )
+  return carrier.sticks?.length ? [carrier] : []
 }
 
 export function poopDamageThisTick(stuck: boolean, dtSec: number, mode?: string | null) {

@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useState } from 'react'
 import { Html, Line } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
@@ -32,24 +32,21 @@ export function PoopAim() {
 
 export function StuckMark({ id }: { id: string }) {
   const smokes = useAppStore((s) => s.smokes)
-  const mesh = useRef<THREE.Mesh>(null)
-  const icon = useRef<HTMLDivElement>(null)
+  const [on, setOn] = useState(false)
   useFrame(() => {
     const now = Date.now()
-    const on = smokes.some((c) => c.sticks?.some((s) => s.id === id && s.until > now))
-    if (mesh.current) mesh.current.visible = on
-    if (icon.current) icon.current.style.display = on ? 'block' : 'none'
+    const next = smokes.some((c) => c.sticks?.some((s) => s.id === id && s.until > now))
+    setOn((prev) => (prev === next ? prev : next))
   })
+  if (!on) return null
   return (
     <group>
-      <mesh ref={mesh} position={[0, 1.05, 0]} visible={false}>
+      <mesh position={[0, 1.05, 0]}>
         <sphereGeometry args={[0.72, 12, 8]} />
         <meshBasicMaterial color="#c6e25a" transparent opacity={0.38} depthWrite={false} />
       </mesh>
       <Html position={[0, 2.3, 0]} center sprite distanceFactor={8} style={{ pointerEvents: 'none' }} zIndexRange={[12, 0]}>
-        <div ref={icon} className="stuck-icon" style={{ display: 'none' }}>
-          💩
-        </div>
+        <div className="stuck-icon">💩</div>
       </Html>
     </group>
   )
