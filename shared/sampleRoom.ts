@@ -269,26 +269,18 @@ prop({ x: 43.2, y: PY, z: 227.2, rotY: 0.15, model: 'keg.gltf.glb', hx: 0.95, hz
 prop({ x: 42.3, y: PY, z: 237.4, rotY: 0, model: 'rubble_half.gltf.glb', hx: 2, hz: 1.55 })
 prop({ x: 46.4, y: PY, z: 226.8, rotY: 0.3, model: 'skeleton_fallen.glb', root: SKEL, hx: 1.8, hz: 1.1 })
 
-const treads: [number, number, number][] = [
-  [32, 33, 0.5],
-  [33, 34, 1],
-  [34, 35, 1.5],
-  [35, 36, 2],
-  [36, 37, 2.5],
-  [37, 38, 3],
-  [38, 39, 3.5],
-  [39, 40, 4],
-]
+/** 樓梯外觀仍是 stairs_long。腳下是這段斜坡：8m 升 4m，atan(0.5)≈26.6°，中間沒有落差。 */
+export const SAMPLE_STAIR_RAMP = { x0: 32, x1: 40, y0: 0, y1: 4, z0: 230, z1: 234 }
+
+export function sampleRampY(x: number, z: number): number | null {
+  const r = SAMPLE_STAIR_RAMP
+  if (x < r.x0 || x >= r.x1 || z < r.z0 || z >= r.z1) return null
+  return r.y0 + ((r.y1 - r.y0) * (x - r.x0)) / (r.x1 - r.x0)
+}
 
 export const SAMPLE_PLATFORMS = [
-  ...treads.map(([x0, x1, topY]) => ({
-    minX: x0,
-    maxX: x1,
-    minZ: 230.4,
-    maxZ: 233.7,
-    topY,
-  })),
-  { minX: 40, maxX: 52, minZ: 224, maxZ: 240, topY: SAMPLE_PLATFORM_Y },
+  // 往內收一個腳半徑，斜坡末端不會被支撐面提前抬上 4。
+  { minX: 40.26, maxX: 52, minZ: 224, maxZ: 240, topY: SAMPLE_PLATFORM_Y },
 ]
 
 export const SAMPLE_PLACES = places

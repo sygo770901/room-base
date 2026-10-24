@@ -1,6 +1,6 @@
 /**
  * 從寶物房的地板、牆、樓梯烘出高度圖。
- * 樓梯是平階，不是斜坡。踏面沿 +X 每 1m 高 0.5，從 0.5 到 4。扶手那兩排不寫成階梯。
+ * 樓梯外觀是踏面。可走高度是連續斜坡，8m 從 0 升到 4。扶手那兩排不寫成階梯。
  *
  *   npx tsx scripts/bake-sample-height.ts
  */
@@ -27,10 +27,11 @@ const parts = SAMPLE_PLACES.filter(
 
 const stairs: { x: number; z: number; dir: '+x'; low: number; high: number }[] = []
 const heights: { x: number; z: number; y: number }[] = []
-const treadH = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4]
-for (let k = 0; k < treadH.length; k++) {
+for (let k = 0; k < 8; k++) {
+  const low = k * 0.5
+  const high = low + 0.5
   for (let z = 18; z <= 21; z++) {
-    stairs.push({ x: 18 + k, z, dir: '+x', low: treadH[k], high: treadH[k] })
+    stairs.push({ x: 18 + k, z, dir: '+x', low, high })
   }
 }
 for (let z = 17; z <= 22; z++) heights.push({ x: 26, z, y: 4 })

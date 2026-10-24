@@ -11,6 +11,8 @@ import { sampleCanStep } from '../shared/sampleCollision.ts'
 import {
   SAMPLE_BOUNDS,
   SAMPLE_SOLIDS,
+  SAMPLE_STAIR_RAMP,
+  sampleRampY,
   sampleSolidHit,
   sampleSpikeAt,
   sampleSurfaceY,
@@ -29,9 +31,9 @@ if (!field) throw new Error('sample')
 
 assert(unreachableFromSpawn(field).length === 0, '補過的地板仍要走得回出生點')
 
-assert(Math.abs((groundY(field, 32.5, 232) ?? -1) - 0.5) < 0.001, '第一階應是 0.5')
-assert(Math.abs((groundY(field, 36.5, 232) ?? -1) - 2.5) < 0.001, '中段踏面應是 2.5，不是斜坡')
-assert(Math.abs((groundY(field, 39.5, 232) ?? -1) - 4) < 0.001, '最上面一階應是 4')
+assert(Math.abs((groundY(field, 32, 232) ?? -1) - 0) < 0.001, '斜坡底部應接走廊地面')
+assert(Math.abs((groundY(field, 36, 232) ?? -1) - 2) < 0.001, '斜坡中段應是 2')
+assert(Math.abs((groundY(field, 40, 232) ?? -1) - 4) < 0.001, '斜坡頂應接高度 4 的高台')
 assert(Math.abs((groundY(field, 40.5, 224.5) ?? -1) - 4) < 0.001, '高台邊緣不該被挖空')
 assert(Math.abs((groundY(field, 44, 224.2) ?? -1) - 4) < 0.001, '高台南緣應是 4')
 assert(groundY(field, 22, 262) == null, '地刺不該當地面')
@@ -40,7 +42,7 @@ assert(sampleSolidHit(25.2, 261, 0, R), '寶箱中心要擋住人')
 assert(sampleSolidHit(28.5, 251.5, 0, R), '門柱要擋住人')
 assert(!sampleSolidHit(30, 251.5, 0, R), '門口中間要過得去')
 assert(sampleSolidHit(36, 230.05, 0, R), '扶手不能站')
-assert(!sampleSolidHit(36.5, 232, 2.5, R), '踏面中央不是實心')
+assert(!sampleSolidHit(36.5, 232, sampleRampY(36.5, 232) ?? 0, R), '斜坡中央不是實心')
 
 const dirs: [number, number][] = []
 for (const [dx, dz] of [
@@ -197,26 +199,36 @@ for (const solid of SAMPLE_SOLIDS) {
 }
 assert(props >= 8, `道具太少 ${props}`)
 
-/** 踏面實測：整數處立面約 0.05m，0.25m 之後是平的。其餘地板是 0 或 4。 */
+/** 樓梯腳下是斜坡。其餘地板是 0 或 4。 */
 function expectedSurface(x: number, z: number): number | null {
-  if (x >= 32 && x < 40 && z >= 230.4 && z <= 233.7) {
-    const k = Math.floor(x - 32)
-    const frac = x - 32 - k
-    const high = (k + 1) * 0.5
-    if (frac < 0.25) return high - 0.05 + 0.05 * (frac / 0.25)
-    return high
-  }
-  return sampleSurfaceY(x, z)
+  return sampleRampY(x, z) ?? sampleSurfaceY(x, z)
 }
 
-// 跟 stairs_long 的網格對一下中線，避免公式和模型分開走。
 {
-  const mesh = stairMeshTop()
-  for (let x = 32.25; x <= 39.75; x += 0.25) {
+  const ramp = SAMPLE_STAIR_RAMP
+  const step = 0.05
+  let prev = groundY(field, ramp.x0, 232)
+  assert(prev != null, '斜坡起點要有高度')
+  for (let x = ramp.x0 + step; x <= ramp.x1 + 1e-6; x += step) {
     const y = groundY(field, x, 232)
-    const top = mesh(x, 232)
-    assert(y != null && top != null && Math.abs(y - top) <= 0.15, `踏面 ${x} ground=${y} mesh=${top}`)
+    assert(y != null && prev != null, `斜坡中斷 ${x}`)
+    const dy = y - prev
+    const deg = (Math.atan2(dy, step) * 180) / Math.PI
+    assert(dy >= -0.001, `斜坡往上出現落差 x=${x.toFixed(2)} dy=${dy}`)
+    assert(deg <= 30.01, `斜坡超過 30 度 x=${x.toFixed(2)} ${deg.toFixed(2)}°`)
+    prev = y
   }
+  for (const x of [32.5, 36, 39.5]) {
+    const y0 = groundY(field, x, ramp.z0 + 0.1)
+    for (let z = ramp.z0; z < ramp.z1; z += 0.25) {
+      const y = groundY(field, x, z)
+      assert(y != null && y0 != null && Math.abs(y - y0) < 0.001, `同一級 x 不該有高低 x=${x} z=${z} y=${y}`)
+    }
+  }
+  const mesh = stairMeshTop()
+  const visual = mesh(36.5, 232)
+  assert(visual != null && Math.abs(visual - 2.5) <= 0.05, `樓梯外觀應維持踏面，量到 ${visual}`)
+  assert(Math.abs((groundY(field, 36.5, 232) ?? -1) - 2.25) < 0.001, '踏面下方的可走高度是斜坡')
 }
 
 console.log('sample-collision: ok', { points, props, stairs: field.stairs.length })
