@@ -1,5 +1,6 @@
 /** 打鴨王倒地救援（先定，昱豪可改）。 */
 export const DOWNED_MS = 15_000
+/** 全隊都倒、沒人能扶時，把剩餘時間收到這段。單人不用這條，跟 DOWNED_MS 一樣等 15 秒。 */
 export const DOWNED_SOLO_MS = 3_000
 /** 倒地後先留這段給隊友扶，之後才可以自己回出生點。 */
 export const RESPAWN_UNLOCK_MS = 5_000

@@ -451,7 +451,8 @@ export function standPlayer(room: CombatRoom, io: Server, player: PlayerState, n
 
 function wipeIfAllDowned(room: CombatRoom, io: Server, now: number) {
   const live = Object.values(room.players).filter((p) => !room.awayUntil?.[p.id] && p.team !== 'spectator')
-  if (!live.length || !live.every((p) => isDowned(p, now) || p.hp <= 0)) return
+  // 單人沒有隊友可扶，不把 15 秒收成 3 秒。
+  if (live.length < 2 || !live.every((p) => isDowned(p, now) || p.hp <= 0)) return
   for (const p of live) {
     p.downedUntil = Math.min(p.downedUntil || now + DOWNED_SOLO_MS, now + DOWNED_SOLO_MS)
     io.to(room.roomId).emit('player:vitals', { id: p.id, hp: p.hp, downedUntil: p.downedUntil, downedAt: p.downedAt ?? 0 })
@@ -465,7 +466,7 @@ export function tickDowned(room: CombatRoom, io: Server, now: number) {
   }
 }
 
-function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: number, now: number) {
+export function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: number, now: number) {
   if (now < (room.hurtUntil[player.id] ?? 0)) return
   if (isDowned(player, now)) return
   const x = player.position[0]
@@ -490,8 +491,10 @@ function hurtPlayer(room: CombatRoom, io: Server, player: PlayerState, dmg: numb
       (p) => p.id !== player.id && !room.awayUntil?.[p.id] && p.team !== 'spectator' && p.hp > 0 && !isDowned(p, now),
     )
     const canRescue = room.mode === 'boss' && room.started && !room.matchOver && mates.length > 0
+    const alone =
+      Object.values(room.players).filter((p) => !room.awayUntil?.[p.id] && p.team !== 'spectator').length < 2
     player.downedAt = now
-    player.downedUntil = now + (canRescue ? DOWNED_MS : DOWNED_SOLO_MS)
+    player.downedUntil = now + (canRescue || alone ? DOWNED_MS : DOWNED_SOLO_MS)
     room.hurtUntil[player.id] = now + PLAYER_HURT_IFRAME_MS
     io.to(room.roomId).emit('player:vitals', { id: player.id, hp: 0, downedUntil: player.downedUntil, downedAt: player.downedAt })
     wipeIfAllDowned(room, io, now)

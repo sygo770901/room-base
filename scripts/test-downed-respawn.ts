@@ -1,8 +1,8 @@
 import type { Server } from 'socket.io'
-import { requestSpawnRespawn, tickDowned, type CombatRoom } from '../server/combat.ts'
+import { hurtPlayer, requestSpawnRespawn, tickDowned, type CombatRoom } from '../server/combat.ts'
 import { acceptMove, type TagRoom } from '../server/tag.ts'
 import { PLAYER_MAX_HP } from '../shared/combat.ts'
-import { DOWNED_MS, DOWNED_SOLO_MS, RESPAWN_UNLOCK_MS, respawnChoiceReady } from '../shared/downed.ts'
+import { DOWNED_MS, RESPAWN_UNLOCK_MS, isDowned, respawnChoiceReady } from '../shared/downed.ts'
 import { spawnOf } from '../shared/heightmaps.ts'
 import { spawnPointsOf } from '../shared/mapData.ts'
 import { PLAYER_SPEED } from '../shared/movement.ts'
@@ -56,7 +56,6 @@ function atSpawn(position: [number, number, number]) {
 }
 
 assert(DOWNED_MS === 15_000, '倒地視窗應維持 15 秒')
-assert(DOWNED_SOLO_MS === 3_000, '單人倒地應維持 3 秒')
 assert(RESPAWN_UNLOCK_MS === 5_000, '重生按鈕應在倒地 5 秒後出現')
 assert(!respawnChoiceReady({ downedAt: t0, downedUntil: t0 + DOWNED_MS }, t0 + RESPAWN_UNLOCK_MS - 1), '5 秒前不能重生')
 assert(respawnChoiceReady({ downedAt: t0, downedUntil: t0 + DOWNED_MS }, t0 + RESPAWN_UNLOCK_MS), '滿 5 秒可以重生')
@@ -130,13 +129,71 @@ tickDowned(lateRoom, io, t0 + DOWNED_MS)
 assert(late.hp === PLAYER_MAX_HP && late.downedUntil === 0 && late.downedAt === 0, '滿 15 秒應由原本的逾時復活')
 assert(atSpawn(late.position), '逾時復活應送到出生點')
 
-const solo = player('solo', [home.x, home.y, home.z])
-solo.hp = 0
-solo.downedAt = t0
-solo.downedUntil = t0 + DOWNED_SOLO_MS
-const soloRoom = room(solo)
-assert(!requestSpawnRespawn(soloRoom, io, solo, t0 + 1_000), '單人倒地未滿 5 秒仍應拒絕')
-tickDowned(soloRoom, io, t0 + DOWNED_SOLO_MS)
-assert(solo.hp === PLAYER_MAX_HP && solo.downedUntil === 0, '單人 3 秒逾時應照舊復活')
+// 單人：不再 3 秒自動復活，跟 15 秒同一條。
+{
+  const solo = player('solo', [home.x, home.y, home.z])
+  solo.hp = 40
+  const soloRoom = room(solo)
+  hurtPlayer(soloRoom, io, solo, 100, t0)
+  assert(solo.hp === 0 && solo.downedAt === t0 && solo.downedUntil === t0 + DOWNED_MS, '單人倒地應排到 15 秒')
+  tickDowned(soloRoom, io, t0 + 3_000)
+  assert(solo.hp === 0 && isDowned(solo, t0 + 3_000), '單人 3 秒時仍應倒地')
+  assert(!requestSpawnRespawn(soloRoom, io, solo, t0 + RESPAWN_UNLOCK_MS - 1), '單人 5 秒前的重生應拒絕')
+  assert(solo.hp === 0 && solo.downedUntil === t0 + DOWNED_MS, '拒絕後單人應繼續倒地')
+  assert(requestSpawnRespawn(soloRoom, io, solo, t0 + RESPAWN_UNLOCK_MS + 1), '單人 5 秒後的重生應接受')
+  assert(solo.hp === PLAYER_MAX_HP && solo.downedUntil === 0 && atSpawn(solo.position), '單人接受後應回到出生點')
+
+  const timeout = player('solo-timeout', [home.x, home.y, home.z])
+  timeout.hp = 40
+  const timeoutRoom = room(timeout)
+  hurtPlayer(timeoutRoom, io, timeout, 100, t0)
+  assert(!requestSpawnRespawn(timeoutRoom, io, timeout, t0 + DOWNED_MS), '單人滿 15 秒的自願重生應拒絕')
+  assert(timeout.hp === 0 && timeout.downedUntil === t0 + DOWNED_MS, '15 秒當下應還留著倒地截止時間')
+  tickDowned(timeoutRoom, io, t0 + DOWNED_MS)
+  assert(timeout.hp === PLAYER_MAX_HP && timeout.downedUntil === 0 && timeout.downedAt === 0, '單人滿 15 秒應由原本的逾時復活')
+  assert(atSpawn(timeout.position), '單人逾時復活應送到出生點')
+}
+
+// 重生後立刻走 10 秒，不該被拉回倒地點。
+{
+  const walker = player('walk', [home.x + 3, home.y, home.z])
+  walker.hp = 0
+  walker.downedAt = t0
+  walker.downedUntil = t0 + DOWNED_MS
+  const walkRoom = room(walker)
+  walkRoom.moveBank = { walk: { accruedAt: t0, walk: 100, dash: 100, pad: true } }
+  walkRoom.lastMoveAt = { walk: t0 }
+  walkRoom.moveGrant = { walk: { dashUntil: t0 + 60_000 } }
+  const reviveAt = t0 + RESPAWN_UNLOCK_MS
+  const random = Math.random
+  Math.random = () => 0
+  let accepted = false
+  try {
+    accepted = requestSpawnRespawn(walkRoom, io, walker, reviveAt)
+  } finally {
+    Math.random = random
+  }
+  assert(accepted, '走路測試應先重生')
+  const spawn: [number, number, number] = [walker.position[0], walker.position[1], walker.position[2]]
+  const corpse: [number, number, number] = [home.x + 3, home.y, home.z]
+  const step = PLAYER_SPEED * 0.2
+  let sign = 1
+  let walked = 0
+  const move = walkRoom as unknown as TagRoom
+  for (let elapsed = 0; elapsed <= 10_000; elapsed += 200) {
+    const ahead = walker.position[2] - spawn[2]
+    if (ahead > 2.2) sign = -1
+    else if (ahead < 0.4) sign = 1
+    const before: [number, number, number] = [walker.position[0], walker.position[1], walker.position[2]]
+    const next: [number, number, number] = [spawn[0], walker.position[1], walker.position[2] + sign * step]
+    const ok = acceptMove(move, walker, { position: next, rotationY: 0 }, reviveAt + elapsed)
+    assert(ok, `重生後 ${elapsed} ms 的步伐被拒絕，人在 ${walker.position[0].toFixed(2)},${walker.position[2].toFixed(2)}`)
+    const back = Math.hypot(walker.position[0] - corpse[0], walker.position[2] - corpse[2])
+    assert(back > 1, `重生後 ${elapsed} ms 被拉回倒地點`)
+    walked += Math.hypot(walker.position[0] - before[0], walker.position[2] - before[2])
+  }
+  assert(walked > 30, `10 秒應該有在走，實際只移動 ${walked.toFixed(1)}`)
+  assert(Math.hypot(walker.position[0] - spawn[0], walker.position[2] - spawn[2]) < 4, '10 秒內不該被送到別的地方')
+}
 
 console.log('downed-respawn: ok')
