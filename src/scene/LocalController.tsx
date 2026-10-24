@@ -9,7 +9,7 @@ import { groundY } from '../../shared/heightfield'
 import { heightFieldOf } from '../../shared/heightmaps'
 import { GRAVITY, HIDE_MAX_Y, JUMP_SPEED, platformsFor, supportY } from '../../shared/platforms'
 import { PLAYER_RADIUS } from '../../shared/furniture'
-import { POOP_SLOW_MUL, SMOKE_RANGE, SMOKE_RANGE_MOBILE, smokeCooldownMs } from '../../shared/smoke'
+import { POOP_SLOW_MUL, SMOKE_RANGE, clampSmokeLanding, smokeCooldownMs } from '../../shared/smoke'
 import { emitDash, emitDashHold, emitDoorToggle, emitFurniturePush, emitHide, emitJump, emitMove, emitRescueHold, emitSit, emitSmoke, performAttack } from '../net/socket'
 import { isDowned, nearestDowned } from '../../shared/downed'
 import { DOOR_AUTO_RANGE, DOOR_PROMPT_RANGE, closedDoorAabbs, inspectNearestDoor, nearestDoor } from '../../shared/doors'
@@ -72,6 +72,7 @@ export function LocalController({
   const dashHeld = useAppStore((s) => s.dashHeld)
   const jumpRequest = useAppStore((s) => s.jumpRequest)
   const smokeRequest = useAppStore((s) => s.smokeRequest)
+  const poopWasHeld = useRef(false)
   const lastAutoDoor = useRef<string | null>(null)
 
   seatedRef.current = player.seated
@@ -241,22 +242,42 @@ export function LocalController({
     return { x: Math.sin(rotY.current), z: Math.cos(rotY.current) }
   }
 
+  function poopLanding() {
+    const aim = throwAim()
+    const len = Math.hypot(aim.x, aim.z) || 1
+    return clampSmokeLanding(
+      pos.current.x,
+      pos.current.z,
+      pos.current.x + (aim.x / len) * SMOKE_RANGE,
+      pos.current.z + (aim.z / len) * SMOKE_RANGE,
+    )
+  }
+
   function trySmoke() {
     const state = useAppStore.getState()
     const me = state.players[player.id]
-    if (!me || me.seated || me.hidden || isDowned(me)) return
-    if (me.team === 'spectator') return
-    if ((state.mode === 'boss' || state.mode === 'tag') && !state.started) return
+    if (!me || me.seated || me.hidden || isDowned(me)) {
+      state.setPoopAim(null)
+      return
+    }
+    if (me.team === 'spectator') {
+      state.setPoopAim(null)
+      return
+    }
+    if ((state.mode === 'boss' || state.mode === 'tag') && !state.started) {
+      state.setPoopAim(null)
+      return
+    }
     const now = Date.now()
-    if (now < state.smokeReadyAt) return
-    const range = isMobileDevice() ? SMOKE_RANGE_MOBILE : SMOKE_RANGE
-    const aim = throwAim()
-    const len = Math.hypot(aim.x, aim.z) || 1
-    const x = pos.current.x + (aim.x / len) * range
-    const z = pos.current.z + (aim.z / len) * range
+    if (now < state.smokeReadyAt) {
+      state.setPoopAim(null)
+      return
+    }
+    const spot = state.poopAim ?? poopLanding()
     state.setSmokeReadyAt(now + smokeCooldownMs(me.team))
     state.setThrowAt(player.id, now)
-    emitSmoke(x, z)
+    state.setPoopAim(null)
+    emitSmoke(spot.x, spot.z)
   }
 
   useEffect(() => {
@@ -327,7 +348,8 @@ export function LocalController({
       if (state.pendingNote || state.noteAsk) return
       if (e.button === 2) {
         e.preventDefault()
-        trySmoke()
+        const state = useAppStore.getState()
+        if (Date.now() >= state.smokeReadyAt) state.setPoopHeld(true)
         return
       }
       if (e.button !== 0) return
@@ -335,17 +357,31 @@ export function LocalController({
       if (!isMobileDevice() && !document.pointerLockElement) return
       performAttack()
     }
+    const onPointerUp = (e: PointerEvent) => {
+      if (e.button === 2) useAppStore.getState().setPoopHeld(false)
+    }
     window.addEventListener('pointerdown', onPointer)
+    window.addEventListener('pointerup', onPointerUp)
     return () => {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
       window.removeEventListener('pointerdown', onPointer)
+      window.removeEventListener('pointerup', onPointerUp)
     }
   }, [])
 
   // priority -2：OrbitControls 在 -1 才 update。先把鏡頭和平移到角色，
   // 它才只會套用手指轉的角度，走路本身不會把視角帶著轉。
   useFrame((_, dt) => {
+    const aiming = useAppStore.getState().poopHeld
+    if (aiming) {
+      useAppStore.getState().setPoopAim(poopLanding())
+      poopWasHeld.current = true
+    } else if (poopWasHeld.current) {
+      poopWasHeld.current = false
+      trySmoke()
+    }
+
     const hold = dashHold.current
     if (hold.down && !hold.sprinting && performance.now() - hold.at >= DASH_TAP_MS) {
       if (beginLocalSprint()) hold.sprinting = true

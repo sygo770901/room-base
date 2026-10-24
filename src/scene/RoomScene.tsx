@@ -58,6 +58,7 @@ import { Monsters } from './Monsters'
 import { LocalAvatar, RemotePlayers } from './Players'
 import { LocalController } from './LocalController'
 import { SmokeClouds } from './SmokeClouds'
+import { PoopAim } from './PoopAim'
 import { Barrels } from './Barrels'
 import { Doors } from './Doors'
 import { ModelBoundary } from './ModelBoundary'
@@ -686,6 +687,7 @@ function SceneContent() {
       <Telegraph />
       <Projectiles />
       <SmokeClouds />
+      <PoopAim />
       {self && (
         <LocalController
           player={self}

@@ -315,6 +315,13 @@ input {
   border-color: #ffcc66;
 }
 
+.stuck-icon {
+  font-size: 16px;
+  line-height: 1;
+  text-align: center;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.65));
+}
+
 .duck-bubble {
   pointer-events: none;
   max-width: min(72vw, 280px);

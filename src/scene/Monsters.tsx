@@ -9,6 +9,7 @@ import { useAppStore } from '../store'
 import { DispenserPetMesh } from './DispenserPet'
 import { DuckKingMesh } from './DuckKing'
 import { KayKitHero } from './KayKitHero'
+import { StuckMark } from './PoopAim'
 
 function MonsterView({ monster }: { monster: MonsterState }) {
   const ref = useRef<THREE.Group>(null)
@@ -66,6 +67,7 @@ function MonsterView({ monster }: { monster: MonsterState }) {
       ) : (
         <KayKitHero classId={classId === 'ranger' ? 'knight' : classId} moving={moving} running={speed.current > 3.2} attackAt={0} downed={!monster.alive} />
       )}
+      <StuckMark id={monster.id} />
       {monster.casting && (
         <mesh position={[0, 1.25, 0]}>
           <sphereGeometry args={[0.58, 12, 10]} />

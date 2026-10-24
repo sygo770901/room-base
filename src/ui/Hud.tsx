@@ -37,7 +37,6 @@ export function Hud() {
   const scene = useAppStore((s) => s.scene)
   const matchOver = useAppStore((s) => s.matchOver)
   const monsters = useAppStore((s) => s.monsters)
-  const duckSpeech = useAppStore((s) => s.duckSpeech)
   const timeLeftMs = useAppStore((s) => s.timeLeftMs)
   const hostId = useAppStore((s) => s.hostId)
   const startInMs = useAppStore((s) => s.startInMs)
@@ -57,7 +56,8 @@ export function Hud() {
   const requestJump = useAppStore((s) => s.requestJump)
   const [dashLeft, setDashLeft] = useState(0)
   const smokeReadyAt = useAppStore((s) => s.smokeReadyAt)
-  const requestSmoke = useAppStore((s) => s.requestSmoke)
+  const setPoopHeld = useAppStore((s) => s.setPoopHeld)
+  const poopHeld = useAppStore((s) => s.poopHeld)
   const [smokeLeft, setSmokeLeft] = useState(0)
   const [nowMs, setNowMs] = useState(Date.now())
   const [note, setNote] = useState('')
@@ -430,11 +430,6 @@ export function Hud() {
           扶
         </button>
       )}
-      {mode === 'boss' && started && !matchOver && duckSpeech && duckSpeech.until > Date.now() && (
-        <div className={duckSpeech.shout ? 'duck-speech-hud shout' : 'duck-speech-hud'} aria-live="polite">
-          {duckSpeech.text}
-        </div>
-      )}
 
       {mode === 'boss' && started && !matchOver && (
         <div className="boss-objective">
@@ -565,8 +560,15 @@ export function Hud() {
         <button
           type="button"
           className="skill-btn"
-          disabled={smokeLeft > 0}
-          onClick={() => requestSmoke()}
+          disabled={smokeLeft > 0 && !poopHeld}
+          onPointerDown={(e) => {
+            if (smokeLeft > 0) return
+            e.currentTarget.setPointerCapture(e.pointerId)
+            setPoopHeld(true)
+          }}
+          onPointerUp={() => setPoopHeld(false)}
+          onPointerCancel={() => setPoopHeld(false)}
+          onContextMenu={(e) => e.preventDefault()}
         >
           {smokeLeft > 0 ? `${Math.ceil(smokeLeft / 1000)}` : '💩'}
           {!isMobileDevice() && smokeLeft <= 0 && <span className="key-hint">右鍵</span>}

@@ -9,8 +9,8 @@ import { playSfx } from '../audio/sfx'
 import { useAppStore } from '../store'
 
 const _poopNdc = new THREE.Vector3()
-const FLY_COUNT = isMobileDevice() ? 8 : 16
-const SPLAT_COUNT = isMobileDevice() ? 10 : 20
+const FLY_COUNT = isMobileDevice() ? 4 : 16
+const SPLAT_COUNT = isMobileDevice() ? 6 : 20
 
 function flightT(c: SmokeCloud, now: number) {
   const start = c.thrownAt ?? now
@@ -91,13 +91,14 @@ function PoopBody({
 export function SmokeClouds() {
   const smokes = useAppStore((s) => s.smokes)
   const heard = useRef(new Set<string>())
+  const heardStick = useRef(new Map<string, number>())
   const flyDummy = useMemo(() => new THREE.Object3D(), [])
   const splatDummy = useMemo(() => new THREE.Object3D(), [])
   const flies = useRef<THREE.InstancedMesh>(null)
   const splats = useRef<THREE.InstancedMesh>(null)
 
   const cloudMat = useMemo(
-    () => new THREE.MeshBasicMaterial({ color: '#6a9a4a', transparent: true, opacity: 0.34, depthWrite: false }),
+    () => new THREE.MeshBasicMaterial({ color: '#d4ee7a', transparent: true, opacity: 0.36, depthWrite: false }),
     [],
   )
   const stainMat = useMemo(
@@ -122,7 +123,15 @@ export function SmokeClouds() {
       const p = poopPos(c, now)
       const landed = p.t >= 1
       const gy = groundAt(c.x, c.z)
-      const nFly = isMobileDevice() ? 3 : 5
+      const nFly = isMobileDevice() ? 2 : 5
+      for (const stick of c.sticks ?? []) {
+        const prevUntil = heardStick.current.get(stick.id) ?? 0
+        if (stick.until > prevUntil) {
+          heardStick.current.set(stick.id, stick.until)
+          const selfId = useAppStore.getState().selfId
+          if (selfId && (stick.id === selfId || c.throwerId === selfId)) playSfx('hit')
+        }
+      }
       for (let i = 0; i < nFly && flyMesh; i++) {
         const a = t * 3.4 + i * 1.7 + c.x
         flyDummy.position.set(p.x + Math.cos(a) * 0.28, p.y + 0.18 + Math.sin(a * 1.6) * 0.1, p.z + Math.sin(a) * 0.28)
@@ -131,7 +140,7 @@ export function SmokeClouds() {
         flyMesh.setMatrixAt(fi++, flyDummy.matrix)
       }
       if (landed && splatMesh) {
-        for (let i = 0; i < (isMobileDevice() ? 6 : 10); i++) {
+        for (let i = 0; i < (isMobileDevice() ? 3 : 10); i++) {
           const a = i * 0.7
           splatDummy.position.set(c.x + Math.cos(a) * 0.22, gy + 0.06 + (i % 3) * 0.05, c.z + Math.sin(a) * 0.22)
           splatDummy.scale.setScalar(0.07)
